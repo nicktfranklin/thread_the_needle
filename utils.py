@@ -1,10 +1,10 @@
-from typing import Union
+from typing import Union, Tuple
 
 import numpy as np
 import scipy.sparse
 
 
-def define_valid_lattice_transitions(n_rows: int, n_columns: int) -> np.ndarray:
+def define_valid_lattice_transitions(n_rows: int, n_columns: int, self_transitions: bool=False) -> np.ndarray:
     """
     Defines a random transition matrix over a square lattice grid where transitions
     are valid only between neighboring states
@@ -20,7 +20,7 @@ def define_valid_lattice_transitions(n_rows: int, n_columns: int) -> np.ndarray:
         [np.zeros(1), np.ones(n_columns - 1)] * n_rows
     ).reshape(-1, 1)
 
-    self_transitions = np.ones((n_states, 1))
+    self_transitions = np.ones((n_states, 1)) * int(self_transitions)
 
     right_transitions = np.concatenate(
         [np.ones(n_columns - 1), np.zeros(1)] * n_rows
@@ -89,16 +89,20 @@ def make_diffusion_transition(movements: np.ndarray) -> np.ndarray:
     return np.array(list(map(_normalize, movements)))
 
 
-def sample_random_transition_matrix(n_rows: int, n_columns: int) -> np.ndarray:
+def sample_random_transition_matrix(
+    n_rows: int, n_columns: int, sparse=False
+) -> Union[np.ndarray, scipy.sparse.csr.csr_matrix]:
     movements = define_valid_lattice_transitions(n_rows, n_columns)
     movement_probs = draw_dirichlet_transitions(movements)
-    return convert_movements_to_transition_matrix(movement_probs)
+    return convert_movements_to_transition_matrix(movement_probs, sparse=sparse)
 
 
-def make_diffision_transition_matrix(n_rows: int, n_columns: int) -> np.ndarray:
+def make_diffision_transition_matrix(
+    n_rows: int, n_columns: int, sparse=False
+) -> Union[np.ndarray, scipy.sparse.csr.csr_matrix]:
     movements = define_valid_lattice_transitions(n_rows, n_columns)
     movement_probs = make_diffusion_transition(movements)
-    return convert_movements_to_transition_matrix(movement_probs)
+    return convert_movements_to_transition_matrix(movement_probs, sparse=sparse)
 
 
 def define_lattice_tiling(n_rows: int, n_columns: int) -> np.ndarray:
@@ -111,4 +115,13 @@ def define_lattice_tiling(n_rows: int, n_columns: int) -> np.ndarray:
         else:
             tiling += row_order_b
 
-    return np.array(tiling)
+    return np.array(tiling, dtype=bool)
+
+def make_tiled_random_matricies(n_rows: int, n_columns: int, sparse = False) -> Tuple[np.ndarray, np.ndarray]:
+    pass
+
+
+def draw_random_rewards(
+    n_rows: int, n_columns: int, mu: float = 0, stdev: float = 1
+) -> np.ndarray:
+    return np.random.normal(loc=mu, scale=stdev, size=(n_rows, n_columns)).reshape(-1)
