@@ -117,9 +117,6 @@ def define_lattice_tiling(n_rows: int, n_columns: int) -> np.ndarray:
 
     return np.array(tiling, dtype=bool)
 
-def make_tiled_random_matricies(n_rows: int, n_columns: int, sparse = False) -> Tuple[np.ndarray, np.ndarray]:
-    pass
-
 
 def draw_random_rewards(
     n_rows: int, n_columns: int, mu: float = 0, stdev: float = 1
