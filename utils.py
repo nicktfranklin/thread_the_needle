@@ -1,7 +1,8 @@
-from typing import List, Tuple, Union
+from typing import List, Union
 
 import numpy as np
 import scipy.sparse
+from scipy.special import logsumexp
 
 
 def define_valid_lattice_transitions(
@@ -109,16 +110,18 @@ def make_diffision_transition_matrix(
 
 
 def make_cardinal_movements_prob(
-    n_rows: int, n_columns: int, slip_probability: float = 0.05, sparse: bool = True,
+    n_rows: int, n_columns: int, slip_probability: float = 0.05,
 ) -> List[np.ndarray]:
     movements = define_valid_lattice_transitions(n_rows, n_columns)
     diffused_movements = make_diffusion_transition(movements)
 
-    def _map_movement(x, index=1):
-        if x[index]:
-            x *= slip_probability
-            x[index] += 1 - slip_probability
-        return list(x)
+    def _map_movement(x, index):
+        if np.isclose(x[index], 0):
+            return x
+
+        output = np.array(x) * slip_probability
+        output[index] += 1 - slip_probability
+        return list(output)
 
     return [
         np.array(list(map(lambda x: _map_movement(x, ii), diffused_movements)))
@@ -127,14 +130,14 @@ def make_cardinal_movements_prob(
 
 
 def make_cardinal_transition_matrix(
-    n_rows: int, n_columns: int, slip_probability: float = 0.05, sparse: bool = True,
+    n_rows: int, n_columns: int, slip_probability: float = 0.05, sparse: bool = False,
 ) -> List[Union[np.ndarray, scipy.sparse.csr.csr_matrix]]:
 
     cardinal_movements = make_cardinal_movements_prob(
         n_rows, n_columns, slip_probability
     )
     return [
-        convert_movements_to_transition_matrix(move_probs)
+        convert_movements_to_transition_matrix(move_probs, sparse=sparse)
         for move_probs in cardinal_movements
     ]
 
@@ -219,9 +222,12 @@ def value_iteration(
     state_action_values[~tiling, :] = np.array(q_1).T
 
     return state_action_values, value_function
-    # value_a = r[tiling] + gamma * t[tiling][:, ~tiling].dot(value_b)
-    # value_b = r[~tiling] + gamma * t[~tiling][:, tiling].dot(value_a)
 
-    # # save reward functions for measurements
-    # value_function_estimates[tiling, ii] = value_a
-    # value_function_estimates[~tiling, ii] = value_b
+
+def softmax(state_action_values: np.ndarray, beta: float = 1) -> np.ndarray:
+    assert beta > 0, "Beta must be strictly positive!"
+
+    def _internal_softmax(q: np.ndarray) -> np.ndarray:
+        return np.exp(beta * q - logsumexp(beta * q))
+
+    return np.array(list(map(_internal_softmax, state_action_values)))
