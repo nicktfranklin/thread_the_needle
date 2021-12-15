@@ -1,10 +1,12 @@
-from typing import Union, Tuple
+from typing import List, Tuple, Union
 
 import numpy as np
 import scipy.sparse
 
 
-def define_valid_lattice_transitions(n_rows: int, n_columns: int, self_transitions: bool=False) -> np.ndarray:
+def define_valid_lattice_transitions(
+    n_rows: int, n_columns: int, self_transitions: bool = False
+) -> np.ndarray:
     """
     Defines a random transition matrix over a square lattice grid where transitions
     are valid only between neighboring states
@@ -53,6 +55,7 @@ def make_diagonal_matrix(
 def convert_movements_to_transition_matrix(
     movements: np.ndarray, sparse=False
 ) -> Union[np.ndarray, scipy.sparse.csr.csr_matrix]:
+
     transition_matrix = make_diagonal_matrix(movements[:, 2], k=0, sparse=sparse)
     transition_matrix += make_diagonal_matrix(movements[:-1, 3], k=1, sparse=sparse)
     transition_matrix += make_diagonal_matrix(movements[1:, 1], k=-1, sparse=sparse)
@@ -105,6 +108,37 @@ def make_diffision_transition_matrix(
     return convert_movements_to_transition_matrix(movement_probs, sparse=sparse)
 
 
+def make_cardinal_movements_prob(
+    n_rows: int, n_columns: int, slip_probability: float = 0.05, sparse: bool = True,
+) -> List[np.ndarray]:
+    movements = define_valid_lattice_transitions(n_rows, n_columns)
+    diffused_movements = make_diffusion_transition(movements)
+
+    def _map_movement(x, index=1):
+        if x[index]:
+            x *= slip_probability
+            x[index] += 1 - slip_probability
+        return list(x)
+
+    return [
+        np.array(list(map(lambda x: _map_movement(x, ii), diffused_movements)))
+        for ii in [0, 1, 3, 4]
+    ]
+
+
+def make_cardinal_transition_matrix(
+    n_rows: int, n_columns: int, slip_probability: float = 0.05, sparse: bool = True,
+) -> List[Union[np.ndarray, scipy.sparse.csr.csr_matrix]]:
+
+    cardinal_movements = make_cardinal_movements_prob(
+        n_rows, n_columns, slip_probability
+    )
+    return [
+        convert_movements_to_transition_matrix(move_probs)
+        for move_probs in cardinal_movements
+    ]
+
+
 def define_lattice_tiling(n_rows: int, n_columns: int) -> np.ndarray:
     row_order_a = [ii % 2 for ii in range(n_columns)]
     row_order_b = [ii % 2 for ii in range(1, n_columns + 1)]
@@ -122,3 +156,72 @@ def draw_random_rewards(
     n_rows: int, n_columns: int, mu: float = 0, stdev: float = 1
 ) -> np.ndarray:
     return np.random.normal(loc=mu, scale=stdev, size=(n_rows, n_columns)).reshape(-1)
+
+
+def get_state_action_reward_from_sucessor_rewards(
+    reward_function_over_sucessors: np.ndarray,
+    transitions: List[Union[np.ndarray, scipy.sparse.csr_matrix]],
+) -> List[Union[np.ndarray, scipy.sparse.csr_matrix]]:
+    reward_function_over_sa = [
+        t.dot(reward_function_over_sucessors) for t in transitions
+    ]
+    return reward_function_over_sa
+
+
+def value_iteration(
+    transition_functions: List[Union[np.ndarray, scipy.sparse.csr_matrix]],
+    reward_functions: List[Union[np.ndarray, scipy.sparse.csr_matrix]],
+    n_rows: int,
+    n_columns: int,
+    gamma: float = 0.8,
+    iterations: int = 10,
+    initialization_noise: float = 0.1,  # in standard deviation
+):
+    """
+    For the reward, transition matrix, list indicies correspond to actions.  E.g.
+    the 0th action will have the 0the transition/reward function.
+
+    This assumes a square-grid structure
+    """
+
+    tiling = define_lattice_tiling(n_rows, n_columns,)
+    n_states = n_rows * n_columns
+    n_actions = len(reward_functions)
+
+    # initialize the value functions
+    value_function = draw_random_rewards(n_rows, n_columns, stdev=initialization_noise)
+    value_0 = value_function[tiling]
+    value_1 = value_function[~tiling]
+
+    # dynamic programming algorithm
+    q_0, q_1 = (
+        [np.empty((n_states // 2, n_actions))] * n_actions,
+        [np.empty((n_states // 2, n_actions))] * n_actions,
+    )
+    for ii in range(1, iterations + 1):
+
+        # calculate tiled values
+        for a, (r_a, t_a) in enumerate(zip(reward_functions, transition_functions)):
+            q_0[a] = r_a[tiling] + gamma * t_a[tiling][:, ~tiling].dot(value_1)
+
+        value_0 = np.max(q_0, axis=0)
+
+        for a, (r_a, t_a) in enumerate(zip(reward_functions, transition_functions)):
+            q_1[a] = r_a[~tiling] + gamma * t_a[tiling][:, ~tiling].dot(value_0)
+
+        value_1 = np.max(q_1, axis=0)
+
+    value_function[tiling] = value_0
+    value_function[~tiling] = value_1
+
+    state_action_values = np.zeros((n_states, n_actions))
+    state_action_values[tiling, :] = np.array(q_0).T
+    state_action_values[~tiling, :] = np.array(q_1).T
+
+    return state_action_values, value_function
+    # value_a = r[tiling] + gamma * t[tiling][:, ~tiling].dot(value_b)
+    # value_b = r[~tiling] + gamma * t[~tiling][:, tiling].dot(value_a)
+
+    # # save reward functions for measurements
+    # value_function_estimates[tiling, ii] = value_a
+    # value_function_estimates[~tiling, ii] = value_b
