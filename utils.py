@@ -142,25 +142,6 @@ def make_cardinal_transition_matrix(
     ]
 
 
-def define_lattice_tiling(n_rows: int, n_columns: int) -> np.ndarray:
-    row_order_a = [ii % 2 for ii in range(n_columns)]
-    row_order_b = [ii % 2 for ii in range(1, n_columns + 1)]
-    tiling = []
-    for ii in range(n_rows):
-        if ii % 2 == 0:
-            tiling += row_order_a
-        else:
-            tiling += row_order_b
-
-    return np.array(tiling, dtype=bool)
-
-
-def draw_random_rewards(
-    n_rows: int, n_columns: int, mu: float = 0, stdev: float = 1
-) -> np.ndarray:
-    return np.random.normal(loc=mu, scale=stdev, size=(n_rows, n_columns)).reshape(-1)
-
-
 def get_state_action_reward_from_sucessor_rewards(
     reward_function_over_sucessors: np.ndarray,
     transitions: List[Union[np.ndarray, scipy.sparse.csr_matrix]],
@@ -171,59 +152,6 @@ def get_state_action_reward_from_sucessor_rewards(
     return reward_function_over_sa
 
 
-def value_iteration(
-    transition_functions: List[Union[np.ndarray, scipy.sparse.csr_matrix]],
-    reward_functions: List[Union[np.ndarray, scipy.sparse.csr_matrix]],
-    n_rows: int,
-    n_columns: int,
-    gamma: float = 0.8,
-    iterations: int = 10,
-    initialization_noise: float = 0.1,  # in standard deviation
-):
-    """
-    For the reward, transition matrix, list indicies correspond to actions.  E.g.
-    the 0th action will have the 0the transition/reward function.
-
-    This assumes a square-grid structure
-    """
-
-    tiling = define_lattice_tiling(n_rows, n_columns,)
-    n_states = n_rows * n_columns
-    n_actions = len(reward_functions)
-
-    # initialize the value functions
-    value_function = draw_random_rewards(n_rows, n_columns, stdev=initialization_noise)
-    value_0 = value_function[tiling]
-    value_1 = value_function[~tiling]
-
-    # dynamic programming algorithm
-    q_0, q_1 = (
-        [np.empty((n_states // 2, n_actions))] * n_actions,
-        [np.empty((n_states // 2, n_actions))] * n_actions,
-    )
-    for ii in range(1, iterations + 1):
-
-        # calculate tiled values
-        for a, (r_a, t_a) in enumerate(zip(reward_functions, transition_functions)):
-            q_0[a] = r_a[tiling] + gamma * t_a[tiling][:, ~tiling].dot(value_1)
-
-        value_0 = np.max(q_0, axis=0)
-
-        for a, (r_a, t_a) in enumerate(zip(reward_functions, transition_functions)):
-            q_1[a] = r_a[~tiling] + gamma * t_a[tiling][:, ~tiling].dot(value_0)
-
-        value_1 = np.max(q_1, axis=0)
-
-    value_function[tiling] = value_0
-    value_function[~tiling] = value_1
-
-    state_action_values = np.zeros((n_states, n_actions))
-    state_action_values[tiling, :] = np.array(q_0).T
-    state_action_values[~tiling, :] = np.array(q_1).T
-
-    return state_action_values, value_function
-
-
 def softmax(state_action_values: np.ndarray, beta: float = 1) -> np.ndarray:
     assert beta > 0, "Beta must be strictly positive!"
 
@@ -231,3 +159,23 @@ def softmax(state_action_values: np.ndarray, beta: float = 1) -> np.ndarray:
         return np.exp(beta * q - logsumexp(beta * q))
 
     return np.array(list(map(_internal_softmax, state_action_values)))
+
+
+def inverse_cmf_sampler(pmf: np.ndarray) -> int:
+    return np.sum(pmf.cumsum() < np.random.uniform(0, 1))
+
+
+def sample_trajectory_until_goal(
+    start_state: int, goal_state: int, policy: np.ndarray, transition_functions
+):
+    current_state = start_state
+    state_trajectory = [current_state]
+    while current_state != goal_state:
+        sampled_action = inverse_cmf_sampler(policy[current_state, :])
+
+        t = transition_functions[sampled_action]
+
+        current_state = inverse_cmf_sampler(t[current_state, :])
+        state_trajectory.append(current_state)
+
+    return state_trajectory
