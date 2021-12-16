@@ -149,5 +149,3 @@ def get_state_action_reward_from_sucessor_rewards(
         t.dot(reward_function_over_sucessors) for t in transitions
     ]
     return reward_function_over_sa
-
-
