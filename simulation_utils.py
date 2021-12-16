@@ -1,7 +1,7 @@
 from typing import Union
 
 import numpy as np
-import scipy
+import scipy.sparse
 
 
 def sample_trajectory_until_goal(

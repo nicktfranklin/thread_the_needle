@@ -1,11 +1,14 @@
-from typing import List, Union, Tuple
+from typing import List, Tuple, Union
 
 import numpy as np
-import scipy.sparse
+from scipy import sparse
 from scipy.special import logsumexp
+from tqdm import tnrange
+
+from simulation_utils import inverse_cmf_sampler
 
 
-class ValueIterationNetwork:
+class PlanningModel:
     def __init__(
         self,
         n_rows: int,
@@ -13,14 +16,12 @@ class ValueIterationNetwork:
         n_actions: int = 4,
         gamma: float = 0.8,
         beta: float = 1.0,
-        initialization_noise: float = 0.1,
     ):
         self.n_rows = n_rows
         self.n_columns = n_columns
         self.n_actions = n_actions
         self.gamma = gamma
         self.beta = beta
-        self.initialization_noise = initialization_noise
 
         assert (self.gamma > 0) and (
             self.gamma < 1
@@ -30,7 +31,37 @@ class ValueIterationNetwork:
 
     def inference(
         self,
-        transition_function: List[Union[np.ndarray, scipy.sparse.csr_matrix]],
+        transition_function: List[Union[np.ndarray, sparse.csr_matrix]],
+        reward_function: List[np.ndarray],
+    ):
+        raise NotImplementedError
+
+    @staticmethod
+    def softmax(state_action_values: np.ndarray, beta: float = 1) -> np.ndarray:
+        assert beta > 0, "Beta must be strictly positive!"
+
+        def _internal_softmax(q: np.ndarray) -> np.ndarray:
+            return np.exp(beta * q - logsumexp(beta * q))
+
+        return np.array(list(map(_internal_softmax, state_action_values)))
+
+
+class ValueIterationNetwork(PlanningModel):
+    def __init__(
+        self,
+        n_rows: int,
+        n_columns: int,
+        n_actions: int = 4,
+        gamma: float = 0.8,
+        beta: float = 1.0,
+        initialization_noise: float = 0.01,
+    ):
+        PlanningModel.__init__(self, n_rows, n_columns, n_actions, gamma, beta)
+        self.initialization_noise = initialization_noise
+
+    def inference(
+        self,
+        transition_function: List[Union[np.ndarray, sparse.csr_matrix]],
         reward_function: List[np.ndarray],
         iterations: int = 100,
     ):
@@ -48,8 +79,8 @@ class ValueIterationNetwork:
 
     @staticmethod
     def value_iteration(
-        transition_functions: List[Union[np.ndarray, scipy.sparse.csr_matrix]],
-        reward_functions: List[Union[np.ndarray, scipy.sparse.csr_matrix]],
+        transition_functions: List[Union[np.ndarray, sparse.csr_matrix]],
+        reward_functions: List[Union[np.ndarray, sparse.csr_matrix]],
         n_rows: int,
         n_columns: int,
         gamma: float = 0.8,
@@ -75,7 +106,7 @@ class ValueIterationNetwork:
         value_0 = value_function[tiling]
         value_1 = value_function[~tiling]
 
-        # dynamic programming algorithm
+        state_action_values = np.zeros((n_states, n_actions))  # q(s, a)
         q_0, q_1 = (
             [np.empty((n_states // 2, n_actions))] * n_actions,
             [np.empty((n_states // 2, n_actions))] * n_actions,
@@ -85,17 +116,16 @@ class ValueIterationNetwork:
             state_action_values = np.zeros((iterations, n_states, n_actions))
             value_function = np.zeros((iterations, n_states))
 
-        for ii in range(0, iterations):
+        # dynamic programing algorithm
+        for ii in tnrange(0, iterations):
 
             # calculate tiled values (we could randomize the tiling order but it isn't important)
             for a, (r_a, t_a) in enumerate(zip(reward_functions, transition_functions)):
                 q_0[a] = r_a[tiling] + gamma * t_a[tiling][:, ~tiling].dot(value_1)
-
             value_0 = np.max(q_0, axis=0)
 
             for a, (r_a, t_a) in enumerate(zip(reward_functions, transition_functions)):
                 q_1[a] = r_a[~tiling] + gamma * t_a[~tiling][:, tiling].dot(value_0)
-
             value_1 = np.max(q_1, axis=0)
 
             if return_interim_estimates:
@@ -110,7 +140,6 @@ class ValueIterationNetwork:
         value_function[tiling] = value_0
         value_function[~tiling] = value_1
 
-        state_action_values = np.zeros((n_states, n_actions))
         state_action_values[tiling, :] = np.array(q_0).T
         state_action_values[~tiling, :] = np.array(q_1).T
 
@@ -137,11 +166,67 @@ class ValueIterationNetwork:
             -1
         )
 
+
+class MCTS(PlanningModel):
+    def __init__(
+        self,
+        n_rows: int,
+        n_columns: int,
+        n_actions: int = 4,
+        gamma: float = 0.8,
+        beta: float = 1.0,
+        ucb_constant: float = 1.0,
+        # transition_function
+    ):
+        PlanningModel.__init__(self, n_rows, n_columns, n_actions, gamma, beta)
+        self.ucb_constant = ucb_constant
+
+        self.leaf_nodes = set()
+
     @staticmethod
-    def softmax(state_action_values: np.ndarray, beta: float = 1) -> np.ndarray:
-        assert beta > 0, "Beta must be strictly positive!"
+    def _initalize_search_policy(n_states, n_actions):
+        return np.ones((n_states, n_actions)) / n_actions
 
-        def _internal_softmax(q: np.ndarray) -> np.ndarray:
-            return np.exp(beta * q - logsumexp(beta * q))
+    @staticmethod
+    def _sample_selection_step(
+        # self.
+        current_node: int,
+        selection_policy: np.ndarray,
+        transition_functions: List[Union[np.ndarray, sparse.csr_matrix]],
+    ) -> int:
 
-        return np.array(list(map(_internal_softmax, state_action_values)))
+        pi_node = selection_policy[current_node, :]
+        sampled_action = inverse_cmf_sampler(pi_node)
+
+        t_a = transition_functions[sampled_action][current_node, :]
+        sucessor_node = inverse_cmf_sampler(t_a)
+
+        return sucessor_node
+
+    def selection(
+        self,
+        root_node: int,
+        selection_policy: np.ndarray,
+        transition_functions: List[Union[np.ndarray, sparse.csr_matrix]],
+    ) -> int:
+
+        if root_node not in self.leaf_nodes:
+            self.leaf_nodes.add(root_node)
+            return root_node
+
+        current_node = root_node
+        while current_node in self.leaf_nodes:
+            current_node = MCTS._sample_selection_step(
+                current_node, transition_functions
+            )
+            pass
+
+        return 0
+        # return sampled_action
+
+    def inference(
+        self,
+        transition_function: List[Union[np.ndarray, sparse.csr_matrix]],
+        reward_function: List[np.ndarray],
+    ):
+        pass

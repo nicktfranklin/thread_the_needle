@@ -45,8 +45,8 @@ def define_valid_lattice_transitions(
 
 
 def make_diagonal_matrix(
-    diagonals: np.ndarray, k: int, sparse=False
-) -> Union[np.ndarray, scipy.sparse.csr.csr_matrix]:
+    diagonals: np.ndarray, k: int, sparse: bool = False
+) -> Union[np.ndarray, scipy.sparse.csr_matrix]:
     if sparse:
         return scipy.sparse.diags(diagonals, offsets=k)
     return np.diag(diagonals, k=k)
@@ -54,7 +54,7 @@ def make_diagonal_matrix(
 
 def convert_movements_to_transition_matrix(
     movements: np.ndarray, sparse=False
-) -> Union[np.ndarray, scipy.sparse.csr.csr_matrix]:
+) -> Union[np.ndarray, scipy.sparse.csr_matrix]:
 
     transition_matrix = make_diagonal_matrix(movements[:, 2], k=0, sparse=sparse)
     transition_matrix += make_diagonal_matrix(movements[:-1, 3], k=1, sparse=sparse)
@@ -94,7 +94,7 @@ def make_diffusion_transition(movements: np.ndarray) -> np.ndarray:
 
 def sample_random_transition_matrix(
     n_rows: int, n_columns: int, sparse=False
-) -> Union[np.ndarray, scipy.sparse.csr.csr_matrix]:
+) -> Union[np.ndarray, scipy.sparse.csr_matrix]:
     movements = define_valid_lattice_transitions(n_rows, n_columns)
     movement_probs = draw_dirichlet_transitions(movements)
     return convert_movements_to_transition_matrix(movement_probs, sparse=sparse)
@@ -102,7 +102,7 @@ def sample_random_transition_matrix(
 
 def make_diffision_transition_matrix(
     n_rows: int, n_columns: int, sparse=False
-) -> Union[np.ndarray, scipy.sparse.csr.csr_matrix]:
+) -> Union[np.ndarray, scipy.sparse.csr_matrix]:
     movements = define_valid_lattice_transitions(n_rows, n_columns)
     movement_probs = make_diffusion_transition(movements)
     return convert_movements_to_transition_matrix(movement_probs, sparse=sparse)
@@ -129,8 +129,8 @@ def make_cardinal_movements_prob(
 
 
 def make_cardinal_transition_matrix(
-    n_rows: int, n_columns: int, slip_probability: float = 0.05, sparse: bool = False,
-) -> List[Union[np.ndarray, scipy.sparse.csr.csr_matrix]]:
+    n_rows: int, n_columns: int, slip_probability: float = 0.05, sparse: bool = True,
+) -> List[Union[np.ndarray, scipy.sparse.csr_matrix]]:
 
     cardinal_movements = make_cardinal_movements_prob(
         n_rows, n_columns, slip_probability
