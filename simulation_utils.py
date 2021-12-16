@@ -1,4 +1,7 @@
+from typing import Union
+
 import numpy as np
+import scipy
 
 
 def sample_trajectory_until_goal(
@@ -17,5 +20,8 @@ def sample_trajectory_until_goal(
     return state_trajectory
 
 
-def inverse_cmf_sampler(pmf: np.ndarray) -> int:
-    return np.sum(pmf.cumsum() < np.random.uniform(0, 1))
+def inverse_cmf_sampler(pmf: Union[np.ndarray, scipy.sparse.csr_matrix]) -> int:
+    if type(pmf) == scipy.sparse.csr_matrix:
+        pmf = pmf.toarray()
+
+    return np.array(np.cumsum(np.array(pmf)) < np.random.rand(), dtype=int).sum()
