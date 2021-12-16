@@ -1,7 +1,8 @@
-from typing import List, Union
+from typing import List, Union, Tuple
 
 import numpy as np
 import scipy.sparse
+from scipy.special import logsumexp
 
 
 class ValueIterationNetwork:
@@ -11,17 +12,21 @@ class ValueIterationNetwork:
         n_columns: int,
         n_actions: int = 4,
         gamma: float = 0.8,
+        beta: float = 1.0,
         initialization_noise: float = 0.1,
     ):
         self.n_rows = n_rows
         self.n_columns = n_columns
-        self.initialization_noise = initialization_noise
         self.n_actions = n_actions
         self.gamma = gamma
+        self.beta = beta
+        self.initialization_noise = initialization_noise
 
         assert (self.gamma > 0) and (
             self.gamma < 1
         ), "gamma must be greater than zero and less than 1"
+
+        assert beta > 0, "Beta must be strictly positive!"
 
     def inference(
         self,
@@ -30,7 +35,7 @@ class ValueIterationNetwork:
         iterations: int = 100,
     ):
 
-        return self.value_iteration(
+        state_action_values, _ = self.value_iteration(
             transition_function,
             reward_function,
             self.n_rows,
@@ -39,6 +44,7 @@ class ValueIterationNetwork:
             iterations,
             self.initialization_noise,
         )
+        return ValueIterationNetwork.softmax(state_action_values, self.beta)
 
     @staticmethod
     def value_iteration(
@@ -48,8 +54,9 @@ class ValueIterationNetwork:
         n_columns: int,
         gamma: float = 0.8,
         iterations: int = 10,
-        initialization_noise: float = 0.1,  # in standard deviation
-    ):
+        initialization_noise: float = 0.01,  # in standard deviation
+        return_interim_estimates: bool = False,
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """
         For the reward, transition matrix, list indicies correspond to actions.  E.g.
         the 0th action will have the 0the transition/reward function.
@@ -73,38 +80,32 @@ class ValueIterationNetwork:
             [np.empty((n_states // 2, n_actions))] * n_actions,
             [np.empty((n_states // 2, n_actions))] * n_actions,
         )
-        for ii in range(1, iterations + 1):
 
-            if np.random.rand() > 0.5:
-                # calculate tiled values
-                for a, (r_a, t_a) in enumerate(
-                    zip(reward_functions, transition_functions)
-                ):
-                    q_0[a] = r_a[tiling] + gamma * t_a[tiling][:, ~tiling].dot(value_1)
+        if return_interim_estimates:
+            state_action_values = np.zeros((iterations, n_states, n_actions))
+            value_function = np.zeros((iterations, n_states))
 
-                value_0 = np.max(q_0, axis=0)
+        for ii in range(0, iterations):
 
-                for a, (r_a, t_a) in enumerate(
-                    zip(reward_functions, transition_functions)
-                ):
-                    q_1[a] = r_a[~tiling] + gamma * t_a[tiling][:, ~tiling].dot(value_0)
+            # calculate tiled values (we could randomize the tiling order but it isn't important)
+            for a, (r_a, t_a) in enumerate(zip(reward_functions, transition_functions)):
+                q_0[a] = r_a[tiling] + gamma * t_a[tiling][:, ~tiling].dot(value_1)
 
-                value_1 = np.max(q_1, axis=0)
-            else:
-                for a, (r_a, t_a) in enumerate(
-                    zip(reward_functions, transition_functions)
-                ):
-                    q_1[a] = r_a[~tiling] + gamma * t_a[tiling][:, ~tiling].dot(value_0)
+            value_0 = np.max(q_0, axis=0)
 
-                value_1 = np.max(q_1, axis=0)
+            for a, (r_a, t_a) in enumerate(zip(reward_functions, transition_functions)):
+                q_1[a] = r_a[~tiling] + gamma * t_a[~tiling][:, tiling].dot(value_0)
 
-                # calculate tiled values
-                for a, (r_a, t_a) in enumerate(
-                    zip(reward_functions, transition_functions)
-                ):
-                    q_0[a] = r_a[tiling] + gamma * t_a[tiling][:, ~tiling].dot(value_1)
+            value_1 = np.max(q_1, axis=0)
 
-                value_0 = np.max(q_0, axis=0)
+            if return_interim_estimates:
+                value_function[ii, tiling] = value_0
+                value_function[ii, ~tiling] = value_1
+                state_action_values[ii, tiling, :] = np.array(q_0).T
+                state_action_values[ii, ~tiling, :] = np.array(q_1).T
+
+        if return_interim_estimates:
+            return state_action_values, value_function
 
         value_function[tiling] = value_0
         value_function[~tiling] = value_1
@@ -135,3 +136,12 @@ class ValueIterationNetwork:
         return np.random.normal(loc=0, scale=noise, size=(n_rows, n_columns)).reshape(
             -1
         )
+
+    @staticmethod
+    def softmax(state_action_values: np.ndarray, beta: float = 1) -> np.ndarray:
+        assert beta > 0, "Beta must be strictly positive!"
+
+        def _internal_softmax(q: np.ndarray) -> np.ndarray:
+            return np.exp(beta * q - logsumexp(beta * q))
+
+        return np.array(list(map(_internal_softmax, state_action_values)))

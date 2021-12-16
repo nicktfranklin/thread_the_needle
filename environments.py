@@ -2,7 +2,6 @@ from typing import List, Union
 
 import numpy as np
 import scipy.sparse
-from scipy.special import logsumexp
 
 
 def define_valid_lattice_transitions(
@@ -152,30 +151,3 @@ def get_state_action_reward_from_sucessor_rewards(
     return reward_function_over_sa
 
 
-def softmax(state_action_values: np.ndarray, beta: float = 1) -> np.ndarray:
-    assert beta > 0, "Beta must be strictly positive!"
-
-    def _internal_softmax(q: np.ndarray) -> np.ndarray:
-        return np.exp(beta * q - logsumexp(beta * q))
-
-    return np.array(list(map(_internal_softmax, state_action_values)))
-
-
-def inverse_cmf_sampler(pmf: np.ndarray) -> int:
-    return np.sum(pmf.cumsum() < np.random.uniform(0, 1))
-
-
-def sample_trajectory_until_goal(
-    start_state: int, goal_state: int, policy: np.ndarray, transition_functions
-):
-    current_state = start_state
-    state_trajectory = [current_state]
-    while current_state != goal_state:
-        sampled_action = inverse_cmf_sampler(policy[current_state, :])
-
-        t = transition_functions[sampled_action]
-
-        current_state = inverse_cmf_sampler(t[current_state, :])
-        state_trajectory.append(current_state)
-
-    return state_trajectory
