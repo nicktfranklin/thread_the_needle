@@ -1,22 +1,31 @@
-from typing import List, Tuple, Union
+from abc import ABC
+from random import choice
+from typing import List, Tuple, Union, Type
 
 import numpy as np
 from scipy import sparse
 from scipy.special import logsumexp
 from tqdm import tnrange
 
+from monte_carlo_tree_search import Node
 from simulation_utils import inverse_cmf_sampler
+
+# TransitionMatrix: List[Union[np.ndarray, sparse.csr_matrix]]
 
 
 class PlanningModel:
     def __init__(
         self,
+        transition_functions: List[Union[np.ndarray, sparse.csr_matrix]],
+        reward_functions: List[Union[np.ndarray, sparse.csr_matrix]],
         n_rows: int,
         n_columns: int,
         n_actions: int = 4,
         gamma: float = 0.8,
         beta: float = 1.0,
     ):
+        self.transition_functions = transition_functions
+        self.reward_functions = reward_functions
         self.n_rows = n_rows
         self.n_columns = n_columns
         self.n_actions = n_actions
@@ -29,11 +38,7 @@ class PlanningModel:
 
         assert beta > 0, "Beta must be strictly positive!"
 
-    def inference(
-        self,
-        transition_function: List[Union[np.ndarray, sparse.csr_matrix]],
-        reward_function: List[np.ndarray],
-    ):
+    def inference(self):
         raise NotImplementedError
 
     @staticmethod
@@ -49,6 +54,8 @@ class PlanningModel:
 class ValueIterationNetwork(PlanningModel):
     def __init__(
         self,
+        transition_functions: List[Union[np.ndarray, sparse.csr_matrix]],
+        reward_functions: List[Union[np.ndarray, sparse.csr_matrix]],
         n_rows: int,
         n_columns: int,
         n_actions: int = 4,
@@ -56,19 +63,23 @@ class ValueIterationNetwork(PlanningModel):
         beta: float = 1.0,
         initialization_noise: float = 0.01,
     ):
-        PlanningModel.__init__(self, n_rows, n_columns, n_actions, gamma, beta)
+        PlanningModel.__init__(
+            self,
+            transition_functions,
+            reward_functions,
+            n_rows,
+            n_columns,
+            n_actions,
+            gamma,
+            beta,
+        )
         self.initialization_noise = initialization_noise
 
-    def inference(
-        self,
-        transition_function: List[Union[np.ndarray, sparse.csr_matrix]],
-        reward_function: List[np.ndarray],
-        iterations: int = 100,
-    ):
+    def inference(self, iterations: int = 100):
 
         state_action_values, _ = self.value_iteration(
-            transition_function,
-            reward_function,
+            self.transition_functions,
+            self.reward_functions,
             self.n_rows,
             self.n_columns,
             self.gamma,
@@ -167,66 +178,67 @@ class ValueIterationNetwork(PlanningModel):
         )
 
 
-class MCTS(PlanningModel):
+class GridWorldNode(Node):
     def __init__(
         self,
-        n_rows: int,
-        n_columns: int,
-        n_actions: int = 4,
-        gamma: float = 0.8,
-        beta: float = 1.0,
-        ucb_constant: float = 1.0,
-        # transition_function
-    ):
-        PlanningModel.__init__(self, n_rows, n_columns, n_actions, gamma, beta)
-        self.ucb_constant = ucb_constant
-
-        self.leaf_nodes = set()
-
-    @staticmethod
-    def _initalize_search_policy(n_states, n_actions):
-        return np.ones((n_states, n_actions)) / n_actions
-
-    @staticmethod
-    def _sample_selection_step(
-        # self.
-        current_node: int,
-        selection_policy: np.ndarray,
+        current_state: int,
+        end_states: List[int],
         transition_functions: List[Union[np.ndarray, sparse.csr_matrix]],
-    ) -> int:
+        state_reward_function: np.ndarray,
+        n_actions: int = 4,
+    ):
+        self.current_state = current_state
+        self.end_states = end_states
+        self.transition_functions = transition_functions
+        self.state_reward_function = state_reward_function
+        self.n_actions = n_actions
+        self.hash = np.random.randint(6)
 
-        pi_node = selection_policy[current_node, :]
-        sampled_action = inverse_cmf_sampler(pi_node)
+    def is_terminal(self) -> bool:
+        return self.current_state in self.end_states
 
-        t_a = transition_functions[sampled_action][current_node, :]
+    def reward(self) -> float:
+        return self.state_reward_function[self.current_state]
+
+    def find_random_child(self) -> Node:
+        # choose a random action
+        a = choice(np.arange(0, self.n_actions))
+        return self.take_action(a)
+
+    def find_children(self):
+        pass
+
+    def take_action(self, action) -> Node:
+        # sample a sucessor state
+        t_a = self.transition_functions[action][self.current_state, :]
         sucessor_node = inverse_cmf_sampler(t_a)
 
-        return sucessor_node
+        return GridWorldNode(
+            current_state=sucessor_node,
+            end_states=self.end_states,
+            transition_functions=self.transition_functions,
+            state_reward_function=self.state_reward_function,
+            n_actions=self.n_actions,
+        )
 
-    def selection(
-        self,
-        root_node: int,
-        selection_policy: np.ndarray,
-        transition_functions: List[Union[np.ndarray, sparse.csr_matrix]],
-    ) -> int:
+    def __hash__(self):
+        "Nodes must be hashable"
+        return self.hash
 
-        if root_node not in self.leaf_nodes:
-            self.leaf_nodes.add(root_node)
-            return root_node
+    def __eq__(self, other):
+        "Nodes must be comparable"
+        return self.hash == other.hash
 
-        current_node = root_node
-        while current_node in self.leaf_nodes:
-            current_node = MCTS._sample_selection_step(
-                current_node, transition_functions
-            )
-            pass
 
-        return 0
-        # return sampled_action
+class MCTSstub:
+    @staticmethod
+    def simulate(node):
+        reward = 0
+        while True:
+            reward += node.reward()
+            if node.is_terminal():
+                return reward
+            node = node.find_random_child()
 
-    def inference(
-        self,
-        transition_function: List[Union[np.ndarray, sparse.csr_matrix]],
-        reward_function: List[np.ndarray],
-    ):
-        pass
+
+
