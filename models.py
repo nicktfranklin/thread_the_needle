@@ -1,6 +1,7 @@
-from abc import ABC
+import math
+from collections import defaultdict
 from random import choice
-from typing import List, Tuple, Union, Type
+from typing import List, Tuple, Union
 
 import numpy as np
 from scipy import sparse
@@ -9,8 +10,6 @@ from tqdm import tnrange
 
 from monte_carlo_tree_search import Node
 from simulation_utils import inverse_cmf_sampler
-
-# TransitionMatrix: List[Union[np.ndarray, sparse.csr_matrix]]
 
 
 class PlanningModel:
@@ -206,7 +205,11 @@ class GridWorldNode(Node):
         return self.take_action(a)
 
     def find_children(self):
-        pass
+        # children are the set of available actions for each node
+        if self.is_terminal():
+            return set()
+
+        return {a0 for a0 in range(self.n_actions)}
 
     def take_action(self, action) -> Node:
         # sample a sucessor state
@@ -229,10 +232,8 @@ class GridWorldNode(Node):
         "Nodes must be comparable"
         return self.hash == other.hash
 
-
-class MCTSstub:
-    @staticmethod
-    def simulate(node):
+    def simulate(self):
+        node = self
         reward = 0
         while True:
             reward += node.reward()
@@ -241,4 +242,66 @@ class MCTSstub:
             node = node.find_random_child()
 
 
+class MCTS:
+    def __init__(self, exploration_weight=1):
+        self.Q = defaultdict(int)  # total reward of each node
+        self.N = defaultdict(int)  # total visit count for each node
+        self.children = dict()  # children of each node
+        self.exploration_weight = exploration_weight
 
+    @staticmethod
+    def _simulate(node: Node) -> float:
+        return node.simulate()
+
+    def _uct_select_choice(self, node: Node) -> int:
+        "Select a child of node with UCB exploration"
+
+        # All children of node should already be expanded,
+        # come up with a good way of asserting this
+
+        print(self.N[node])
+        log_N_vertex = math.log(self.N[node])
+
+        def uct(n):
+            "Upper confidence bound for trees"
+            return self.Q[n] / self.N[n] + self.exploration_weight * math.sqrt(
+                log_N_vertex / self.N[n]
+            )
+
+        return max(self.children[node], key=uct)
+
+    def _select(self, node: Node) -> List[Tuple[Node, int]]:
+        path = []  # path is list of (state, action) tuples
+        while True:
+            path.append((node, -1))  # default to an action of -1 for root Node
+
+            # node is terminal or unexplored
+            if node.is_terminal():
+                return path
+            if node not in self.children.keys():
+                return path
+
+            break
+        return path
+
+    def _expand(self, node: Node) -> None:
+        "Update the `children` dict with the children of `node`"
+        if node in self.children:
+            return  # already expanded
+        self.children[node] = node.find_children()
+
+    def _backpropagate(self, path: List[Tuple[Node, int]], reward: float):
+        visited = set()  # only count nodes once?
+        for (node, action) in reversed(path):
+            if (node, action) not in visited:
+                self.N[(node, action)] += 1
+                self.Q[(node, action)] += reward
+                visited.add((node, action))
+
+    def do_rollout(self, node):
+        "Make the tree one layer better. (Train for one iteration.)"
+        path = self._select(node)
+        leaf = path[-1]
+        self._expand(leaf)
+        reward = self._simulate(leaf)
+        self._backpropagate(path, reward)

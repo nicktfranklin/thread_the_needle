@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List, Tuple, Union
 
 import numpy as np
 import scipy.sparse
@@ -149,3 +149,28 @@ def get_state_action_reward_from_sucessor_rewards(
         t.dot(reward_function_over_sucessors) for t in transitions
     ]
     return reward_function_over_sa
+
+
+class GridWorld:
+    def __init__(
+        self,
+        n_rows: int,
+        n_columns: int,
+        transition_functions: List[Union[np.ndarray, scipy.sparse.csr_matrix]],
+        state_reward_function: np.ndarray,
+    ):
+        self.n_rows = n_rows
+        self.n_columns = n_columns
+        self.transition_functions = transition_functions
+        self.state_reward_function = state_reward_function
+        self.state_action_reward_functions = get_state_action_reward_from_sucessor_rewards(
+            state_reward_function, transition_functions
+        )
+
+    def get_state_from_position(self, row: int, column: int) -> int:
+        return self.n_columns * row + column
+
+    def get_position_from_state(self, state: int) -> Tuple[int, int]:
+        row = state // self.n_columns
+        column = state - row * self.n_columns
+        return row, column
