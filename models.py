@@ -1,9 +1,7 @@
-from __future__ import annotations
-
-import math
-from collections import defaultdict
+from abc import ABC, abstractmethod
+from collections import namedtuple
 from random import choice
-from typing import List, Tuple, TypeVar, Union
+from typing import List, Tuple, Union
 
 import numpy as np
 from scipy import sparse
@@ -178,7 +176,10 @@ class ValueIterationNetwork(PlanningModel):
         )
 
 
-class Node:
+SimpleNode = namedtuple("SimpleNode", "state action")
+
+
+class GridWorldNode:
     def __init__(
         self,
         state: int,
@@ -194,9 +195,9 @@ class Node:
         self.transition_functions = transition_functions
         self.state_reward_function = state_reward_function
         self.n_actions = n_actions
-        # self.hash = np.random.randint(6)
         self.epsilon = epsilon
         self.exploration_weight = exploration_weight
+        self.hash = int(self.state)
 
         self.q = None
         self.n = None
@@ -230,14 +231,13 @@ class Node:
 
         return {a0 for a0 in range(self.n_actions)}
 
-    def draw_random_sucessor(self, action: int) -> Node:
+    def draw_random_sucessor(self, action: int):
         # sample a sucessor state
         t_a = self.transition_functions[action][self.state, :]
-        sucessor_node = inverse_cmf_sampler(t_a)
-        # print(sucessor_node)
+        sucessor_state = inverse_cmf_sampler(t_a)
 
-        return Node(
-            state=sucessor_node,
+        return GridWorldNode(
+            state=sucessor_state,
             end_states=self.end_states,
             transition_functions=self.transition_functions,
             state_reward_function=self.state_reward_function,
@@ -246,13 +246,16 @@ class Node:
 
     def __hash__(self):
         "Nodes must be hashable"
-        return int(self.state)
+        return self.hash
 
     def __eq__(self, other):
         "Nodes must be comparable"
         return self.state == other.state
 
     def simulate(self, action: int) -> float:
+        if self.is_terminal():
+            return self.reward()
+
         node = self.draw_random_sucessor(action)
         reward = 0
 
@@ -264,29 +267,70 @@ class Node:
             node = node.draw_random_sucessor(action)
 
     def update_child_values(self, child_action: int, reward: float) -> None:
+        if self.is_terminal():
+            return
         self.q[child_action] += reward
         self.n[child_action] += 1
 
     def ucb_select_action(self) -> int:
-        print(self.n)
         assert self.n.sum() >= 1, "Child Nodes have not been visited!"
 
         # deterministic UCB sampler
         r = self.q / self.n
         ucb = np.sqrt(np.log(self.n.sum()) / self.n)
-        print(r)
         return np.argmax(r + self.exploration_weight * ucb)
+
+    def get_argmax_policy(self):
+        return int(np.argmax(self.q / self.n))
 
 
 class MCTS:
-    @staticmethod
-    def _select(node: Node) -> Tuple[List[Tuple[Node, int]], Node]:
+    def __init__(
+        self,
+        end_states: List[int],
+        transition_functions: List[Union[np.ndarray, sparse.csr_matrix]],
+        state_reward_function: np.ndarray,
+        exploration_weight: float = 2 ** 0.5,
+        n_actions: int = 4,
+        epsilon: float = 0.01,  # minimum visitiation constant
+    ):
+        self.end_states = end_states
+        self.transition_functions = transition_functions
+        self.state_reward_function = state_reward_function
+        self.exploration_weight = exploration_weight
+        self.n_actions = n_actions
+        self.epsilon = epsilon
+        self.expanded_nodes = dict()
+
+    def sample_sucessor_state(self, state: int, action: int) -> int:
+        t_a = self.transition_functions[action][state, :]
+        sucessor_state = inverse_cmf_sampler(t_a)
+        return sucessor_state
+
+    def sample_sucessor_node(self, state: int, action: int) -> GridWorldNode:
+        sucessor_state = self.sample_sucessor_state(state, action)
+        if sucessor_state in self.expanded_nodes:
+            return self.expanded_nodes[sucessor_state]
+        return GridWorldNode(
+                sucessor_state,
+                self.end_states,
+                transition_functions=self.transition_functions,
+                state_reward_function=self.state_reward_function,
+                exploration_weight=self.exploration_weight,
+                n_actions=self.n_actions,
+                epsilon=self.epsilon,
+            )
+
+    def is_unexplored(self, node: GridWorldNode) -> bool:
+        return node.state not in self.expanded_nodes
+
+    def _select(
+        self, node: GridWorldNode,
+    ) -> Tuple[List[Tuple[GridWorldNode, int]], GridWorldNode]:
         path = []  # path is list of (state, action) tuples
 
         while True:
-            print('check', node)
-
-            if node.is_unexplored() or node.is_terminal():
+            if self.is_unexplored(node) or node.is_terminal():
                 return path, node
 
             # draw an action, update the path
@@ -294,20 +338,20 @@ class MCTS:
             path.append((node, action))
 
             # draw next state
-            print(node.state, action)
-            node = node.draw_random_sucessor(action)
-            print(node.state)
+            node = self.sample_sucessor_node(node.state, action)
 
-    @staticmethod
-    def _expand(node: Node) -> int:
+    def _expand(self, node: GridWorldNode) -> int:
+        if node.is_terminal():
+            return -1
+        self.expanded_nodes[node.state] = node
         return node.expand()
 
     @staticmethod
-    def _simulate(node: Node, action: int) -> float:
+    def _simulate(node: GridWorldNode, action: int) -> float:
         return node.simulate(action)
 
     @staticmethod
-    def _backpropagate(path: List[Tuple[Node, int]], reward: float):
+    def _backpropagate(path: List[Tuple[GridWorldNode, int]], reward: float):
         # path is a sequence of (state, action) tuples
 
         visited = set()  # only count nodes once?
@@ -316,13 +360,17 @@ class MCTS:
                 node.update_child_values(action, reward)
                 visited.add((node, action))
 
-    @staticmethod
-    def do_rollout(start_state):
+    def do_rollout(self, start_state):
         "Make the tree one layer better. (Train for one iteration.)"
-        path, leaf = MCTS._select(start_state)
-        print(path)
-        print(leaf)
-        a = MCTS._expand(leaf)
+        path, leaf = self._select(start_state)
+        a = self._expand(leaf)
         reward = MCTS._simulate(leaf, a)
         path.append((leaf, a))
         MCTS._backpropagate(path, reward)
+
+
+    def get_policy(self):
+        pi = np.ones_like(self.state_reward_function, dtype=int) * -1
+        for state, node in self.expanded_nodes.items():
+            pi[state] = node.get_argmax_policy()
+        return pi
