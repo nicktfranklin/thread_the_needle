@@ -1,14 +1,15 @@
+from __future__ import annotations
+
 import math
 from collections import defaultdict
 from random import choice
-from typing import List, Tuple, Union
+from typing import List, Tuple, TypeVar, Union
 
 import numpy as np
 from scipy import sparse
 from scipy.special import logsumexp
 from tqdm import tnrange
 
-from monte_carlo_tree_search import Node
 from simulation_utils import inverse_cmf_sampler
 
 
@@ -177,32 +178,50 @@ class ValueIterationNetwork(PlanningModel):
         )
 
 
-class GridWorldNode(Node):
+class Node:
     def __init__(
         self,
-        current_state: int,
+        state: int,
         end_states: List[int],
         transition_functions: List[Union[np.ndarray, sparse.csr_matrix]],
         state_reward_function: np.ndarray,
+        exploration_weight: float = 2 ** 0.5,
         n_actions: int = 4,
+        epsilon: float = 0.01,  # minimum visitiation constant
     ):
-        self.current_state = current_state
+        self.state = state
         self.end_states = end_states
         self.transition_functions = transition_functions
         self.state_reward_function = state_reward_function
         self.n_actions = n_actions
-        self.hash = np.random.randint(6)
+        # self.hash = np.random.randint(6)
+        self.epsilon = epsilon
+        self.exploration_weight = exploration_weight
+
+        self.q = None
+        self.n = None
+        self.children = None
 
     def is_terminal(self) -> bool:
-        return self.current_state in self.end_states
+        return self.state in self.end_states
+
+    def is_unexplored(self) -> bool:
+        if self.n is None:
+            return True
+        return False
 
     def reward(self) -> float:
-        return self.state_reward_function[self.current_state]
+        return self.state_reward_function[self.state]
 
-    def find_random_child(self) -> Node:
+    def find_random_child(self) -> int:
         # choose a random action
-        a = choice(np.arange(0, self.n_actions))
-        return self.take_action(a)
+        return choice(np.arange(0, self.n_actions))
+
+    def expand(self) -> int:
+        self.children = self.find_children()
+        self.q = np.zeros(len(self.children))
+        self.n = np.zeros(len(self.children)) + self.epsilon
+        return choice(list(self.children))
 
     def find_children(self):
         # children are the set of available actions for each node
@@ -211,13 +230,14 @@ class GridWorldNode(Node):
 
         return {a0 for a0 in range(self.n_actions)}
 
-    def take_action(self, action) -> Node:
+    def draw_random_sucessor(self, action: int) -> Node:
         # sample a sucessor state
-        t_a = self.transition_functions[action][self.current_state, :]
+        t_a = self.transition_functions[action][self.state, :]
         sucessor_node = inverse_cmf_sampler(t_a)
+        # print(sucessor_node)
 
-        return GridWorldNode(
-            current_state=sucessor_node,
+        return Node(
+            state=sucessor_node,
             end_states=self.end_states,
             transition_functions=self.transition_functions,
             state_reward_function=self.state_reward_function,
@@ -226,82 +246,83 @@ class GridWorldNode(Node):
 
     def __hash__(self):
         "Nodes must be hashable"
-        return self.hash
+        return int(self.state)
 
     def __eq__(self, other):
         "Nodes must be comparable"
-        return self.hash == other.hash
+        return self.state == other.state
 
-    def simulate(self):
-        node = self
+    def simulate(self, action: int) -> float:
+        node = self.draw_random_sucessor(action)
         reward = 0
+
         while True:
             reward += node.reward()
             if node.is_terminal():
                 return reward
-            node = node.find_random_child()
+            action = node.find_random_child()
+            node = node.draw_random_sucessor(action)
+
+    def update_child_values(self, child_action: int, reward: float) -> None:
+        self.q[child_action] += reward
+        self.n[child_action] += 1
+
+    def ucb_select_action(self) -> int:
+        print(self.n)
+        assert self.n.sum() >= 1, "Child Nodes have not been visited!"
+
+        # deterministic UCB sampler
+        r = self.q / self.n
+        ucb = np.sqrt(np.log(self.n.sum()) / self.n)
+        print(r)
+        return np.argmax(r + self.exploration_weight * ucb)
 
 
 class MCTS:
-    def __init__(self, exploration_weight=1):
-        self.Q = defaultdict(int)  # total reward of each node
-        self.N = defaultdict(int)  # total visit count for each node
-        self.children = dict()  # children of each node
-        self.exploration_weight = exploration_weight
+    @staticmethod
+    def _select(node: Node) -> Tuple[List[Tuple[Node, int]], Node]:
+        path = []  # path is list of (state, action) tuples
+
+        while True:
+            print('check', node)
+
+            if node.is_unexplored() or node.is_terminal():
+                return path, node
+
+            # draw an action, update the path
+            action = node.ucb_select_action()
+            path.append((node, action))
+
+            # draw next state
+            print(node.state, action)
+            node = node.draw_random_sucessor(action)
+            print(node.state)
 
     @staticmethod
-    def _simulate(node: Node) -> float:
-        return node.simulate()
+    def _expand(node: Node) -> int:
+        return node.expand()
 
-    def _uct_select_choice(self, node: Node) -> int:
-        "Select a child of node with UCB exploration"
+    @staticmethod
+    def _simulate(node: Node, action: int) -> float:
+        return node.simulate(action)
 
-        # All children of node should already be expanded,
-        # come up with a good way of asserting this
+    @staticmethod
+    def _backpropagate(path: List[Tuple[Node, int]], reward: float):
+        # path is a sequence of (state, action) tuples
 
-        print(self.N[node])
-        log_N_vertex = math.log(self.N[node])
-
-        def uct(n):
-            "Upper confidence bound for trees"
-            return self.Q[n] / self.N[n] + self.exploration_weight * math.sqrt(
-                log_N_vertex / self.N[n]
-            )
-
-        return max(self.children[node], key=uct)
-
-    def _select(self, node: Node) -> List[Tuple[Node, int]]:
-        path = []  # path is list of (state, action) tuples
-        while True:
-            path.append((node, -1))  # default to an action of -1 for root Node
-
-            # node is terminal or unexplored
-            if node.is_terminal():
-                return path
-            if node not in self.children.keys():
-                return path
-
-            break
-        return path
-
-    def _expand(self, node: Node) -> None:
-        "Update the `children` dict with the children of `node`"
-        if node in self.children:
-            return  # already expanded
-        self.children[node] = node.find_children()
-
-    def _backpropagate(self, path: List[Tuple[Node, int]], reward: float):
         visited = set()  # only count nodes once?
         for (node, action) in reversed(path):
             if (node, action) not in visited:
-                self.N[(node, action)] += 1
-                self.Q[(node, action)] += reward
+                node.update_child_values(action, reward)
                 visited.add((node, action))
 
-    def do_rollout(self, node):
+    @staticmethod
+    def do_rollout(start_state):
         "Make the tree one layer better. (Train for one iteration.)"
-        path = self._select(node)
-        leaf = path[-1]
-        self._expand(leaf)
-        reward = self._simulate(leaf)
-        self._backpropagate(path, reward)
+        path, leaf = MCTS._select(start_state)
+        print(path)
+        print(leaf)
+        a = MCTS._expand(leaf)
+        reward = MCTS._simulate(leaf, a)
+        path.append((leaf, a))
+        MCTS._backpropagate(path, reward)
