@@ -141,6 +141,36 @@ def make_cardinal_transition_matrix(
     ]
 
 
+def renormalize(vector: np.ndarray) -> np.ndarray:
+    return vector / np.sum(vector)
+
+
+def add_wall_between_two_states(
+    state_a: int,
+    state_b: int,
+    transition_functions: List[Union[np.ndarray, scipy.sparse.csr_matrix]],
+) -> List[Union[np.ndarray, scipy.sparse.csr_matrix]]:
+
+    is_sparse = type(transition_functions[0]) == scipy.sparse.csr_matrix
+
+    n_actions = len(transition_functions)
+    modified_transitions = []
+    for a0 in range(n_actions):
+        t = transition_functions[a0]
+        if is_sparse:
+            t = t.toarray()
+        t[state_a, state_b] = 0
+        t[state_b, state_a] = 0
+        t[state_a, :] = renormalize(t[state_a, :])
+        t[state_b, :] = renormalize(t[state_b, :])
+
+        if is_sparse:
+            t = scipy.sparse.csr_matrix(t)
+
+        modified_transitions.append(t)
+    return modified_transitions
+
+
 def get_state_action_reward_from_sucessor_rewards(
     reward_function_over_sucessors: np.ndarray,
     transitions: List[Union[np.ndarray, scipy.sparse.csr_matrix]],
@@ -167,10 +197,112 @@ class GridWorld:
             state_reward_function, transition_functions
         )
 
-    def get_state_from_position(self, row: int, column: int) -> int:
-        return self.n_columns * row + column
 
-    def get_position_from_state(self, state: int) -> Tuple[int, int]:
-        row = state // self.n_columns
-        column = state - row * self.n_columns
-        return row, column
+def get_state_from_position(row: int, column: int, n_columns: int) -> int:
+    return n_columns * row + column
+
+
+def make_thread_the_needle(
+    n_rows: int,
+    n_columns: int,
+    slip_probability: float = 0.05,
+    movement_penalty: float = -0.01,
+    sparse: bool = True,
+) -> Tuple[
+    List[Union[np.ndarray, scipy.sparse.csr_matrix]], List[np.ndarray], np.ndarray
+]:
+    assert n_rows == n_columns, "Columns and Rows don't match!"
+    assert n_columns >= 4, "Minimum size: 4x4"
+
+    _N_ACTIONS = 4
+
+    transition_functions = make_cardinal_transition_matrix(
+        n_columns=n_columns,
+        n_rows=n_rows,
+        slip_probability=slip_probability,
+        sparse=sparse,
+    )
+
+    list_walls = []
+    for ii in range(0, n_columns // 2 - 1):
+        wall = [
+            n_columns * (n_columns // 2 - 1) + ii,
+            n_columns * (n_columns // 2) + ii,
+        ]
+        list_walls.append(wall)
+
+    for ii in range(0, n_columns - 1):
+        list_walls.append(
+            [n_columns * ii + (n_columns // 2) - 1, n_columns * ii + n_columns // 2]
+        )
+
+    for s0, s1 in list_walls:
+        transition_functions = add_wall_between_two_states(s0, s1, transition_functions)
+
+    # define the reward purely in terms of sucessor states
+    state_reward_function = np.ones(n_rows * n_columns) * movement_penalty
+    goals_state = 0
+    state_reward_function[goals_state] = 1.0
+
+    # # define the win condition as taking any action from the win state
+    # state_action_reward_functions = [state_reward_function.copy() for _ in range(4)]
+    state_action_reward_functions = get_state_action_reward_from_sucessor_rewards(
+        state_reward_function, transition_functions
+    )
+
+    # define the optimal policy for the task
+
+    optimal_policy = np.zeros((n_rows * n_columns, _N_ACTIONS), dtype=int)
+
+    # In the first room, along the left wall
+    c = n_columns // 2
+    for r in range(n_rows - 1):
+        state = get_state_from_position(r, c, n_columns)
+        optimal_policy[state, :] = np.array([0, 0, 0, 1])
+
+    # in the first room, along the bottom
+    r = n_rows - 1
+    for c in range(n_columns // 2, n_columns):
+        state = get_state_from_position(r, c, n_columns)
+        optimal_policy[state, :] = np.array([0, 1, 0, 0])
+
+    # everywhere else in the first room
+    for r in range(n_rows - 1):
+        for c in range(n_columns // 2 + 1, n_columns):
+            state = get_state_from_position(r, c, n_columns)
+            optimal_policy[state, :] = np.array([0, 1, 0, 1])
+
+    # first spot in second room
+    r = n_rows - 1
+    c = n_columns // 2 - 1
+    state = get_state_from_position(r, c, n_columns)
+    optimal_policy[state, :] = np.array([1, 0, 0, 0])
+
+    # along right wall in second room
+    c = n_columns // 2 - 1
+    for r in range(n_rows // 2, n_rows - 1):
+        state = get_state_from_position(r, c, n_columns)
+        optimal_policy[state, :] = np.array([1, 0, 0, 0])
+
+    # along top wall in second room
+    r = n_rows // 2
+    for c in range(n_columns // 2 - 1):
+        state = get_state_from_position(r, c, n_columns)
+        optimal_policy[state, :] = np.array([0, 0, 1, 0])
+
+    # everywhere else in the second room
+    for r in range(n_rows // 2 + 1, n_rows):
+        for c in range(n_columns // 2 - 1):
+            state = get_state_from_position(r, c, n_columns)
+            optimal_policy[state, :] = np.array([1, 0, 1, 0])
+
+    # everywhere else
+    for r in range(n_rows // 2):
+        for c in range(n_columns // 2):
+            state = get_state_from_position(r, c, n_columns)
+            optimal_policy[state, :] = np.array([1, 1, 0, 0])
+
+    # goal state (overwrites previous value)
+    optimal_policy[0, :] = np.ones(4)
+
+    return transition_functions, state_action_reward_functions, optimal_policy
