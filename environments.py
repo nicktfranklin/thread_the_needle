@@ -202,26 +202,7 @@ def get_state_from_position(row: int, column: int, n_columns: int) -> int:
     return n_columns * row + column
 
 
-def make_thread_the_needle(
-    n_rows: int,
-    n_columns: int,
-    slip_probability: float = 0.05,
-    movement_penalty: float = -0.01,
-    sparse: bool = True,
-) -> Tuple[
-    List[Union[np.ndarray, scipy.sparse.csr_matrix]], List[np.ndarray], np.ndarray
-]:
-    assert n_rows == n_columns, "Columns and Rows don't match!"
-    assert n_columns >= 4, "Minimum size: 4x4"
-
-    _N_ACTIONS = 4
-
-    transition_functions = make_cardinal_transition_matrix(
-        n_columns=n_columns,
-        n_rows=n_rows,
-        slip_probability=slip_probability,
-        sparse=sparse,
-    )
+def make_thread_the_needle_walls(n_columns: int) -> List[List[int]]:
 
     list_walls = []
     for ii in range(0, n_columns // 2 - 1):
@@ -235,23 +216,10 @@ def make_thread_the_needle(
         list_walls.append(
             [n_columns * ii + (n_columns // 2) - 1, n_columns * ii + n_columns // 2]
         )
+    return list_walls
 
-    for s0, s1 in list_walls:
-        transition_functions = add_wall_between_two_states(s0, s1, transition_functions)
-
-    # define the reward purely in terms of sucessor states
-    state_reward_function = np.ones(n_rows * n_columns) * movement_penalty
-    goals_state = 0
-    state_reward_function[goals_state] = 1.0
-
-    # # define the win condition as taking any action from the win state
-    # state_action_reward_functions = [state_reward_function.copy() for _ in range(4)]
-    state_action_reward_functions = get_state_action_reward_from_sucessor_rewards(
-        state_reward_function, transition_functions
-    )
-
-    # define the optimal policy for the task
-
+def make_thread_the_needle_optimal_policy(n_rows: int, n_columns: int) -> np.ndarray:
+    _N_ACTIONS = 4
     optimal_policy = np.zeros((n_rows * n_columns, _N_ACTIONS), dtype=int)
 
     # In the first room, along the left wall
@@ -304,5 +272,49 @@ def make_thread_the_needle(
 
     # goal state (overwrites previous value)
     optimal_policy[0, :] = np.ones(4)
+
+    return optimal_policy
+
+
+def make_thread_the_needle(
+    n_rows: int,
+    n_columns: int,
+    slip_probability: float = 0.05,
+    movement_penalty: float = -0.01,
+    sparse: bool = True,
+) -> Tuple[
+    List[Union[np.ndarray, scipy.sparse.csr_matrix]], List[np.ndarray], np.ndarray
+]:
+    assert n_rows == n_columns, "Columns and Rows don't match!"
+    assert n_columns >= 4, "Minimum size: 4x4"
+
+    _N_ACTIONS = 4
+
+    transition_functions = make_cardinal_transition_matrix(
+        n_columns=n_columns,
+        n_rows=n_rows,
+        slip_probability=slip_probability,
+        sparse=sparse,
+    )
+
+    list_walls = make_thread_the_needle_walls(n_columns)
+    for s0, s1 in list_walls:
+        transition_functions = add_wall_between_two_states(s0, s1, transition_functions)
+
+    # define the reward purely in terms of sucessor states
+    state_reward_function = np.ones(n_rows * n_columns) * movement_penalty
+    goals_state = 0
+    state_reward_function[goals_state] = 1.0
+
+    # # define the win condition as taking any action from the win state
+    # state_action_reward_functions = [state_reward_function.copy() for _ in range(4)]
+    state_action_reward_functions = get_state_action_reward_from_sucessor_rewards(
+        state_reward_function, transition_functions
+    )
+
+    # define the optimal policy for the task
+    optimal_policy = make_thread_the_needle_optimal_policy(n_rows, n_columns)
+
+
 
     return transition_functions, state_action_reward_functions, optimal_policy
