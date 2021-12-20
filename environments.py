@@ -2,6 +2,7 @@ from typing import List, Tuple, Union
 
 import numpy as np
 import scipy.sparse
+import matplotlib.pyplot as plt
 
 
 def define_valid_lattice_transitions(
@@ -202,6 +203,12 @@ def get_state_from_position(row: int, column: int, n_columns: int) -> int:
     return n_columns * row + column
 
 
+def get_position_from_state(state: int, n_columns: int) -> Tuple[int, int]:
+    row = state // n_columns
+    column = state % n_columns
+    return row, column
+
+
 def make_thread_the_needle_walls(n_columns: int) -> List[List[int]]:
 
     list_walls = []
@@ -217,6 +224,7 @@ def make_thread_the_needle_walls(n_columns: int) -> List[List[int]]:
             [n_columns * ii + (n_columns // 2) - 1, n_columns * ii + n_columns // 2]
         )
     return list_walls
+
 
 def make_thread_the_needle_optimal_policy(n_rows: int, n_columns: int) -> np.ndarray:
     _N_ACTIONS = 4
@@ -283,7 +291,7 @@ def make_thread_the_needle(
     movement_penalty: float = -0.01,
     sparse: bool = True,
 ) -> Tuple[
-    List[Union[np.ndarray, scipy.sparse.csr_matrix]], List[np.ndarray], np.ndarray
+    List[Union[np.ndarray, scipy.sparse.csr_matrix]], np.ndarray, np.ndarray
 ]:
     assert n_rows == n_columns, "Columns and Rows don't match!"
     assert n_columns >= 4, "Minimum size: 4x4"
@@ -306,15 +314,32 @@ def make_thread_the_needle(
     goals_state = 0
     state_reward_function[goals_state] = 1.0
 
-    # # define the win condition as taking any action from the win state
-    # state_action_reward_functions = [state_reward_function.copy() for _ in range(4)]
-    state_action_reward_functions = get_state_action_reward_from_sucessor_rewards(
-        state_reward_function, transition_functions
-    )
-
     # define the optimal policy for the task
     optimal_policy = make_thread_the_needle_optimal_policy(n_rows, n_columns)
 
+    return transition_functions, state_reward_function, optimal_policy
 
 
-    return transition_functions, state_action_reward_functions, optimal_policy
+def clean_up_thread_the_needle_plot(ax, n_columns=8, n_rows=8):
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    # plot the gridworld tiles
+    for r in range(n_rows):
+        plt.plot([-0.5, n_columns-0.5], [r-0.5, r-0.5], c='grey', lw=0.5)
+    for c in range(n_columns):
+        plt.plot([c-0.5, c-0.5], [-0.5, n_rows-0.5], c='grey', lw=0.5)
+
+    walls = make_thread_the_needle_walls(n_columns)
+    for s0, s1 in walls:
+        r0, c0 = get_position_from_state(s0, n_columns)
+        r1, c1 = get_position_from_state(s1, n_columns)
+
+        x = (r0 + r1) / 2
+        y = (c0 + c1) / 2
+
+        assert (r0 == r1) or (c0 == c1), f"Not a valid wall! {r0} {r1} {c0} {s1}"
+        if c0 == c1:
+            plt.plot([y - 0.5, y + 0.5], [x, x], c="k", lw=3)
+        else:
+            plt.plot([y, y], [x - 0.5, x + 0.5], c="k", lw=3)
