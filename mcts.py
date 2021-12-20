@@ -12,16 +12,12 @@ class GridWorldNode:
         self,
         state: int,
         end_states: List[int],
-        transition_functions: List[Union[np.ndarray, sparse.csr_matrix]],
-        state_reward_function: np.ndarray,
         exploration_weight: float = 2 ** 0.5,
         n_actions: int = 4,
         epsilon: float = 0.01,  # minimum visitiation constant
     ):
         self.state = state
         self.end_states = end_states
-        self.transition_functions = transition_functions
-        self.state_reward_function = state_reward_function
         self.n_actions = n_actions
         self.epsilon = epsilon
         self.exploration_weight = exploration_weight
@@ -39,9 +35,6 @@ class GridWorldNode:
             return True
         return False
 
-    def reward(self) -> float:
-        return self.state_reward_function[self.state]
-
     def find_random_child(self) -> int:
         # choose a random action
         return choice(np.arange(0, self.n_actions))
@@ -58,19 +51,6 @@ class GridWorldNode:
             return set()
 
         return {a0 for a0 in range(self.n_actions)}
-
-    def draw_random_sucessor(self, action: int):
-        # sample a sucessor state
-        t_a = self.transition_functions[action][self.state, :]
-        sucessor_state = inverse_cmf_sampler(t_a)
-
-        return GridWorldNode(
-            state=sucessor_state,
-            end_states=self.end_states,
-            transition_functions=self.transition_functions,
-            state_reward_function=self.state_reward_function,
-            n_actions=self.n_actions,
-        )
 
     def __hash__(self):
         "Nodes must be hashable"
@@ -144,8 +124,6 @@ class MCTS:
         return GridWorldNode(
             sucessor_state,
             self.end_states,
-            transition_functions=self.transition_functions,
-            state_reward_function=self.state_reward_function,
             exploration_weight=self.exploration_weight,
             n_actions=self.n_actions,
             epsilon=self.epsilon,
@@ -187,7 +165,7 @@ class MCTS:
         reward = 0
 
         while True:
-            reward += node.reward()
+            reward += self.get_reward(node)
             if node.is_terminal():
                 return reward
             action = node.find_random_child()
@@ -201,8 +179,6 @@ class MCTS:
         return GridWorldNode(
             state=sucessor_state,
             end_states=self.end_states,
-            transition_functions=self.transition_functions,
-            state_reward_function=self.state_reward_function,
             n_actions=self.n_actions,
         )
 
