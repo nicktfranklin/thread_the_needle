@@ -112,13 +112,13 @@ class MCTS:
         self.q = dict()
         self.n = dict()
 
-    def sample_sucessor_state(self, state: int, action: int) -> int:
+    def _sample_sucessor_state(self, state: int, action: int) -> int:
         t_a = self.transition_functions[action][state, :]
         sucessor_state = inverse_cmf_sampler(t_a)
         return sucessor_state
 
-    def sample_sucessor_node(self, state: int, action: int) -> GridWorldNode:
-        sucessor_state = self.sample_sucessor_state(state, action)
+    def _sample_sucessor_node(self, state: int, action: int) -> GridWorldNode:
+        sucessor_state = self._sample_sucessor_state(state, action)
         if sucessor_state in self.expanded_nodes:
             return self.expanded_nodes[sucessor_state]
         return GridWorldNode(
@@ -129,16 +129,45 @@ class MCTS:
             epsilon=self.epsilon,
         )
 
-    def is_unexplored(self, node: GridWorldNode) -> bool:
+    def _is_unexplored(self, node: GridWorldNode) -> bool:
         return node.state not in self.expanded_nodes
 
-    def _select(
+    def _draw_random_sucessor(self, node: GridWorldNode, action: int):
+        # sample a sucessor state
+        t_a = self.transition_functions[action][node.state, :]
+        sucessor_state = inverse_cmf_sampler(t_a)
+
+        return GridWorldNode(
+            state=sucessor_state, end_states=self.end_states, n_actions=self.n_actions,
+        )
+
+    def _get_reward(self, node: GridWorldNode) -> bool:
+        return self.state_reward_function[node.state]
+
+    def _is_expanded(self, node: GridWorldNode) -> bool:
+        return node in self.q.keys()
+
+    def _is_terminal(self, node: GridWorldNode) -> bool:
+        return node.state in self.end_states
+
+    def _update_child_value(
+        self, node: GridWorldNode, child_action: int, reward: float
+    ) -> None:
+        if self._is_terminal(node):
+            return
+
+        self.q[node.state][child_action] += reward
+        self.n[node.state][child_action] += 1
+
+    def select(
         self, node: GridWorldNode,
     ) -> Tuple[List[Tuple[GridWorldNode, int]], GridWorldNode]:
-        path = []  # path is list of (state, action) tuples
+
+        # path is list of (state, action) tuples
+        path = []
 
         while True:
-            if self.is_unexplored(node) or node.is_terminal():
+            if self._is_unexplored(node) or node.is_terminal():
                 return path, node
 
             # draw an action, update the path
@@ -146,9 +175,9 @@ class MCTS:
             path.append((node, action))
 
             # draw next state
-            node = self.sample_sucessor_node(node.state, action)
+            node = self._sample_sucessor_node(node.state, action)
 
-    def _expand(self, node: GridWorldNode) -> int:
+    def expand(self, node: GridWorldNode) -> int:
         if node.is_terminal():
             return -1
         self.expanded_nodes[node.state] = node
@@ -157,50 +186,21 @@ class MCTS:
         self.n[node.state] = np.zeros(self.n_actions) + self.epsilon
         return node.expand()
 
-    def _simulate(self, node: GridWorldNode, action: int) -> float:
-        if self.is_terminal(node):
-            return self.get_reward(node)
+    def simulate(self, node: GridWorldNode, action: int) -> float:
+        if self._is_terminal(node):
+            return self._get_reward(node)
 
-        node = self.draw_random_sucessor(node, action)
+        node = self._draw_random_sucessor(node, action)
         reward = 0
 
         while True:
-            reward += self.get_reward(node)
+            reward += self._get_reward(node)
             if node.is_terminal():
                 return reward
             action = node.find_random_child()
-            node = self.draw_random_sucessor(node, action)
+            node = self._draw_random_sucessor(node, action)
 
-    def draw_random_sucessor(self, node: GridWorldNode, action: int):
-        # sample a sucessor state
-        t_a = self.transition_functions[action][node.state, :]
-        sucessor_state = inverse_cmf_sampler(t_a)
-
-        return GridWorldNode(
-            state=sucessor_state,
-            end_states=self.end_states,
-            n_actions=self.n_actions,
-        )
-
-    def get_reward(self, node: GridWorldNode) -> bool:
-        return self.state_reward_function[node.state]
-
-    def is_expanded(self, node: GridWorldNode) -> bool:
-        return node in self.q.keys()
-
-    def is_terminal(self, node: GridWorldNode) -> bool:
-        return node.state in self.end_states
-
-    def update_child_value(
-        self, node: GridWorldNode, child_action: int, reward: float
-    ) -> None:
-        if self.is_terminal(node):
-            return
-
-        self.q[node.state][child_action] += reward
-        self.n[node.state][child_action] += 1
-
-    def _backpropagate(self, path: List[Tuple[GridWorldNode, int]], reward: float):
+    def backpropagate(self, path: List[Tuple[GridWorldNode, int]], reward: float):
         # path is a sequence of (state, action) tuples
 
         visited = set()  # only count nodes once?
@@ -209,17 +209,17 @@ class MCTS:
                 node.update_child_values(action, reward)
 
                 #
-                self.update_child_value(node, action, reward)
+                self._update_child_value(node, action, reward)
 
                 visited.add((node, action))
 
     def do_rollout(self, start_state):
         "Make the tree one layer better. (Train for one iteration.)"
-        path, leaf = self._select(start_state)
-        a = self._expand(leaf)
-        reward = self._simulate(leaf, a)
+        path, leaf = self.select(start_state)
+        a = self.expand(leaf)
+        reward = self.simulate(leaf, a)
         path.append((leaf, a))
-        self._backpropagate(path, reward)
+        self.backpropagate(path, reward)
 
     def get_policy(self):
         pi = np.ones_like(self.state_reward_function, dtype=int) * -1
