@@ -1,8 +1,8 @@
 from typing import List, Tuple, Union
 
+import matplotlib.pyplot as plt
 import numpy as np
 import scipy.sparse
-import matplotlib.pyplot as plt
 
 
 def define_valid_lattice_transitions(
@@ -110,7 +110,9 @@ def make_diffision_transition_matrix(
 
 
 def make_cardinal_movements_prob(
-    n_rows: int, n_columns: int, slip_probability: float = 0.05,
+    n_rows: int,
+    n_columns: int,
+    slip_probability: float = 0.05,
 ) -> List[np.ndarray]:
     movements = define_valid_lattice_transitions(n_rows, n_columns)
     diffused_movements = make_diffusion_transition(movements)
@@ -130,7 +132,10 @@ def make_cardinal_movements_prob(
 
 
 def make_cardinal_transition_matrix(
-    n_rows: int, n_columns: int, slip_probability: float = 0.05, sparse: bool = True,
+    n_rows: int,
+    n_columns: int,
+    slip_probability: float = 0.05,
+    sparse: bool = True,
 ) -> List[Union[np.ndarray, scipy.sparse.csr_matrix]]:
 
     cardinal_movements = make_cardinal_movements_prob(
@@ -194,8 +199,10 @@ class GridWorld:
         self.n_columns = n_columns
         self.transition_functions = transition_functions
         self.state_reward_function = state_reward_function
-        self.state_action_reward_functions = get_state_action_reward_from_sucessor_rewards(
-            state_reward_function, transition_functions
+        self.state_action_reward_functions = (
+            get_state_action_reward_from_sucessor_rewards(
+                state_reward_function, transition_functions
+            )
         )
 
 
@@ -290,9 +297,7 @@ def make_thread_the_needle(
     slip_probability: float = 0.05,
     movement_penalty: float = -0.01,
     sparse: bool = True,
-) -> Tuple[
-    List[Union[np.ndarray, scipy.sparse.csr_matrix]], np.ndarray, np.ndarray
-]:
+) -> Tuple[List[Union[np.ndarray, scipy.sparse.csr_matrix]], np.ndarray, np.ndarray]:
     assert n_rows == n_columns, "Columns and Rows don't match!"
     assert n_columns >= 4, "Minimum size: 4x4"
 
@@ -326,9 +331,9 @@ def clean_up_thread_the_needle_plot(ax, n_columns=8, n_rows=8):
 
     # plot the gridworld tiles
     for r in range(n_rows):
-        plt.plot([-0.5, n_columns-0.5], [r-0.5, r-0.5], c='grey', lw=0.5)
+        plt.plot([-0.5, n_columns - 0.5], [r - 0.5, r - 0.5], c="grey", lw=0.5)
     for c in range(n_columns):
-        plt.plot([c-0.5, c-0.5], [-0.5, n_rows-0.5], c='grey', lw=0.5)
+        plt.plot([c - 0.5, c - 0.5], [-0.5, n_rows - 0.5], c="grey", lw=0.5)
 
     walls = make_thread_the_needle_walls(n_columns)
     for s0, s1 in walls:

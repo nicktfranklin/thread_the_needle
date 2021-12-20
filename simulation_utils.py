@@ -39,4 +39,3 @@ def evaluate_policy(
     """
 
     return 1 - np.sum(optimal_policy * policy, axis=1)
-

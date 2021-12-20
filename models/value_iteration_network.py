@@ -6,6 +6,15 @@ from scipy.special import logsumexp
 from tqdm import tnrange
 
 
+def softmax(state_action_values: np.ndarray, beta: float = 1) -> np.ndarray:
+    assert beta > 0, "Beta must be strictly positive!"
+
+    def _internal_softmax(q: np.ndarray) -> np.ndarray:
+        return np.exp(beta * q - logsumexp(beta * q))
+
+    return np.array(list(map(_internal_softmax, state_action_values)))
+
+
 class PlanningModel:
     def __init__(
         self,
@@ -33,15 +42,6 @@ class PlanningModel:
 
     def inference(self):
         raise NotImplementedError
-
-    @staticmethod
-    def softmax(state_action_values: np.ndarray, beta: float = 1) -> np.ndarray:
-        assert beta > 0, "Beta must be strictly positive!"
-
-        def _internal_softmax(q: np.ndarray) -> np.ndarray:
-            return np.exp(beta * q - logsumexp(beta * q))
-
-        return np.array(list(map(_internal_softmax, state_action_values)))
 
 
 class ValueIterationNetwork(PlanningModel):
@@ -79,7 +79,7 @@ class ValueIterationNetwork(PlanningModel):
             iterations,
             self.initialization_noise,
         )
-        return ValueIterationNetwork.softmax(state_action_values, self.beta)
+        return softmax(state_action_values, self.beta)
 
     @staticmethod
     def value_iteration(
@@ -169,5 +169,3 @@ class ValueIterationNetwork(PlanningModel):
         return np.random.normal(loc=0, scale=noise, size=(n_rows, n_columns)).reshape(
             -1
         )
-
-
