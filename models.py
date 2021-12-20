@@ -266,6 +266,19 @@ class GridWorldNode:
             action = node.find_random_child()
             node = node.draw_random_sucessor(action)
 
+    def get_simulation_depth(self) -> int:
+        if self.is_terminal():
+            return 0
+
+        node = self
+        depth = 0
+        while True:
+            depth += 1
+            if node.is_terminal():
+                return depth
+            action = node.find_random_child()
+            node = node.draw_random_sucessor(action)
+
     def update_child_values(self, child_action: int, reward: float) -> None:
         if self.is_terminal():
             return
@@ -312,14 +325,14 @@ class MCTS:
         if sucessor_state in self.expanded_nodes:
             return self.expanded_nodes[sucessor_state]
         return GridWorldNode(
-                sucessor_state,
-                self.end_states,
-                transition_functions=self.transition_functions,
-                state_reward_function=self.state_reward_function,
-                exploration_weight=self.exploration_weight,
-                n_actions=self.n_actions,
-                epsilon=self.epsilon,
-            )
+            sucessor_state,
+            self.end_states,
+            transition_functions=self.transition_functions,
+            state_reward_function=self.state_reward_function,
+            exploration_weight=self.exploration_weight,
+            n_actions=self.n_actions,
+            epsilon=self.epsilon,
+        )
 
     def is_unexplored(self, node: GridWorldNode) -> bool:
         return node.state not in self.expanded_nodes
@@ -367,7 +380,6 @@ class MCTS:
         reward = MCTS._simulate(leaf, a)
         path.append((leaf, a))
         MCTS._backpropagate(path, reward)
-
 
     def get_policy(self):
         pi = np.ones_like(self.state_reward_function, dtype=int) * -1
