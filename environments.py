@@ -1,6 +1,5 @@
 from typing import List, Tuple, Union
 
-import matplotlib.pyplot as plt
 import numpy as np
 import scipy.sparse
 
@@ -54,14 +53,13 @@ def make_diagonal_matrix(
 
 
 def convert_movements_to_transition_matrix(
-    movements: np.ndarray, sparse=False
+    movements: np.ndarray, n_cols: int, sparse=False
 ) -> Union[np.ndarray, scipy.sparse.csr_matrix]:
 
     transition_matrix = make_diagonal_matrix(movements[:, 2], k=0, sparse=sparse)
     transition_matrix += make_diagonal_matrix(movements[:-1, 3], k=1, sparse=sparse)
     transition_matrix += make_diagonal_matrix(movements[1:, 1], k=-1, sparse=sparse)
 
-    n_cols = np.sum(movements[:, 0] == 0.0)
     transition_matrix += make_diagonal_matrix(
         movements[n_cols:, 0], k=-n_cols, sparse=sparse
     )
@@ -98,7 +96,7 @@ def sample_random_transition_matrix(
 ) -> Union[np.ndarray, scipy.sparse.csr_matrix]:
     movements = define_valid_lattice_transitions(n_rows, n_columns)
     movement_probs = draw_dirichlet_transitions(movements)
-    return convert_movements_to_transition_matrix(movement_probs, sparse=sparse)
+    return convert_movements_to_transition_matrix(movement_probs, n_columnssparse=sparse)
 
 
 def make_diffision_transition_matrix(
@@ -106,20 +104,25 @@ def make_diffision_transition_matrix(
 ) -> Union[np.ndarray, scipy.sparse.csr_matrix]:
     movements = define_valid_lattice_transitions(n_rows, n_columns)
     movement_probs = make_diffusion_transition(movements)
-    return convert_movements_to_transition_matrix(movement_probs, sparse=sparse)
+    return convert_movements_to_transition_matrix(movement_probs, n_columns, sparse=sparse)
 
 
 def make_cardinal_movements_prob(
     n_rows: int,
     n_columns: int,
     slip_probability: float = 0.05,
+    random_movement_on_error: bool = True,
 ) -> List[np.ndarray]:
     movements = define_valid_lattice_transitions(n_rows, n_columns)
+
+    # if random_movement_on_error:
     diffused_movements = make_diffusion_transition(movements)
 
     def _map_movement(x, index):
         if np.isclose(x[index], 0):
-            return x
+            if random_movement_on_error:
+                return x
+            return np.array([0, 0, 1, 0, 0])
 
         output = np.array(x) * slip_probability
         output[index] += 1 - slip_probability
@@ -136,13 +139,14 @@ def make_cardinal_transition_matrix(
     n_columns: int,
     slip_probability: float = 0.05,
     sparse: bool = True,
+    random_movement_on_error: bool = True,
 ) -> List[Union[np.ndarray, scipy.sparse.csr_matrix]]:
 
     cardinal_movements = make_cardinal_movements_prob(
-        n_rows, n_columns, slip_probability
+        n_rows, n_columns, slip_probability, random_movement_on_error
     )
     return [
-        convert_movements_to_transition_matrix(move_probs, sparse=sparse)
+        convert_movements_to_transition_matrix(move_probs, n_columns, sparse=sparse)
         for move_probs in cardinal_movements
     ]
 
@@ -199,10 +203,8 @@ class GridWorld:
         self.n_columns = n_columns
         self.transition_functions = transition_functions
         self.state_reward_function = state_reward_function
-        self.state_action_reward_functions = (
-            get_state_action_reward_from_sucessor_rewards(
-                state_reward_function, transition_functions
-            )
+        self.state_action_reward_functions = get_state_action_reward_from_sucessor_rewards(
+            state_reward_function, transition_functions
         )
 
 
@@ -219,17 +221,17 @@ def get_position_from_state(state: int, n_columns: int) -> Tuple[int, int]:
 def make_thread_the_needle_walls(n_columns: int) -> List[List[int]]:
 
     list_walls = []
-    for ii in range(0, n_columns // 2 - 1):
-        wall = [
-            n_columns * (n_columns // 2 - 1) + ii,
-            n_columns * (n_columns // 2) + ii,
-        ]
-        list_walls.append(wall)
-
-    for ii in range(0, n_columns - 1):
-        list_walls.append(
-            [n_columns * ii + (n_columns // 2) - 1, n_columns * ii + n_columns // 2]
-        )
+    # for ii in range(0, n_columns // 2 - 1):
+    #     wall = [
+    #         n_columns * (n_columns // 2 - 1) + ii,
+    #         n_columns * (n_columns // 2) + ii,
+    #     ]
+    #     list_walls.append(wall)
+    #
+    # for ii in range(0, n_columns - 1):
+    #     list_walls.append(
+    #         [n_columns * ii + (n_columns // 2) - 1, n_columns * ii + n_columns // 2]
+    #     )
     return list_walls
 
 
@@ -288,6 +290,15 @@ def make_thread_the_needle_optimal_policy(n_rows: int, n_columns: int) -> np.nda
     # goal state (overwrites previous value)
     optimal_policy[0, :] = np.ones(4)
 
+    # special case -- top-right and bottom left corners the optimal policy is random
+    r, c = 0, n_columns - 1
+    state = get_state_from_position(r, c, n_columns)
+    optimal_policy[state, :] = 1
+
+    r, c = n_rows - 1, 0
+    state = get_state_from_position(r, c, n_columns)
+    optimal_policy[state, :] = 1
+
     return optimal_policy
 
 
@@ -297,6 +308,7 @@ def make_thread_the_needle(
     slip_probability: float = 0.05,
     movement_penalty: float = -0.01,
     sparse: bool = True,
+    random_movement_on_error: bool = True,
 ) -> Tuple[List[Union[np.ndarray, scipy.sparse.csr_matrix]], np.ndarray, np.ndarray]:
     assert n_rows == n_columns, "Columns and Rows don't match!"
     assert n_columns >= 4, "Minimum size: 4x4"
@@ -308,6 +320,7 @@ def make_thread_the_needle(
         n_rows=n_rows,
         slip_probability=slip_probability,
         sparse=sparse,
+        random_movement_on_error=random_movement_on_error,
     )
 
     list_walls = make_thread_the_needle_walls(n_columns)
@@ -331,9 +344,9 @@ def clean_up_thread_the_needle_plot(ax, n_columns=8, n_rows=8):
 
     # plot the gridworld tiles
     for r in range(n_rows):
-        plt.plot([-0.5, n_columns - 0.5], [r - 0.5, r - 0.5], c="grey", lw=0.5)
+        ax.plot([-0.5, n_columns - 0.5], [r - 0.5, r - 0.5], c="grey", lw=0.5)
     for c in range(n_columns):
-        plt.plot([c - 0.5, c - 0.5], [-0.5, n_rows - 0.5], c="grey", lw=0.5)
+        ax.plot([c - 0.5, c - 0.5], [-0.5, n_rows - 0.5], c="grey", lw=0.5)
 
     walls = make_thread_the_needle_walls(n_columns)
     for s0, s1 in walls:
@@ -345,6 +358,46 @@ def clean_up_thread_the_needle_plot(ax, n_columns=8, n_rows=8):
 
         assert (r0 == r1) or (c0 == c1), f"Not a valid wall! {r0} {r1} {c0} {s1}"
         if c0 == c1:
-            plt.plot([y - 0.5, y + 0.5], [x, x], c="k", lw=3)
+            ax.plot([y - 0.5, y + 0.5], [x, x], c="k", lw=3)
         else:
-            plt.plot([y, y], [x - 0.5, x + 0.5], c="k", lw=3)
+            ax.plot([y, y], [x - 0.5, x + 0.5], c="k", lw=3)
+
+
+def one_d_reward_at_one_end(
+    n_columns: int,
+    slip_probability: float = 0.05,
+    movement_penalty: float = -0.01,
+    sparse: bool = True,
+    random_movement_on_error: bool = False,
+) -> Tuple[List[Union[np.ndarray, scipy.sparse.csr_matrix]], np.ndarray, np.ndarray]:
+
+    transition_functions = make_cardinal_transition_matrix(
+        n_columns=n_columns,
+        n_rows=1,
+        slip_probability=slip_probability,
+        sparse=sparse,
+        random_movement_on_error=random_movement_on_error,
+    )
+
+    # we only want the left / right actions
+    transition_functions = [transition_functions[1], transition_functions[2]]
+
+    # define the reward purely in terms of sucessor states
+    state_reward_function = np.ones(n_columns) * movement_penalty
+    goals_state = 0
+    state_reward_function[goals_state] = 1.0
+    state_reward_function[n_columns - 1] = -1.0
+
+    # only two actions
+    optimal_policy = np.zeros((n_columns, 2), dtype=int)
+    optimal_policy[:, 0] = 1
+    optimal_policy[goals_state, :] = 1
+    #
+    return transition_functions, state_reward_function, optimal_policy
+
+
+def clean_up_reward_at_end(ax, n_columns=51):
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for c in range(n_columns):
+        ax.plot([c - 0.5, c - 0.5], [1 - 0.5, 0 - 0.5], c="grey", lw=0.5)
