@@ -221,17 +221,17 @@ def get_position_from_state(state: int, n_columns: int) -> Tuple[int, int]:
 def make_thread_the_needle_walls(n_columns: int) -> List[List[int]]:
 
     list_walls = []
-    # for ii in range(0, n_columns // 2 - 1):
-    #     wall = [
-    #         n_columns * (n_columns // 2 - 1) + ii,
-    #         n_columns * (n_columns // 2) + ii,
-    #     ]
-    #     list_walls.append(wall)
-    #
-    # for ii in range(0, n_columns - 1):
-    #     list_walls.append(
-    #         [n_columns * ii + (n_columns // 2) - 1, n_columns * ii + n_columns // 2]
-    #     )
+    for ii in range(0, n_columns // 2 - 1):
+        wall = [
+            n_columns * (n_columns // 2 - 1) + ii,
+            n_columns * (n_columns // 2) + ii,
+        ]
+        list_walls.append(wall)
+
+    for ii in range(0, n_columns - 1):
+        list_walls.append(
+            [n_columns * ii + (n_columns // 2) - 1, n_columns * ii + n_columns // 2]
+        )
     return list_walls
 
 
