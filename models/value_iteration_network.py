@@ -12,6 +12,9 @@ def softmax(state_action_values: np.ndarray, beta: float = 1) -> np.ndarray:
     def _internal_softmax(q: np.ndarray) -> np.ndarray:
         return np.exp(beta * q - logsumexp(beta * q))
 
+    if np.ndim(state_action_values) == 1:
+        return _internal_softmax(state_action_values)
+
     return np.array(list(map(_internal_softmax, state_action_values)))
 
 
