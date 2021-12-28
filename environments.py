@@ -324,6 +324,7 @@ def make_thread_the_needle(
     )
 
     list_walls = make_thread_the_needle_walls(n_columns)
+    # list_walls = []
     for s0, s1 in list_walls:
         transition_functions = add_wall_between_two_states(s0, s1, transition_functions)
 
@@ -358,9 +359,9 @@ def clean_up_thread_the_needle_plot(ax, n_columns=8, n_rows=8):
 
         assert (r0 == r1) or (c0 == c1), f"Not a valid wall! {r0} {r1} {c0} {s1}"
         if c0 == c1:
-            ax.plot([y - 0.5, y + 0.5], [x, x], c="k", lw=3)
+            ax.plot([y - 0.5, y + 0.5], [x, x], c="w", lw=3)
         else:
-            ax.plot([y, y], [x - 0.5, x + 0.5], c="k", lw=3)
+            ax.plot([y, y], [x - 0.5, x + 0.5], c="w", lw=3)
 
 
 def one_d_reward_at_one_end(
