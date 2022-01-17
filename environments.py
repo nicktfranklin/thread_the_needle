@@ -1,4 +1,4 @@
-from typing import List, Tuple, Union
+from typing import List, Tuple, Union, Optional
 
 import numpy as np
 import scipy.sparse
@@ -96,7 +96,9 @@ def sample_random_transition_matrix(
 ) -> Union[np.ndarray, scipy.sparse.csr_matrix]:
     movements = define_valid_lattice_transitions(n_rows, n_columns)
     movement_probs = draw_dirichlet_transitions(movements)
-    return convert_movements_to_transition_matrix(movement_probs, n_columnssparse=sparse)
+    return convert_movements_to_transition_matrix(
+        movement_probs, n_columnssparse=sparse
+    )
 
 
 def make_diffision_transition_matrix(
@@ -104,7 +106,9 @@ def make_diffision_transition_matrix(
 ) -> Union[np.ndarray, scipy.sparse.csr_matrix]:
     movements = define_valid_lattice_transitions(n_rows, n_columns)
     movement_probs = make_diffusion_transition(movements)
-    return convert_movements_to_transition_matrix(movement_probs, n_columns, sparse=sparse)
+    return convert_movements_to_transition_matrix(
+        movement_probs, n_columns, sparse=sparse
+    )
 
 
 def make_cardinal_movements_prob(
@@ -235,6 +239,23 @@ def make_thread_the_needle_walls(n_columns: int) -> List[List[int]]:
     return list_walls
 
 
+def make_thread_the_needle_walls_moved_door(n_columns: int) -> List[List[int]]:
+
+    list_walls = []
+    for ii in range(0, n_columns // 2 - 0):
+        wall = [
+            n_columns * (n_columns // 2 - 1) + ii,
+            n_columns * (n_columns // 2) + ii,
+        ]
+        list_walls.append(wall)
+
+    for ii in range(1, n_columns - 1):
+        list_walls.append(
+            [n_columns * ii + (n_columns // 2) - 1, n_columns * ii + n_columns // 2]
+        )
+    return list_walls
+
+
 def make_thread_the_needle_optimal_policy(n_rows: int, n_columns: int) -> np.ndarray:
     _N_ACTIONS = 4
     optimal_policy = np.zeros((n_rows * n_columns, _N_ACTIONS), dtype=int)
@@ -302,6 +323,96 @@ def make_thread_the_needle_optimal_policy(n_rows: int, n_columns: int) -> np.nda
     return optimal_policy
 
 
+def make_thread_the_needle_walls_moved_door(n_columns: int) -> List[List[int]]:
+
+    list_walls = []
+    for ii in range(0, n_columns // 2 - 0):
+        wall = [
+            n_columns * (n_columns // 2 - 1) + ii,
+            n_columns * (n_columns // 2) + ii,
+        ]
+        list_walls.append(wall)
+
+    for ii in range(1, n_columns - 1):
+        list_walls.append(
+            [n_columns * ii + (n_columns // 2) - 1, n_columns * ii + n_columns // 2]
+        )
+    return list_walls
+
+
+def make_thread_the_needle_with_doors_optimal_policy(n_rows: int, n_columns: int) -> np.ndarray:
+    _N_ACTIONS = 4
+    optimal_policy = np.zeros((n_rows * n_columns, _N_ACTIONS), dtype=int)
+    # i think the action key is [up, left, right, down]
+
+    # In the first room, along the left wall
+    c = n_columns // 2
+    for r in range(n_rows - 1):
+        state = get_state_from_position(r, c, n_columns)
+        optimal_policy[state, :] = np.array([1, 1, 0, 0])
+
+    # in the first room, along the bottom
+    r = n_rows - 1
+    for c in range(n_columns // 2, n_columns):
+        state = get_state_from_position(r, c, n_columns)
+        optimal_policy[state, :] = np.array([1, 1, 0, 0])
+
+    # everywhere else in the first room
+    for r in range(n_rows - 1):
+        for c in range(n_columns // 2 + 1, n_columns):
+            state = get_state_from_position(r, c, n_columns)
+            optimal_policy[state, :] = np.array([1, 1, 0, 0])
+
+    # first spot in second room
+    r = n_rows - 1
+    c = n_columns // 2 - 1
+    state = get_state_from_position(r, c, n_columns)
+    optimal_policy[state, :] = np.array([0, 0, 1, 0])
+
+    # along right wall in second room
+    c = n_columns // 2 - 1
+    for r in range(n_rows // 2, n_rows - 1):
+        state = get_state_from_position(r, c, n_columns)
+        optimal_policy[state, :] = np.array([0, 0, 0, 1])
+
+    # along top wall in second room
+    r = n_rows // 2
+    for c in range(n_columns // 2 - 1):
+        state = get_state_from_position(r, c, n_columns)
+        optimal_policy[state, :] = np.array([0, 0, 1, 1])
+
+    # everywhere else in the second room
+    for r in range(n_rows // 2 + 1, n_rows):
+        for c in range(n_columns // 2 - 1):
+            state = get_state_from_position(r, c, n_columns)
+            optimal_policy[state, :] = np.array([0, 0, 1, 1])
+
+    # everywhere else
+    for r in range(n_rows // 2):
+        for c in range(n_columns // 2):
+            state = get_state_from_position(r, c, n_columns)
+            optimal_policy[state, :] = np.array([1, 1, 0, 0])
+
+    # top row
+    c = 0
+    for r in range(n_rows):
+        state = get_state_from_position(r, c, n_columns)
+        optimal_policy[state, :] = np.array([0, 1, 0, 0])
+
+    # goal state (overwrites previous value)
+    optimal_policy[0, :] = np.ones(4)
+
+    # special case -- top-right and bottom left corners the optimal policy is random
+    r, c = 0, n_columns - 1
+    state = get_state_from_position(r, c, n_columns)
+    optimal_policy[state, :] = 1
+
+    r, c = n_rows - 1, 0
+    state = get_state_from_position(r, c, n_columns)
+    optimal_policy[state, :] = 1
+
+    return optimal_policy
+
 def make_thread_the_needle(
     n_rows: int,
     n_columns: int,
@@ -309,6 +420,7 @@ def make_thread_the_needle(
     movement_penalty: float = -0.01,
     sparse: bool = True,
     random_movement_on_error: bool = True,
+    list_walls: Optional[List[List[int]]] = None,
 ) -> Tuple[List[Union[np.ndarray, scipy.sparse.csr_matrix]], np.ndarray, np.ndarray]:
     assert n_rows == n_columns, "Columns and Rows don't match!"
     assert n_columns >= 4, "Minimum size: 4x4"
@@ -323,8 +435,9 @@ def make_thread_the_needle(
         random_movement_on_error=random_movement_on_error,
     )
 
-    list_walls = make_thread_the_needle_walls(n_columns)
-    # list_walls = []
+    if not list_walls:
+        list_walls = make_thread_the_needle_walls(n_columns)
+
     for s0, s1 in list_walls:
         transition_functions = add_wall_between_two_states(s0, s1, transition_functions)
 
@@ -339,7 +452,18 @@ def make_thread_the_needle(
     return transition_functions, state_reward_function, optimal_policy
 
 
-def clean_up_thread_the_needle_plot(ax, n_columns=8, n_rows=8):
+def make_thread_the_needle_diffusion_transitions(
+    n_rows: int, n_columns: int, sparse: bool = True
+):
+    movements = define_valid_lattice_transitions(n_rows, n_columns)
+
+    # if random_movement_on_error:
+    diffused_movements = make_diffusion_transition(movements)
+
+    return convert_movements_to_transition_matrix(diffused_movements, n_columns, sparse)
+
+
+def clean_up_thread_the_needle_plot(ax, n_columns=8, n_rows=8, walls=None):
     ax.set_xticks([])
     ax.set_yticks([])
 
@@ -349,7 +473,9 @@ def clean_up_thread_the_needle_plot(ax, n_columns=8, n_rows=8):
     for c in range(n_columns):
         ax.plot([c - 0.5, c - 0.5], [-0.5, n_rows - 0.5], c="grey", lw=0.5)
 
-    walls = make_thread_the_needle_walls(n_columns)
+    if not walls:
+        walls = make_thread_the_needle_walls(n_columns)
+
     for s0, s1 in walls:
         r0, c0 = get_position_from_state(s0, n_columns)
         r1, c1 = get_position_from_state(s1, n_columns)
@@ -359,9 +485,9 @@ def clean_up_thread_the_needle_plot(ax, n_columns=8, n_rows=8):
 
         assert (r0 == r1) or (c0 == c1), f"Not a valid wall! {r0} {r1} {c0} {s1}"
         if c0 == c1:
-            ax.plot([y - 0.5, y + 0.5], [x, x], c="w", lw=3)
+            ax.plot([y - 0.5, y + 0.5], [x, x], c="k", lw=3)
         else:
-            ax.plot([y, y], [x - 0.5, x + 0.5], c="w", lw=3)
+            ax.plot([y, y], [x - 0.5, x + 0.5], c="k", lw=3)
 
 
 def one_d_reward_at_one_end(

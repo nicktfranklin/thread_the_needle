@@ -86,8 +86,12 @@ class MCTS:
 
     def _draw_random_sucessor(self, node: GridWorldNode, action: int):
         # sample a sucessor state
-        t_a = self.transition_functions[action][node.state, :]
+        t_a = self.transition_functions[action].toarray()[node.state, :]
+        # print(self.transition_functions[action])
+        # print(node.state,action, t_a)
         sucessor_state = inverse_cmf_sampler(t_a)
+        # print(sucessor_state)
+        # print('/n')
 
         return GridWorldNode(state=sucessor_state, n_actions=self.n_actions)
 
@@ -155,7 +159,10 @@ class MCTS:
         self.n[node.state] = np.zeros(self.n_actions) + self.epsilon
         return node.expand()
 
-    def _single_sim(self, node: GridWorldNode, action: int) -> float:
+    def _single_sim(self, node: GridWorldNode, action: int, return_path: bool = False):
+
+        if return_path:
+            path = [node]
 
         if self._is_terminal(node):
             return self._get_reward(node)
@@ -164,8 +171,12 @@ class MCTS:
         reward = 0
         depth = 0
         while True:
+            if return_path:
+                path.append(node)
             reward += self._get_reward(node) * (self.gamma ** depth)
             if self._is_terminal(node):
+                if return_path:
+                    return reward, path
                 return reward
             action = node.find_random_child()
             node = self._draw_random_sucessor(node, action)
