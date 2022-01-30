@@ -340,7 +340,9 @@ def make_thread_the_needle_walls_moved_door(n_columns: int) -> List[List[int]]:
     return list_walls
 
 
-def make_thread_the_needle_with_doors_optimal_policy(n_rows: int, n_columns: int) -> np.ndarray:
+def make_thread_the_needle_with_doors_optimal_policy(
+    n_rows: int, n_columns: int
+) -> np.ndarray:
     _N_ACTIONS = 4
     optimal_policy = np.zeros((n_rows * n_columns, _N_ACTIONS), dtype=int)
     # i think the action key is [up, left, right, down]
@@ -412,6 +414,7 @@ def make_thread_the_needle_with_doors_optimal_policy(n_rows: int, n_columns: int
     optimal_policy[state, :] = 1
 
     return optimal_policy
+
 
 def make_thread_the_needle(
     n_rows: int,
@@ -528,3 +531,11 @@ def clean_up_reward_at_end(ax, n_columns=51):
     ax.set_yticks([])
     for c in range(n_columns):
         ax.plot([c - 0.5, c - 0.5], [1 - 0.5, 0 - 0.5], c="grey", lw=0.5)
+
+
+def calculate_sr_from_transitions(
+    transition_function: Union[np.ndarray, scipy.sparse.csr_matrix], gamma: float
+) -> np.ndarray:
+    n = transition_function.shape[0]
+    return np.linalg.inv(np.eye(n) - gamma * transition_function)
+
