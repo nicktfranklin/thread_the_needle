@@ -61,6 +61,7 @@ class MCTS:
         self.transition_functions = transition_functions
         self.state_reward_function = state_reward_function
         self.exploration_weight = exploration_weight
+        self.n_states = len(state_reward_function)
         self.n_actions = n_actions
         self.epsilon = epsilon
         self.max_depth = max_depth
@@ -74,9 +75,7 @@ class MCTS:
         # convert the sparse transition matricies to np.ndarrays
         self.transition_functions: List[np.ndarray] = [
             t for t in transition_functions if type(t) == np.ndarray
-        ] + [
-            t.toarray() for t in transition_functions if type(t) == sparse.csr_matrix
-        ]
+        ] + [t.toarray() for t in transition_functions if type(t) == sparse.csr_matrix]
 
     def _sample_sucessor_state(self, state: int, action: int) -> int:
         t_a = self.transition_functions[action][state, :]
@@ -96,7 +95,6 @@ class MCTS:
         # sample a sucessor state
         t_a = self.transition_functions[action][node.state, :]
         sucessor_state = inverse_cmf_sampler(t_a)
-
 
         return GridWorldNode(state=sucessor_state, n_actions=self.n_actions)
 
@@ -132,6 +130,9 @@ class MCTS:
     def _get_argmax_policy(self, node: GridWorldNode) -> int:
         return int(np.argmax(self.q[node.state] / self.n[node.state]))
 
+    def _get_softmax_policy(self, node: GridWorldNode) -> np.ndarray:
+        return softmax(self._get_ucb_values(node))
+
     def select(
         self, node: GridWorldNode,
     ) -> Tuple[List[Tuple[GridWorldNode, int]], GridWorldNode]:
@@ -152,7 +153,7 @@ class MCTS:
 
             # draw next state
             node = self._sample_sucessor_node(node.state, action)
-            reward += self._get_reward(node)
+            # reward += self._get_reward(node)
             depth += 1
 
         return path, node
@@ -205,6 +206,7 @@ class MCTS:
         reward = self.simulate(leaf, a)
         path.append((leaf, a))
         self.backpropagate(path, reward)
+        return path
 
     def do_rollouts(self, start_state, k=10):
         for _ in tqdm(range(k), desc="MCTS Rollouts"):
@@ -237,6 +239,37 @@ class MCTS:
             w = self._get_ucb_values(node)
             policy[state, :] = softmax(w, beta)
         return policy
+
+    def get_node_visitations(self):
+        visits = np.zeros_like(self.state_reward_function)
+        for node in self.n.keys():
+            visits[node] = np.sum(self.n[node]) - self.epsilon * self.n_actions
+        return visits
+
+    def simulate_policy(self, start_node: GridWorldNode):
+        policy = self.get_policy()
+        node = start_node
+        path = [node]
+
+        # use deterministic sampling, but randomly sample when
+        # unknown
+        ii = 0
+        while not self._is_terminal(node):
+            action = policy[node.state]
+            if action == -1:
+                action = choice(np.arange(N_ACTIONS))
+
+            node = self._sample_sucessor_node(node.state, action)
+            path.append(node.state)
+
+            ii += 1
+            if ii > 500:
+                break
+
+        return path
+
+
+
 
 
 class MctsSr(MCTS):
@@ -277,3 +310,14 @@ class MctsSr(MCTS):
 
     def _single_sim(self, node: GridWorldNode, action: int, return_path: bool = False):
         pass
+
+    def expand(self, node: GridWorldNode) -> int:
+        if self._is_terminal(node):
+            return -1
+        self.expanded_nodes[node.state] = node
+
+        self.q[node.state] = np.zeros(self.n_actions) + np.max(self.state_values) * self.epsilon
+        self.n[node.state] = np.zeros(self.n_actions) + self.epsilon
+        return node.expand()
+
+
