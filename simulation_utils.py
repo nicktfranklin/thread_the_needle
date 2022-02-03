@@ -73,6 +73,7 @@ def _get_neighbors(state: int, n_columns: int, n_rows: int) -> List[int]:
 
 def find_shortest_path(
     state_value_function: np.ndarray,
+    transition_functions: List[np.ndarray],
     goal_state: int,
     start_state: int,
     n_columns: int,
@@ -80,9 +81,21 @@ def find_shortest_path(
 ) -> np.ndarray:
     state = start_state
     path = []
+
+    t_avg = np.mean(transition_functions, axis=0)
+
+    def filter_values(start_state, end_state, end_state_value):
+        if t_avg[start_state][end_state] > 0:
+            return end_state_value
+        return 0
+
     while state is not goal_state:
         neighbors = _get_neighbors(state, n_columns, n_rows)
-        values = {n: state_value_function[n] for n in neighbors if n not in path}
+        values = {
+            n: filter_values(state, n, state_value_function[n])
+            for n in neighbors
+            if n not in path
+        }
         state = max(values, key=values.get)
         path.append(state)
 
@@ -91,12 +104,13 @@ def find_shortest_path(
 
 def find_sortest_path_length(
     state_value_function: np.ndarray,
+    transition_functions: List[np.ndarray],
     goal_state: int,
     start_state: int,
     n_columns: int,
     n_rows: int,
 ) -> int:
     path = find_shortest_path(
-        state_value_function, goal_state, start_state, n_columns, n_rows
+        state_value_function,transition_functions,  goal_state, start_state, n_columns, n_rows
     )
     return len(path)
