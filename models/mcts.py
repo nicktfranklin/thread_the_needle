@@ -1,14 +1,17 @@
 from abc import ABC, abstractmethod
 from collections import namedtuple
 from random import choice
-from typing import List, Tuple, Union
+from typing import List, Tuple, Union, Dict, Any, Optional
 
 import numpy as np
 from scipy import sparse
 from tqdm import tqdm
 
-from environments import calculate_sr_from_transitions
-from models.value_iteration_network import softmax
+from environments import (
+    calculate_sr_from_transitions,
+    get_state_action_reward_from_sucessor_rewards,
+)
+from models.value_iteration_network import softmax, ValueIterationNetwork
 from simulation_utils import inverse_cmf_sampler
 
 N_ACTIONS = 4
@@ -167,6 +170,25 @@ class MCTS:
         self.n[node.state] = np.zeros(self.n_actions) + self.epsilon
         return node.expand()
 
+    def simulate_state_value(self, start_node: GridWorldNode) -> List[float]:
+
+        rewards = [0.0] * self.n_sims
+
+        for ii in range(self.n_sims):
+
+            node = start_node
+            reward, depth = 0, 0
+
+            while depth < self.max_depth:
+                reward += self._get_reward(node) * (self.gamma ** depth)
+                action = node.find_random_child()
+                node = self._draw_random_sucessor(node, action)
+                depth += 1
+
+            rewards[ii] = reward
+
+        return rewards
+
     def _single_sim(self, node: GridWorldNode, action: int, return_path: bool = False):
 
         if return_path:
@@ -208,8 +230,12 @@ class MCTS:
         self.backpropagate(path, reward)
         return path
 
-    def do_rollouts(self, start_state, k=10):
-        for _ in tqdm(range(k), desc="MCTS Rollouts"):
+    def do_rollouts(self, start_state, k=10, progress_bar: bool = True):
+        if progress_bar:
+            _iterator = tqdm(range(k), desc="MCTS Rollouts")
+        else:
+            _iterator = range(k)
+        for _ in _iterator:
             self.do_single_rollout(start_state)
 
     def get_policy(self):
@@ -268,8 +294,29 @@ class MCTS:
 
         return path
 
+    def reset(self):
+        self.expanded_nodes = dict()
+        self.q = dict()
+        self.n = dict()
 
+    def get_expanded_nodes(self) -> np.ndarray:
+        states = np.zeros(self.n_states)
+        for k in self.expanded_nodes.keys():
+            states[k] = 1
+        return states
 
+    def batch_rollouts(
+        self, start_node: GridWorldNode, n_batches: int, n_rollouts: int, beta: float
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        selection_pmf, visitations = [], []
+        for _ in tqdm(range(n_batches), desc="Batch"):
+            self.reset()
+            self.do_rollouts(start_node, k=n_rollouts, progress_bar=False)
+            selection_pmf.append(self.get_selection_policy(beta))
+            visitations.append(self.get_expanded_nodes())
+
+        # noinspection PyUnresolvedReferences
+        return np.mean(selection_pmf, axis=0), np.mean(visitations, axis=0)
 
 
 class MctsSr(MCTS):
@@ -316,8 +363,11 @@ class MctsSr(MCTS):
             return -1
         self.expanded_nodes[node.state] = node
 
-        self.q[node.state] = np.zeros(self.n_actions) + np.max(self.state_values) * self.epsilon
+        self.q[node.state] = (
+            np.zeros(self.n_actions) + np.max(self.state_values) * self.epsilon
+        )
         self.n[node.state] = np.zeros(self.n_actions) + self.epsilon
         return node.expand()
 
-
+    def update_heuristic_function(self, state_value_function: np.ndarray) -> None:
+        self.state_values = state_value_function

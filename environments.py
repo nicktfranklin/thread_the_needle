@@ -311,15 +311,6 @@ def make_thread_the_needle_optimal_policy(n_rows: int, n_columns: int) -> np.nda
     # goal state (overwrites previous value)
     optimal_policy[0, :] = np.ones(4)
 
-    # special case -- top-right and bottom left corners the optimal policy is random
-    r, c = 0, n_columns - 1
-    state = get_state_from_position(r, c, n_columns)
-    optimal_policy[state, :] = 1
-
-    r, c = n_rows - 1, 0
-    state = get_state_from_position(r, c, n_columns)
-    optimal_policy[state, :] = 1
-
     return optimal_policy
 
 
