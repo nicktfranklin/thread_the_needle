@@ -2,20 +2,9 @@ from typing import List, Tuple, Union
 
 import numpy as np
 from scipy import sparse
-from scipy.special import logsumexp
 from tqdm import tnrange
 
-
-def softmax(state_action_values: np.ndarray, beta: float = 1) -> np.ndarray:
-    assert beta > 0, "Beta must be strictly positive!"
-
-    def _internal_softmax(q: np.ndarray) -> np.ndarray:
-        return np.exp(beta * q - logsumexp(beta * q))
-
-    if np.ndim(state_action_values) == 1:
-        return _internal_softmax(state_action_values)
-
-    return np.array(list(map(_internal_softmax, state_action_values)))
+from models.utils import softmax
 
 
 class PlanningModel:

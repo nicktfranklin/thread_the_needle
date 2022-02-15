@@ -3,6 +3,8 @@ from typing import List, Tuple, Union, Optional
 import numpy as np
 import scipy.sparse
 
+from models.utils import get_state_action_reward_from_sucessor_rewards, _check_valid
+
 
 def define_valid_lattice_transitions(
     n_rows: int, n_columns: int, self_transitions: bool = False
@@ -183,16 +185,6 @@ def add_wall_between_two_states(
 
         modified_transitions.append(t)
     return modified_transitions
-
-
-def get_state_action_reward_from_sucessor_rewards(
-    reward_function_over_sucessors: np.ndarray,
-    transitions: List[Union[np.ndarray, scipy.sparse.csr_matrix]],
-) -> List[Union[np.ndarray, scipy.sparse.csr_matrix]]:
-    reward_function_over_sa = [
-        t.dot(reward_function_over_sucessors) for t in transitions
-    ]
-    return reward_function_over_sa
 
 
 class GridWorld:
@@ -457,7 +449,7 @@ def make_thread_the_needle_diffusion_transitions(
     return convert_movements_to_transition_matrix(diffused_movements, n_columns, sparse)
 
 
-def clean_up_thread_the_needle_plot(ax, n_columns=8, n_rows=8, walls=None):
+def clean_up_thread_the_needle_plot(ax, n_columns=8, n_rows=8, walls=None, wall_color='k'):
     ax.set_xticks([])
     ax.set_yticks([])
 
@@ -479,9 +471,9 @@ def clean_up_thread_the_needle_plot(ax, n_columns=8, n_rows=8, walls=None):
 
         assert (r0 == r1) or (c0 == c1), f"Not a valid wall! {r0} {r1} {c0} {s1}"
         if c0 == c1:
-            ax.plot([y - 0.5, y + 0.5], [x, x], c="k", lw=3)
+            ax.plot([y - 0.5, y + 0.5], [x, x], c=wall_color, lw=3)
         else:
-            ax.plot([y, y], [x - 0.5, x + 0.5], c="k", lw=3)
+            ax.plot([y, y], [x - 0.5, x + 0.5], c=wall_color, lw=3)
 
 
 def one_d_reward_at_one_end(
@@ -524,9 +516,62 @@ def clean_up_reward_at_end(ax, n_columns=51):
         ax.plot([c - 0.5, c - 0.5], [1 - 0.5, 0 - 0.5], c="grey", lw=0.5)
 
 
-def calculate_sr_from_transitions(
-    transition_function: Union[np.ndarray, scipy.sparse.csr_matrix], gamma: float
-) -> np.ndarray:
-    n = transition_function.shape[0]
-    return np.linalg.inv(np.eye(n) - gamma * transition_function)
+def _get_neighbors(state: int, n_columns: int, n_rows: int) -> List[int]:
+    r, c = get_position_from_state(state, n_columns)
+    neighbors = []
+    for dr, dc in [[-1, 0], [1, 0], [0, -1], [0, 1]]:
+        if _check_valid(r + dr, n_rows) and _check_valid(c + dc, n_columns):
+            neighbors.append(
+                get_state_from_position(r + dr, c + dc, n_columns)
+            )
+    return neighbors
 
+
+def find_shortest_path(
+    state_value_function: np.ndarray,
+    transition_functions: List[np.ndarray],
+    goal_state: int,
+    start_state: int,
+    n_columns: int,
+    n_rows: int,
+) -> np.ndarray:
+    state = start_state
+    path = []
+
+    t_avg = np.mean(transition_functions, axis=0)
+
+    def filter_values(start_state, end_state, end_state_value):
+        if t_avg[start_state][end_state] > 0:
+            return end_state_value
+        return 0
+
+    while state is not goal_state:
+        neighbors = _get_neighbors(state, n_columns, n_rows)
+        values = {
+            n: filter_values(state, n, state_value_function[n])
+            for n in neighbors
+            if n not in path
+        }
+        state = max(values, key=values.get)
+        path.append(state)
+
+    return path
+
+
+def find_sortest_path_length(
+    state_value_function: np.ndarray,
+    transition_functions: List[np.ndarray],
+    goal_state: int,
+    start_state: int,
+    n_columns: int,
+    n_rows: int,
+) -> int:
+    path = find_shortest_path(
+        state_value_function,
+        transition_functions,
+        goal_state,
+        start_state,
+        n_columns,
+        n_rows,
+    )
+    return len(path)
