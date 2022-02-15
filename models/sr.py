@@ -3,7 +3,7 @@ from typing import Optional, List
 import numpy as np
 from scipy.special import logsumexp
 
-# from models.value_iteration_network import ValueIterationNetwork
+from models.value_iteration_network import ValueIterationNetwork
 from models.utils import (
     inverse_cmf_sampler,
     one_hot,
