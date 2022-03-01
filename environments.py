@@ -1,9 +1,10 @@
-from typing import List, Tuple, Union, Optional
+from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import scipy.sparse
 
-from models.utils import get_state_action_reward_from_sucessor_rewards, _check_valid
+from models.utils import (_check_valid,
+                          get_state_action_reward_from_sucessor_rewards)
 
 
 def define_valid_lattice_transitions(

@@ -1,15 +1,17 @@
-from typing import Optional, List
+from random import sample
+from typing import List, Optional, Union
 
 import numpy as np
 from scipy.special import logsumexp
+from tqdm import tqdm
 
-from models.value_iteration_network import ValueIterationNetwork
 from models.utils import (
+    calculate_sr_from_transitions,
+    get_state_action_reward_from_sucessor_rewards,
     inverse_cmf_sampler,
     one_hot,
-    get_state_action_reward_from_sucessor_rewards,
-    calculate_sr_from_transitions,
 )
+from models.value_iteration_network import ValueIterationNetwork
 
 
 def get_optimal_sr_from_transitions(
@@ -27,7 +29,13 @@ def get_optimal_sr_from_transitions(
     return calculate_sr_from_transitions(T_ss, gamma)
 
 
-class SR:
+def get_value_function_from_sr(
+    successor_representation: np.ndarray, state_reward_function: np.ndarray
+) -> np.ndarray:
+    return successor_representation.dot(state_reward_function)
+
+
+class SRResampler:
     """
     This version of the SR sampling mechanism comes from Stachenfeld, 2017.  Here,
     we assume randomly sampled transitions from the True generative process.
@@ -80,7 +88,7 @@ class SR:
             n_columns=self.n_columns,
             gamma=self.gamma,
             iterations=iterations,
-            return_interim_estimates=True,
+            return_interim_estimates=False,
         )
 
         return state_value_function
@@ -89,18 +97,19 @@ class SR:
         pass
 
     def _delta_update(
-        self, initial_state: int, successor_state: int, M: np.ndarray
+        self, initial_state: int, successor_state: int, sr: np.ndarray,
     ) -> np.ndarray:
 
-        M[initial_state, :] = M[initial_state, :] + self.learning_rate * (
+        sr = sr.copy()
+        sr[initial_state, :] = sr[initial_state, :] + self.learning_rate * (
             one_hot(initial_state, self.n_states)
-            + self.gamma * M[successor_state, :]
-            - M[initial_state]
+            + self.gamma * sr[successor_state, :]
+            - sr[initial_state, :]
         )
 
-        return M
+        return sr
 
-    def _draw_random_successor_state(self, inital_state: int, action: int) -> int:
+    def _sample_successor_state(self, inital_state: int, action: int) -> int:
         return inverse_cmf_sampler(self.transition_functions[action][inital_state, :])
 
     def _sample_action_from_value_function(
@@ -127,9 +136,7 @@ class SR:
         sampled_action = self._sample_action_from_value_function(
             sampled_initial_state, value_function,
         )
-        sampled_successor_state = self._draw_random_successor_state(
-            sampled_initial_state, sampled_action
-        )
+        sampled_successor_state = self._sample_successor_state(sampled_initial_state, sampled_action)
 
         return self._delta_update(
             sampled_initial_state, sampled_successor_state, successor_representation
@@ -139,4 +146,88 @@ class SR:
     def get_value_function(
         successor_representation: np.ndarray, state_reward_function: np.ndarray
     ) -> np.ndarray:
-        return successor_representation.dot(state_reward_function)
+        return get_value_function_from_sr(
+            successor_representation, state_reward_function
+        )
+
+    @staticmethod
+    def convert_state_value_to_q(
+        transition_functions: np.ndarray, state_value_function: np.ndarray, gamma: float
+    ) -> List[np.ndarray]:
+        # Q(s, a) = T(s, a, s')V(s')
+
+        n_actions = len(transition_functions)
+
+        q_values = [
+            gamma * transition_functions[a].dot(state_value_function)
+            for a in range(n_actions)
+        ]
+
+        return q_values
+
+    @staticmethod
+    def get_q_values(
+        transition_functions: np.ndarray,
+        successor_representation: np.ndarray,
+        state_reward_function: np.ndarray,
+        gamma: float = 1,
+    ) -> List[np.ndarray]:
+        # Q(s, a) = T(s, a, s')V(s')
+
+        n_actions = len(transition_functions)
+
+        state_value_function = get_value_function_from_sr(
+            successor_representation, state_reward_function
+        )
+
+        return SRResampler.convert_state_value_to_q(
+            transition_functions, state_value_function, gamma
+        )
+
+    def _resample_step(
+        self, sr: np.ndarray, state_value_function: np.ndarray
+    ) -> np.ndarray:
+        # sample each state w/o replacement
+        for sampled_state in sample(range(self.n_states), self.n_states):
+            sr = self._one_sample_update(sr, state_value_function)
+
+            # sample according to precomputed value function
+            sampled_action = self._sample_action_from_value_function(
+                sampled_state, state_value_function,
+            )
+            sampled_successor_state = self._sample_successor_state(sampled_state, sampled_action)
+
+            sr = self._delta_update(sampled_state, sampled_successor_state, sr)
+
+        return sr
+
+    def resample(
+        self,
+        initial_sr: np.ndarray,
+        state_values: Optional[np.ndarray] = None,
+        restimate_state_values: bool = True,
+        return_iterim_estimates: bool = False,
+        steps: int = 100,
+    ) -> Union[List[np.ndarray], np.ndarray]:
+
+        assert (
+            state_values is not None or restimate_state_values
+        ), "Must pass a state value function if not reestimating"
+
+        estimates = []
+
+        sr_est = initial_sr.copy()
+
+        for _ in tqdm(range(steps), desc="Resampling"):
+            if restimate_state_values:
+                state_values = get_value_function_from_sr(sr_est, self.reward_function)
+
+            sr_est = self._resample_step(sr_est, state_values)
+
+            if return_iterim_estimates:
+                estimates.append(sr_est)
+
+        if return_iterim_estimates:
+            return estimates
+
+        return sr_est
