@@ -7,8 +7,7 @@ import numpy as np
 from scipy import sparse
 from tqdm import tqdm
 
-from models.utils import (calculate_sr_from_transitions, inverse_cmf_sampler,
-                          softmax)
+from models.utils import calculate_sr_from_transitions, inverse_cmf_sampler, softmax
 
 N_ACTIONS = 4
 
@@ -49,7 +48,7 @@ class MCTS:
         end_states: List[int],
         transition_functions: List[Union[np.ndarray, sparse.csr_matrix]],
         state_reward_function: np.ndarray,
-        exploration_weight: float = 2 ** 0.5,
+        exploration_weight: float = 2**0.5,
         n_actions: int = 4,
         epsilon: float = 1,  # minimum visitiation constant
         max_depth: int = 1000,
@@ -133,7 +132,8 @@ class MCTS:
         return softmax(self._get_ucb_values(node))
 
     def select(
-        self, node: GridWorldNode,
+        self,
+        node: GridWorldNode,
     ) -> Tuple[List[Tuple[GridWorldNode, int]], GridWorldNode]:
 
         # path is list of (state, action) tuples
@@ -176,7 +176,7 @@ class MCTS:
             reward, depth = 0, 0
 
             while depth < self.max_depth:
-                reward += self._get_reward(node) * (self.gamma ** depth)
+                reward += self._get_reward(node) * (self.gamma**depth)
                 action = node.find_random_child()
                 node = self._draw_random_sucessor(node, action)
                 depth += 1
@@ -199,7 +199,7 @@ class MCTS:
         while True:
             if return_path:
                 path.append(node)
-            reward += self._get_reward(node) * (self.gamma ** depth)
+            reward += self._get_reward(node) * (self.gamma**depth)
             if self._is_terminal(node):
                 if return_path:
                     return reward, path
@@ -321,7 +321,7 @@ class MctsSr(MCTS):
         end_states: List[int],
         transition_functions: List[Union[np.ndarray, sparse.csr_matrix]],
         state_reward_function: np.ndarray,
-        exploration_weight: float = 2 ** 0.5,
+        exploration_weight: float = 2**0.5,
         n_actions: int = 4,
         epsilon: float = 1,  # minimum visitiation constant
         max_depth: int = 1000,

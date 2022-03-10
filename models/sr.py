@@ -15,7 +15,9 @@ from models.value_iteration_network import ValueIterationNetwork
 
 
 def get_optimal_sr_from_transitions(
-    transition_functions, optimal_policy, gamma=0.95,
+    transition_functions,
+    optimal_policy,
+    gamma=0.95,
 ):
 
     # turn optimal policy in to pmf
@@ -97,7 +99,10 @@ class SRResampler:
         pass
 
     def _delta_update(
-        self, initial_state: int, successor_state: int, sr: np.ndarray,
+        self,
+        initial_state: int,
+        successor_state: int,
+        sr: np.ndarray,
     ) -> np.ndarray:
 
         sr = sr.copy()
@@ -113,7 +118,9 @@ class SRResampler:
         return inverse_cmf_sampler(self.transition_functions[action][inital_state, :])
 
     def _sample_action_from_value_function(
-        self, state: int, value_function: np.ndarray,
+        self,
+        state: int,
+        value_function: np.ndarray,
     ) -> int:
 
         # marginalize out the successor state for each action
@@ -134,9 +141,12 @@ class SRResampler:
 
         # sample according to precomputed value function
         sampled_action = self._sample_action_from_value_function(
-            sampled_initial_state, value_function,
+            sampled_initial_state,
+            value_function,
         )
-        sampled_successor_state = self._sample_successor_state(sampled_initial_state, sampled_action)
+        sampled_successor_state = self._sample_successor_state(
+            sampled_initial_state, sampled_action
+        )
 
         return self._delta_update(
             sampled_initial_state, sampled_successor_state, successor_representation
@@ -193,9 +203,12 @@ class SRResampler:
 
             # sample according to precomputed value function
             sampled_action = self._sample_action_from_value_function(
-                sampled_state, state_value_function,
+                sampled_state,
+                state_value_function,
             )
-            sampled_successor_state = self._sample_successor_state(sampled_state, sampled_action)
+            sampled_successor_state = self._sample_successor_state(
+                sampled_state, sampled_action
+            )
 
             sr = self._delta_update(sampled_state, sampled_successor_state, sr)
 

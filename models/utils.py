@@ -28,7 +28,10 @@ def inverse_cmf_sampler(pmf: Union[np.ndarray, scipy.sparse.csr_matrix]) -> int:
     return np.array(np.cumsum(np.array(pmf)) < np.random.rand(), dtype=int).sum()
 
 
-def evaluate_policy(policy: np.ndarray, optimal_policy: np.ndarray,) -> np.ndarray:
+def evaluate_policy(
+    policy: np.ndarray,
+    optimal_policy: np.ndarray,
+) -> np.ndarray:
     """
 
     :param policy: binary vector of state-action, 1 if in optimal policy, zero otherwise (not pmf)

@@ -3,8 +3,7 @@ from typing import List, Optional, Tuple, Union
 import numpy as np
 import scipy.sparse
 
-from models.utils import (_check_valid,
-                          get_state_action_reward_from_sucessor_rewards)
+from models.utils import _check_valid, get_state_action_reward_from_sucessor_rewards
 
 
 def define_valid_lattice_transitions(
@@ -200,9 +199,20 @@ class GridWorld:
         self.n_columns = n_columns
         self.transition_functions = transition_functions
         self.state_reward_function = state_reward_function
-        self.state_action_reward_functions = get_state_action_reward_from_sucessor_rewards(
-            state_reward_function, transition_functions
+        self.state_action_reward_functions = (
+            get_state_action_reward_from_sucessor_rewards(
+                state_reward_function, transition_functions
+            )
         )
+
+    @staticmethod
+    def get_neighbors(state: int, n_columns: int, n_rows: int) -> List[int]:
+        r, c = get_position_from_state(state, n_columns)
+        neighbors = []
+        for dr, dc in [[-1, 0], [1, 0], [0, -1], [0, 1]]:
+            if _check_valid(r + dr, n_rows) and _check_valid(c + dc, n_columns):
+                neighbors.append(get_state_from_position(r + dr, c + dc, n_columns))
+        return neighbors
 
 
 def get_state_from_position(row: int, column: int, n_columns: int) -> int:
@@ -450,7 +460,9 @@ def make_thread_the_needle_diffusion_transitions(
     return convert_movements_to_transition_matrix(diffused_movements, n_columns, sparse)
 
 
-def clean_up_thread_the_needle_plot(ax, n_columns=8, n_rows=8, walls=None, wall_color='k'):
+def clean_up_thread_the_needle_plot(
+    ax, n_columns=8, n_rows=8, walls=None, wall_color="k"
+):
     ax.set_xticks([])
     ax.set_yticks([])
 
@@ -522,10 +534,27 @@ def _get_neighbors(state: int, n_columns: int, n_rows: int) -> List[int]:
     neighbors = []
     for dr, dc in [[-1, 0], [1, 0], [0, -1], [0, 1]]:
         if _check_valid(r + dr, n_rows) and _check_valid(c + dc, n_columns):
-            neighbors.append(
-                get_state_from_position(r + dr, c + dc, n_columns)
-            )
+            neighbors.append(get_state_from_position(r + dr, c + dc, n_columns))
     return neighbors
+
+
+def find_sortest_path_length(
+    state_value_function: np.ndarray,
+    transition_functions: List[np.ndarray],
+    goal_state: int,
+    start_state: int,
+    n_columns: int,
+    n_rows: int,
+) -> int:
+    path = find_shortest_path(
+        state_value_function,
+        transition_functions,
+        goal_state,
+        start_state,
+        n_columns,
+        n_rows,
+    )
+    return len(path)
 
 
 def find_shortest_path(
@@ -547,7 +576,7 @@ def find_shortest_path(
         return 0
 
     while state is not goal_state:
-        neighbors = _get_neighbors(state, n_columns, n_rows)
+        neighbors = GridWorld.get_neighbors(state, n_columns, n_rows)
         values = {
             n: filter_values(state, n, state_value_function[n])
             for n in neighbors
@@ -557,22 +586,3 @@ def find_shortest_path(
         path.append(state)
 
     return path
-
-
-def find_sortest_path_length(
-    state_value_function: np.ndarray,
-    transition_functions: List[np.ndarray],
-    goal_state: int,
-    start_state: int,
-    n_columns: int,
-    n_rows: int,
-) -> int:
-    path = find_shortest_path(
-        state_value_function,
-        transition_functions,
-        goal_state,
-        start_state,
-        n_columns,
-        n_rows,
-    )
-    return len(path)
