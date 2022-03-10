@@ -18,8 +18,17 @@ to trial (here, GridWorld instance to GridWorld instance within a task)
 
 
 class GridWorld(object):
-    def __init__(self, grid_world_size, walls, action_map, goal_dict, start_location, context,
-                 state_location_key=None, n_abstract_actions=4):
+    def __init__(
+        self,
+        grid_world_size,
+        walls,
+        action_map,
+        goal_dict,
+        start_location,
+        context,
+        state_location_key=None,
+        n_abstract_actions=4,
+    ):
         """
 
         :param grid_world_size: 2x2 tuple
@@ -36,23 +45,37 @@ class GridWorld(object):
         self.context = int(context)
         self.walls = walls
 
-        # need to create a transition function and reward function, which pretty much define the grid world
+        # need to create a transition function and reward function,
+        # which pretty much define the grid world
         n_states = grid_world_size[0] * grid_world_size[1]  # assume rectangle
         if state_location_key is None:
-            self.state_location_key = \
-                {(x, y): (y + x * grid_world_size[1]) for y in range(grid_world_size[1]) for x in
-                    range(grid_world_size[0])}
+            self.state_location_key = {
+                (x, y): (y + x * grid_world_size[1])
+                for y in range(grid_world_size[1])
+                for x in range(grid_world_size[0])
+            }
         else:
             self.state_location_key = state_location_key
 
-        self.inverse_state_loc_key = {value: key for key, value in self.state_location_key.iteritems()}
+        self.inverse_state_loc_key = {
+            value: key for key, value in self.state_location_key.items()
+        }
 
         # define movements as change in x and y position:
-        self.cardinal_direction_key = {u'up': (0, 1), u'down': (0, -1), u'left': (-1, 0), u'right': (1, 0)}
-        self.abstract_action_key = {dir_: ii for ii, dir_ in enumerate(self.cardinal_direction_key.keys())}
-        self.abstract_action_key[u'wait'] = -1
+        self.cardinal_direction_key = {
+            "up": (0, 1),
+            "down": (0, -1),
+            "left": (-1, 0),
+            "right": (1, 0),
+        }
+        self.abstract_action_key = {
+            dir_: ii for ii, dir_ in enumerate(self.cardinal_direction_key.keys())
+        }
+        self.abstract_action_key["wait"] = -1
 
-        self.inverse_abstract_action_key = {ii: dir_ for dir_, ii in self.abstract_action_key.iteritems()}
+        self.inverse_abstract_action_key = {
+            ii: dir_ for dir_, ii in self.abstract_action_key.items()
+        }
 
         # redefine walls pythonicly:
         wall_key = {(x, y): wall_side for x, y, wall_side in walls}
@@ -60,13 +83,15 @@ class GridWorld(object):
 
         # make transition function (usable by the agent)!
         # transition function: takes in state, abstract action, state' and returns probability
-        self.transition_function = np.zeros((n_states, n_abstract_actions, n_states), dtype=float)
+        self.transition_function = np.zeros(
+            (n_states, n_abstract_actions, n_states), dtype=float
+        )
         for s in range(n_states):
 
             x, y = self.inverse_state_loc_key[s]
 
             # cycle through movement, check for both walls and for
-            for movement, (dx, dy) in self.cardinal_direction_key.iteritems():
+            for movement, (dx, dy) in self.cardinal_direction_key.items():
                 aa = self.abstract_action_key[movement]
 
                 # check if the movement stays on the grid
@@ -86,28 +111,29 @@ class GridWorld(object):
 
         # set up goals
         self.goal_dictionary = goal_dict
-        self.goal_locations = {loc: label for loc, (label, _) in goal_dict.iteritems()}
-        self.goal_values = {label: r for _, (label, r) in goal_dict.iteritems()}
+        self.goal_locations = {loc: label for loc, (label, _) in goal_dict.items()}
+        self.goal_values = {label: r for _, (label, r) in goal_dict.items()}
 
         # make the goal states self absorbing!!
-        for loc in self.goal_locations.iterkeys():
+        for loc in self.goal_locations.keys():
             s = self.state_location_key[loc]
             self.transition_function[s, :, :] = 0.0
             self.transition_function[s, :, s] = 1.0
 
         # store the action map
-        self.action_map = {int(key): value for key, value in action_map.iteritems()}
+        self.action_map = {int(key): value for key, value in action_map.items()}
 
         self.n_primitive_actions = len(self.action_map.keys())
 
         # define a successor function in terms of key-press for game interactions
-        # successor function: takes in location (x, y) and action (button press) and returns successor location (x, y)
+        # successor function: takes in location (x, y) and action (button press)
+        # and returns successor location (x, y)
         self.successor_function = dict()
         for s in range(n_states):
             x, y = self.inverse_state_loc_key[s]
 
             # this loops through keys associated with a movement (valid key-presses only)
-            for key_press, movement in self.action_map.iteritems():
+            for key_press, movement in self.action_map.items():
                 dx, dy = self.cardinal_direction_key[movement]
 
                 if (x + dx, y + dy) not in self.state_location_key.keys():
@@ -123,7 +149,7 @@ class GridWorld(object):
                     self.successor_function[((x, y), key_press)] = (x + dx, y + dy)
 
         # store keys used in the task for lookup value
-        self.keys_used = [key for key in self.action_map.iterkeys()]
+        self.keys_used = [key for key in self.action_map.keys()]
 
         # store walls
         self.wall_key = wall_key
@@ -142,7 +168,7 @@ class GridWorld(object):
             aa = self.action_map[key_press]
         else:
             new_location = self.current_location
-            aa = u'wait'
+            aa = "wait"
 
         # update the current location before returning
         self.current_location = new_location
@@ -177,33 +203,40 @@ class GridWorld(object):
         self._draw_grid(ax=ax)
         self._draw_wall(ax=ax)
 
-        ax.plot([x, x], [y, y], 'bo', markersize=12)
+        ax.plot([x, x], [y, y], "bo", markersize=12)
 
         # draw the goal locations:
-        for loc, (label, _) in self.goal_dictionary.iteritems():
-            ax.annotate(label, xy=(loc[0] - 0.25, loc[1] - 0.25), xytext=(loc[0] - 0.25, loc[1] - 0.25), size=14)
+        for loc, (label, _) in self.goal_dictionary.items():
+            ax.annotate(
+                label,
+                xy=(loc[0] - 0.25, loc[1] - 0.25),
+                xytext=(loc[0] - 0.25, loc[1] - 0.25),
+                size=14,
+            )
         return fig, ax
 
     def draw_move(self, key_press, fig=None, ax=None):
         fig, ax = self.draw_state(fig=fig, ax=ax)
-        print "Current State:", self.get_location()
+        print(f"Current State: {self.get_location()}")
 
         # use the successor function!
         if key_press in self.keys_used:
             (xp, yp) = self.successor_function[self.current_location, key_press]
-            print "Key Press:", str(key_press), "; Corresponding Movement:", self.action_map[key_press]
+            print(
+                f"Key Press: {key_press}; Corresponding Movement: {self.action_map[key_press]}"
+            )
         else:
             (xp, yp) = self.current_location
-            print "Key Press:", str(key_press), "; Corresponding Movement: wait"
+            print(f"Key Press: {key_press}; Corresponding Movement: wait")
 
-        ax.plot([xp, xp], [yp, yp], 'go', markersize=14)
+        ax.plot([xp, xp], [yp, yp], "go", markersize=14)
 
         x0, y0 = self.current_location
         dx = xp - x0
         dy = yp - y0
         dx = (abs(dx) - 0.5) * np.sign(dx)
         dy = (abs(dy) - 0.5) * np.sign(dy)
-        ax.arrow(x0, y0, dx, dy, width=0.005, color='k')
+        ax.arrow(x0, y0, dx, dy, width=0.005, color="k")
 
         # plt.show()
         time.sleep(0.1)
@@ -215,8 +248,16 @@ class GridWorld(object):
         # sns.set_style('white')
         for x in range(self.grid_world_size[0] + 1):
             for y in range(self.grid_world_size[1] + 1):
-                ax.plot([-0.5, self.grid_world_size[0] - 0.5], [y - 0.5, y - 0.5], color=[0.85, 0.85, 0.85])
-                ax.plot([x - 0.5, x - 0.5], [-0.5, self.grid_world_size[1] - 0.5], color=[0.85, 0.85, 0.85])
+                ax.plot(
+                    [-0.5, self.grid_world_size[0] - 0.5],
+                    [y - 0.5, y - 0.5],
+                    color=[0.85, 0.85, 0.85],
+                )
+                ax.plot(
+                    [x - 0.5, x - 0.5],
+                    [-0.5, self.grid_world_size[1] - 0.5],
+                    color=[0.85, 0.85, 0.85],
+                )
 
         # finish the plot!
         # sns.despine(left=True, bottom=True)
@@ -224,15 +265,15 @@ class GridWorld(object):
 
     def _draw_wall(self, ax):
         # plot the walls!
-        for (x, y), direction in self.wall_key.iteritems():
-            if direction == u'right':
-                ax.plot([x + 0.5, x + 0.5], [y - 0.5, y + 0.5], 'k')
-            elif direction == u'left':
-                ax.plot([x - 0.5, x - 0.5], [y - 0.5, y + 0.5], 'k')
-            elif direction == u'up':
-                ax.plot([x - 0.5, x + 0.5], [y + 0.5, y + 0.5], 'k')
+        for (x, y), direction in self.wall_key.items():
+            if direction == "right":
+                ax.plot([x + 0.5, x + 0.5], [y - 0.5, y + 0.5], "k")
+            elif direction == "left":
+                ax.plot([x - 0.5, x - 0.5], [y - 0.5, y + 0.5], "k")
+            elif direction == "up":
+                ax.plot([x - 0.5, x + 0.5], [y + 0.5, y + 0.5], "k")
             else:
-                ax.plot([x - 0.5, x + 0.5], [y - 0.5, y - 0.5], 'k')
+                ax.plot([x - 0.5, x + 0.5], [y - 0.5, y - 0.5], "k")
 
     def draw_transition_function(self):
         # first use the gw_size to draw the most basic grid
@@ -242,7 +283,7 @@ class GridWorld(object):
         self._draw_grid(ax=ax)
 
         # maybe draw the actions with different colors?
-        action_color_code = {0: 'b', 1: 'r', 2: 'g', 3: 'm'}
+        action_color_code = {0: "b", 1: "r", 2: "g", 3: "m"}
         for s in range(self.transition_function.shape[0]):
             for a in range(self.transition_function.shape[1]):
                 for sp in range(self.transition_function.shape[2]):
@@ -273,14 +314,19 @@ class GridWorld(object):
         fig, ax = plt.subplots(figsize=(4, 4))
         self.draw_state(ax=ax)
 
-        displacements = {u'up': (0.0, 0.75), u'left': (-0.75, 0.0), u'right': (0.75, 0.0), u'down': (0.0, -0.75)}
+        displacements = {
+            "up": (0.0, 0.75),
+            "left": (-0.75, 0.0),
+            "right": (0.75, 0.0),
+            "down": (0.0, -0.75),
+        }
 
         for s in range(self.transition_function.shape[0]):
             aa = self.inverse_abstract_action_key[pi[s]]
             x, y = self.inverse_state_loc_key[s]
             dx, dy = displacements[aa]
 
-            ax.arrow(x, y, dx, dy, width=0.01, color='k')
+            ax.arrow(x, y, dx, dy, width=0.01, color="k")
 
         self._draw_wall(ax=ax)
 
@@ -293,16 +339,22 @@ class Task(object):
 
 
 class Experiment(Task):
-    """ This is a data structure that holds all of the trials a subject encountered in a format readable by the models.
+    """ This is a data structure that holds all of the trials
+     a subject encountered in a format readable by the models.
     This is used primarily for the purposes of initialization of the agents.
     """
 
-    def __init__(self, list_start_location, list_goals, list_context, list_action_map,
-                 grid_world_size=(6, 6),
-                 n_abstract_actions=4,
-                 primitive_actions=(72, 74, 75, 76, 65, 83, 68, 70),
-                 list_walls=None,
-                 ):
+    def __init__(
+        self,
+        list_start_location,
+        list_goals,
+        list_context,
+        list_action_map,
+        grid_world_size=(6, 6),
+        n_abstract_actions=4,
+        primitive_actions=(72, 74, 75, 76, 65, 83, 68, 70),
+        list_walls=None,
+    ):
         """
         :return: None
         """
@@ -321,19 +373,27 @@ class Experiment(Task):
         # count the number (and get the name) of the goals
         self.goals = set([g for g, _ in list_goals[0].itervalues()])
         self.goal_index = {g: ii for ii, g in enumerate(self.goals)}
-        self.reverse_goal_index = {v: k for k, v in self.goal_index.iteritems()}
+        self.reverse_goal_index = {v: k for k, v in self.goal_index.items()}
         self.n_goals = len(self.goals)
 
         # create a state location key
-        self.state_location_key = \
-            {(x, y): (y + x * grid_world_size[1]) for y in range(grid_world_size[1]) for x in range(grid_world_size[0])}
+        self.state_location_key = {
+            (x, y): (y + x * grid_world_size[1])
+            for y in range(grid_world_size[1])
+            for x in range(grid_world_size[0])
+        }
 
-        self.inverse_state_loc_key = {value: key for key, value in self.state_location_key.iteritems()}
+        self.inverse_state_loc_key = {
+            value: key for key, value in self.state_location_key.items()
+        }
 
         # create a key-code between keyboard presses and action numbers
-        self.keyboard_action_code = {unicode(keypress): a for a, keypress in enumerate(primitive_actions)}
+        self.keyboard_action_code = {
+            str(keypress): a for a, keypress in enumerate(primitive_actions)
+        }
 
-        # for each trial, I need the walls, action_map and goal location and start location to define the grid world
+        # for each trial, I need the walls, action_map and goal location and
+        # start location to define the grid world
         self.trials = list()
         if list_walls is None:
             list_walls = [list()] * self.n_trials
@@ -348,7 +408,7 @@ class Experiment(Task):
                     list_start_location[ii],
                     list_context[ii],
                     state_location_key=self.state_location_key,
-                    n_abstract_actions=n_abstract_actions
+                    n_abstract_actions=n_abstract_actions,
                 )
             )
 
@@ -363,7 +423,7 @@ class Experiment(Task):
 
         set_keys = set()
         for m in list_action_map:
-            key = tuple((a, dir_) for a, dir_ in m.iteritems())
+            key = tuple((a, dir_) for a, dir_ in m.items())
 
             set_keys.add(key)
 
@@ -409,14 +469,16 @@ class Experiment(Task):
 
     def get_goal_values(self):
         goal_values = np.zeros(self.n_goals)
-        for g, idx in self.goal_index.iteritems():
+        for g, idx in self.goal_index.items():
             goal_values[idx] = self.current_trial.goal_values[g]
 
         return goal_values
 
     def get_mapping_function(self, aa):
-        mapping = np.zeros((self.n_primitive_actions, self.n_abstract_actions), dtype=float)
-        for a, dir_ in self.current_trial.action_map.iteritems():
+        mapping = np.zeros(
+            (self.n_primitive_actions, self.n_abstract_actions), dtype=float
+        )
+        for a, dir_ in self.current_trial.action_map.items():
             aa0 = self.current_trial.abstract_action_key[dir_]
             mapping[a, aa0] = 1
 
@@ -460,34 +522,47 @@ class Experiment(Task):
 
 
 class RoomsProblem(Task):
-
-    def __init__(self, room_mappings, successor_function, reward_function,
-                 list_start_locations,
-                 list_door_locations,
-                 grid_world_size=(6, 6),
-                 n_abstract_actions=4,
-                 primitive_actions=(72, 74, 75, 76, 65, 83, 68, 70),
-                 list_walls=None
-                 ):
+    def __init__(
+        self,
+        room_mappings,
+        successor_function,
+        reward_function,
+        list_start_locations,
+        list_door_locations,
+        grid_world_size=(6, 6),
+        n_abstract_actions=4,
+        primitive_actions=(72, 74, 75, 76, 65, 83, 68, 70),
+        list_walls=None,
+    ):
 
         # create a state location key
         self.state_location_key = {
             (x, y): (y + x * grid_world_size[1])
             for y in range(grid_world_size[1])
             for x in range(grid_world_size[0])
-            }
+        }
 
         self.rooms = dict()
         for r in range(len(room_mappings)):
-            goal_dict = {l: (g, reward_function[r][g]) for g, l in list_door_locations[r].iteritems()}
+            goal_dict = {
+                l: (g, reward_function[r][g])
+                for g, l in list_door_locations[r].items()
+            }
 
             if list_walls is not None:
                 walls = list_walls[r]
             else:
                 walls = []
 
-            self.rooms[r] = GridWorld(grid_world_size, walls, room_mappings[r], goal_dict,
-                                      list_start_locations[r], r, state_location_key=self.state_location_key)
+            self.rooms[r] = GridWorld(
+                grid_world_size,
+                walls,
+                room_mappings[r],
+                goal_dict,
+                list_start_locations[r],
+                r,
+                state_location_key=self.state_location_key,
+            )
 
         self.current_room_number = 0
         self.current_room = self.rooms[0]
@@ -498,9 +573,11 @@ class RoomsProblem(Task):
 
         self.trial_number = 1  # number of rooms the agent has visited
         self.goal_index = {
-            g: ii for ii, g in
-            enumerate(set([g for d in reward_function.itervalues() for g in d.keys()]))
-                          }
+            g: ii
+            for ii, g in enumerate(
+                set([g for d in reward_function.itervalues() for g in d.keys()])
+            )
+        }
         self.n_goals = len(self.goal_index.keys())
         self.n_abstract_actions = n_abstract_actions
         self.n_primitive_actions = len(primitive_actions)
@@ -560,7 +637,7 @@ class RoomsProblem(Task):
 
     def get_goal_values(self):
         goal_values = np.zeros(self.n_goals)
-        for g, idx in self.goal_index.iteritems():
+        for g, idx in self.goal_index.items():
             goal_values[idx] = self.current_room.goal_values[g]
         return goal_values
 
@@ -568,9 +645,10 @@ class RoomsProblem(Task):
         return self.goal_index[goal]
 
     def get_mapping_function(self, aa):
-        mapping = np.zeros((self.n_primitive_actions,
-                            self.n_abstract_actions), dtype=float)
-        for a, dir_ in self.current_room.action_map.iteritems():
+        mapping = np.zeros(
+            (self.n_primitive_actions, self.n_abstract_actions), dtype=float
+        )
+        for a, dir_ in self.current_room.action_map.items():
             aa0 = self.current_room.abstract_action_key[dir_]
             mapping[a, aa0] = 1
 
