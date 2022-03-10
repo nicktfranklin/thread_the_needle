@@ -3,7 +3,8 @@ from typing import List, Optional, Tuple, Union
 import numpy as np
 import scipy.sparse
 
-from models.utils import _check_valid, get_state_action_reward_from_sucessor_rewards
+from models.utils import get_state_action_reward_from_sucessor_rewards
+from environments.utils import _check_valid
 
 
 def define_valid_lattice_transitions(
@@ -199,30 +200,30 @@ class GridWorld:
         self.n_columns = n_columns
         self.transition_functions = transition_functions
         self.state_reward_function = state_reward_function
-        self.state_action_reward_functions = (
-            get_state_action_reward_from_sucessor_rewards(
-                state_reward_function, transition_functions
-            )
+        self.state_action_reward_functions = get_state_action_reward_from_sucessor_rewards(
+            state_reward_function, transition_functions
         )
 
     @staticmethod
+    def get_state_from_position(row: int, column: int, n_columns: int) -> int:
+        return n_columns * row + column
+
+    @staticmethod
+    def get_position_from_state(state: int, n_columns: int) -> Tuple[int, int]:
+        row = state // n_columns
+        column = state % n_columns
+        return row, column
+
+    @staticmethod
     def get_neighbors(state: int, n_columns: int, n_rows: int) -> List[int]:
-        r, c = get_position_from_state(state, n_columns)
+        r, c = GridWorld.get_position_from_state(state, n_columns)
         neighbors = []
         for dr, dc in [[-1, 0], [1, 0], [0, -1], [0, 1]]:
             if _check_valid(r + dr, n_rows) and _check_valid(c + dc, n_columns):
-                neighbors.append(get_state_from_position(r + dr, c + dc, n_columns))
+                neighbors.append(
+                    GridWorld.get_state_from_position(r + dr, c + dc, n_columns)
+                )
         return neighbors
-
-
-def get_state_from_position(row: int, column: int, n_columns: int) -> int:
-    return n_columns * row + column
-
-
-def get_position_from_state(state: int, n_columns: int) -> Tuple[int, int]:
-    row = state // n_columns
-    column = state % n_columns
-    return row, column
 
 
 def make_thread_the_needle_walls(n_columns: int) -> List[List[int]]:
@@ -266,49 +267,49 @@ def make_thread_the_needle_optimal_policy(n_rows: int, n_columns: int) -> np.nda
     # In the first room, along the left wall
     c = n_columns // 2
     for r in range(n_rows - 1):
-        state = get_state_from_position(r, c, n_columns)
+        state = GridWorld.get_state_from_position(r, c, n_columns)
         optimal_policy[state, :] = np.array([0, 0, 0, 1])
 
     # in the first room, along the bottom
     r = n_rows - 1
     for c in range(n_columns // 2, n_columns):
-        state = get_state_from_position(r, c, n_columns)
+        state = GridWorld.get_state_from_position(r, c, n_columns)
         optimal_policy[state, :] = np.array([0, 1, 0, 0])
 
     # everywhere else in the first room
     for r in range(n_rows - 1):
         for c in range(n_columns // 2 + 1, n_columns):
-            state = get_state_from_position(r, c, n_columns)
+            state = GridWorld.get_state_from_position(r, c, n_columns)
             optimal_policy[state, :] = np.array([0, 1, 0, 1])
 
     # first spot in second room
     r = n_rows - 1
     c = n_columns // 2 - 1
-    state = get_state_from_position(r, c, n_columns)
+    state = GridWorld.get_state_from_position(r, c, n_columns)
     optimal_policy[state, :] = np.array([1, 0, 0, 0])
 
     # along right wall in second room
     c = n_columns // 2 - 1
     for r in range(n_rows // 2, n_rows - 1):
-        state = get_state_from_position(r, c, n_columns)
+        state = GridWorld.get_state_from_position(r, c, n_columns)
         optimal_policy[state, :] = np.array([1, 0, 0, 0])
 
     # along top wall in second room
     r = n_rows // 2
     for c in range(n_columns // 2 - 1):
-        state = get_state_from_position(r, c, n_columns)
+        state = GridWorld.get_state_from_position(r, c, n_columns)
         optimal_policy[state, :] = np.array([0, 0, 1, 0])
 
     # everywhere else in the second room
     for r in range(n_rows // 2 + 1, n_rows):
         for c in range(n_columns // 2 - 1):
-            state = get_state_from_position(r, c, n_columns)
+            state = GridWorld.get_state_from_position(r, c, n_columns)
             optimal_policy[state, :] = np.array([1, 0, 1, 0])
 
     # everywhere else
     for r in range(n_rows // 2):
         for c in range(n_columns // 2):
-            state = get_state_from_position(r, c, n_columns)
+            state = GridWorld.get_state_from_position(r, c, n_columns)
             optimal_policy[state, :] = np.array([1, 1, 0, 0])
 
     # goal state (overwrites previous value)
@@ -344,55 +345,55 @@ def make_thread_the_needle_with_doors_optimal_policy(
     # In the first room, along the left wall
     c = n_columns // 2
     for r in range(n_rows - 1):
-        state = get_state_from_position(r, c, n_columns)
+        state = GridWorld.get_state_from_position(r, c, n_columns)
         optimal_policy[state, :] = np.array([1, 1, 0, 0])
 
     # in the first room, along the bottom
     r = n_rows - 1
     for c in range(n_columns // 2, n_columns):
-        state = get_state_from_position(r, c, n_columns)
+        state = GridWorld.get_state_from_position(r, c, n_columns)
         optimal_policy[state, :] = np.array([1, 1, 0, 0])
 
     # everywhere else in the first room
     for r in range(n_rows - 1):
         for c in range(n_columns // 2 + 1, n_columns):
-            state = get_state_from_position(r, c, n_columns)
+            state = GridWorld.get_state_from_position(r, c, n_columns)
             optimal_policy[state, :] = np.array([1, 1, 0, 0])
 
     # first spot in second room
     r = n_rows - 1
     c = n_columns // 2 - 1
-    state = get_state_from_position(r, c, n_columns)
+    state = GridWorld.get_state_from_position(r, c, n_columns)
     optimal_policy[state, :] = np.array([0, 0, 1, 0])
 
     # along right wall in second room
     c = n_columns // 2 - 1
     for r in range(n_rows // 2, n_rows - 1):
-        state = get_state_from_position(r, c, n_columns)
+        state = GridWorld.get_state_from_position(r, c, n_columns)
         optimal_policy[state, :] = np.array([0, 0, 0, 1])
 
     # along top wall in second room
     r = n_rows // 2
     for c in range(n_columns // 2 - 1):
-        state = get_state_from_position(r, c, n_columns)
+        state = GridWorld.get_state_from_position(r, c, n_columns)
         optimal_policy[state, :] = np.array([0, 0, 1, 1])
 
     # everywhere else in the second room
     for r in range(n_rows // 2 + 1, n_rows):
         for c in range(n_columns // 2 - 1):
-            state = get_state_from_position(r, c, n_columns)
+            state = GridWorld.get_state_from_position(r, c, n_columns)
             optimal_policy[state, :] = np.array([0, 0, 1, 1])
 
     # everywhere else
     for r in range(n_rows // 2):
         for c in range(n_columns // 2):
-            state = get_state_from_position(r, c, n_columns)
+            state = GridWorld.get_state_from_position(r, c, n_columns)
             optimal_policy[state, :] = np.array([1, 1, 0, 0])
 
     # top row
     c = 0
     for r in range(n_rows):
-        state = get_state_from_position(r, c, n_columns)
+        state = GridWorld.get_state_from_position(r, c, n_columns)
         optimal_policy[state, :] = np.array([0, 1, 0, 0])
 
     # goal state (overwrites previous value)
@@ -400,11 +401,11 @@ def make_thread_the_needle_with_doors_optimal_policy(
 
     # special case -- top-right and bottom left corners the optimal policy is random
     r, c = 0, n_columns - 1
-    state = get_state_from_position(r, c, n_columns)
+    state = GridWorld.get_state_from_position(r, c, n_columns)
     optimal_policy[state, :] = 1
 
     r, c = n_rows - 1, 0
-    state = get_state_from_position(r, c, n_columns)
+    state = GridWorld.get_state_from_position(r, c, n_columns)
     optimal_policy[state, :] = 1
 
     return optimal_policy
@@ -476,8 +477,8 @@ def clean_up_thread_the_needle_plot(
         walls = make_thread_the_needle_walls(n_columns)
 
     for s0, s1 in walls:
-        r0, c0 = get_position_from_state(s0, n_columns)
-        r1, c1 = get_position_from_state(s1, n_columns)
+        r0, c0 = GridWorld.get_position_from_state(s0, n_columns)
+        r1, c1 = GridWorld.get_position_from_state(s1, n_columns)
 
         x = (r0 + r1) / 2
         y = (c0 + c1) / 2
@@ -527,15 +528,6 @@ def clean_up_reward_at_end(ax, n_columns=51):
     ax.set_yticks([])
     for c in range(n_columns):
         ax.plot([c - 0.5, c - 0.5], [1 - 0.5, 0 - 0.5], c="grey", lw=0.5)
-
-
-def _get_neighbors(state: int, n_columns: int, n_rows: int) -> List[int]:
-    r, c = get_position_from_state(state, n_columns)
-    neighbors = []
-    for dr, dc in [[-1, 0], [1, 0], [0, -1], [0, 1]]:
-        if _check_valid(r + dr, n_rows) and _check_valid(c + dc, n_columns):
-            neighbors.append(get_state_from_position(r + dr, c + dc, n_columns))
-    return neighbors
 
 
 def find_sortest_path_length(

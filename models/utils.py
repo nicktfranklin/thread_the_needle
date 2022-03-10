@@ -42,10 +42,6 @@ def evaluate_policy(
     return 1 - np.sum(optimal_policy * policy, axis=1)
 
 
-def _check_valid(pos, max_pos):
-    return (pos > -1) and (pos < max_pos)
-
-
 def softmax(state_action_values: np.ndarray, beta: float = 1) -> np.ndarray:
     assert beta > 0, "Beta must be strictly positive!"
 
