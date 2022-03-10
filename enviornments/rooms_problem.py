@@ -1,6 +1,7 @@
-import numpy as np
-import matplotlib.pyplot as plt
 import time
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 """
 This is a variant of the grid worlds where goals are labeled and known to the agent, but their reward value
@@ -339,7 +340,7 @@ class Task(object):
 
 
 class Experiment(Task):
-    """ This is a data structure that holds all of the trials
+    """This is a data structure that holds all of the trials
      a subject encountered in a format readable by the models.
     This is used primarily for the purposes of initialization of the agents.
     """
@@ -545,8 +546,7 @@ class RoomsProblem(Task):
         self.rooms = dict()
         for r in range(len(room_mappings)):
             goal_dict = {
-                l: (g, reward_function[r][g])
-                for g, l in list_door_locations[r].items()
+                l: (g, reward_function[r][g]) for g, l in list_door_locations[r].items()
             }
 
             if list_walls is not None:
