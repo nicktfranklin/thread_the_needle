@@ -4,12 +4,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 """
-This is a variant of the grid worlds where goals are labeled and known to the agent, but their reward value
-is not. This allows dissociating a movements towards a goal from raw stimulus-response associations and
-can be used to force planning (both by moving the goals from trial to trial).
+This is a variant of the grid worlds where goals are labeled and known to the agent,
+ but their reward value is not. This allows dissociating a movements towards a goal
+  from raw stimulus-response associations and can be used to force planning (both by 
+  moving the goals from trial to trial).
 
-Reward associations are meant to be constant for each goal, but the location is meant to change from trial
-to trial (here, GridWorld instance to GridWorld instance within a task)
+Reward associations are meant to be constant for each goal, but the location is 
+meant to change from trial to trial (here, GridWorld instance to GridWorld instance within a task)
 
 
 """
@@ -58,9 +59,7 @@ class GridWorld(object):
         else:
             self.state_location_key = state_location_key
 
-        self.inverse_state_loc_key = {
-            value: key for key, value in self.state_location_key.items()
-        }
+        self.inverse_state_loc_key = {value: key for key, value in self.state_location_key.items()}
 
         # define movements as change in x and y position:
         self.cardinal_direction_key = {
@@ -84,9 +83,7 @@ class GridWorld(object):
 
         # make transition function (usable by the agent)!
         # transition function: takes in state, abstract action, state' and returns probability
-        self.transition_function = np.zeros(
-            (n_states, n_abstract_actions, n_states), dtype=float
-        )
+        self.transition_function = np.zeros((n_states, n_abstract_actions, n_states), dtype=float)
         for s in range(n_states):
 
             x, y = self.inverse_state_loc_key[s]
@@ -223,9 +220,7 @@ class GridWorld(object):
         # use the successor function!
         if key_press in self.keys_used:
             (xp, yp) = self.successor_function[self.current_location, key_press]
-            print(
-                f"Key Press: {key_press}; Corresponding Movement: {self.action_map[key_press]}"
-            )
+            print(f"Key Press: {key_press}; Corresponding Movement: {self.action_map[key_press]}")
         else:
             (xp, yp) = self.current_location
             print(f"Key Press: {key_press}; Corresponding Movement: wait")
@@ -384,9 +379,7 @@ class Experiment(Task):
             for x in range(grid_world_size[0])
         }
 
-        self.inverse_state_loc_key = {
-            value: key for key, value in self.state_location_key.items()
-        }
+        self.inverse_state_loc_key = {value: key for key, value in self.state_location_key.items()}
 
         # create a key-code between keyboard presses and action numbers
         self.keyboard_action_code = {
@@ -476,9 +469,7 @@ class Experiment(Task):
         return goal_values
 
     def get_mapping_function(self, aa):
-        mapping = np.zeros(
-            (self.n_primitive_actions, self.n_abstract_actions), dtype=float
-        )
+        mapping = np.zeros((self.n_primitive_actions, self.n_abstract_actions), dtype=float)
         for a, dir_ in self.current_trial.action_map.items():
             aa0 = self.current_trial.abstract_action_key[dir_]
             mapping[a, aa0] = 1
@@ -525,8 +516,8 @@ class Experiment(Task):
 class RoomsProblem(Task):
     def __init__(
         self,
-        room_mappings,
-        successor_function,
+        action_mappings,
+        room_successor_functions,
         reward_function,
         list_start_locations,
         list_door_locations,
@@ -544,10 +535,8 @@ class RoomsProblem(Task):
         }
 
         self.rooms = dict()
-        for r in range(len(room_mappings)):
-            goal_dict = {
-                l: (g, reward_function[r][g]) for g, l in list_door_locations[r].items()
-            }
+        for r in range(len(action_mappings)):
+            goal_dict = {l: (g, reward_function[r][g]) for g, l in list_door_locations[r].items()}
 
             if list_walls is not None:
                 walls = list_walls[r]
@@ -557,7 +546,7 @@ class RoomsProblem(Task):
             self.rooms[r] = GridWorld(
                 grid_world_size,
                 walls,
-                room_mappings[r],
+                action_mappings[r],
                 goal_dict,
                 list_start_locations[r],
                 r,
@@ -568,15 +557,13 @@ class RoomsProblem(Task):
         self.current_room = self.rooms[0]
         self.n_rooms = len(self.rooms)
         self.rooms[None] = None  # augment rooms with end state
-        self.successor_function = successor_function
+        self.successor_function = room_successor_functions
         self.reward_function = reward_function
 
         self.trial_number = 1  # number of rooms the agent has visited
         self.goal_index = {
             g: ii
-            for ii, g in enumerate(
-                set([g for d in reward_function.values() for g in d.keys()])
-            )
+            for ii, g in enumerate(set([g for d in reward_function.values() for g in d.keys()]))
         }
         self.n_goals = len(self.goal_index.keys())
         self.n_abstract_actions = n_abstract_actions
@@ -607,6 +594,9 @@ class RoomsProblem(Task):
 
     def get_current_room(self):
         return self.current_room_number
+
+    def draw_current_state(self):
+        self.current_room.draw_state()
 
     def get_current_context(self):
         return self.get_current_room()
@@ -645,9 +635,7 @@ class RoomsProblem(Task):
         return self.goal_index[goal]
 
     def get_mapping_function(self, aa):
-        mapping = np.zeros(
-            (self.n_primitive_actions, self.n_abstract_actions), dtype=float
-        )
+        mapping = np.zeros((self.n_primitive_actions, self.n_abstract_actions), dtype=float)
         for a, dir_ in self.current_room.action_map.items():
             aa0 = self.current_room.abstract_action_key[dir_]
             mapping[a, aa0] = 1
