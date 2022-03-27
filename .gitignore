@@ -1,0 +1,7 @@
+/images/*
+*.pdf
+*.png
+/images
+.ipynb_checkpoints/*
+.vscode
+.idea

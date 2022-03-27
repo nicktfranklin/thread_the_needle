@@ -372,7 +372,7 @@ class Experiment(Task):
         self.n_ctx = len(set(list_context))
 
         # count the number (and get the name) of the goals
-        self.goals = set([g for g, _ in list_goals[0].itervalues()])
+        self.goals = set([g for g, _ in list_goals[0].values()])
         self.goal_index = {g: ii for ii, g in enumerate(self.goals)}
         self.reverse_goal_index = {v: k for k, v in self.goal_index.items()}
         self.n_goals = len(self.goals)
@@ -575,7 +575,7 @@ class RoomsProblem(Task):
         self.goal_index = {
             g: ii
             for ii, g in enumerate(
-                set([g for d in reward_function.itervalues() for g in d.keys()])
+                set([g for d in reward_function.values() for g in d.keys()])
             )
         }
         self.n_goals = len(self.goal_index.keys())
