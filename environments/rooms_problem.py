@@ -2,6 +2,7 @@ import time
 
 import matplotlib.pyplot as plt
 import numpy as np
+from sklearn.utils import shuffle
 
 """
 This is a variant of the grid worlds where goals are labeled and known to the agent,
@@ -191,6 +192,12 @@ class GridWorld(object):
 
     def get_goal_locations(self):
         return self.goal_locations
+
+    def get_reward_function(self):
+        reward_function = np.zeros(self.grid_world_size)
+        for (x, y), goal in self.get_goal_locations().items():
+            reward_function[x, y] = self.goal_values[goal]
+        return reward_function
 
     def draw_state(self, fig=None, ax=None):
         x, y = self.current_location
@@ -615,7 +622,7 @@ class RoomsProblem(Task):
 
     def get_goal_locations(self):
         if self.current_room is not None:
-            return self.current_room
+            return self.current_room.get_goal_locations()
 
     def get_walls(self):
         if self.current_room is not None:
@@ -634,6 +641,9 @@ class RoomsProblem(Task):
     def get_goal_index(self, goal):
         return self.goal_index[goal]
 
+    def get_reward_function(self):
+        return self.current_room.get_reward_function()
+
     def get_mapping_function(self, aa):
         mapping = np.zeros((self.n_primitive_actions, self.n_abstract_actions), dtype=float)
         for a, dir_ in self.current_room.action_map.items():
@@ -641,3 +651,242 @@ class RoomsProblem(Task):
             mapping[a, aa0] = 1
 
         return np.squeeze(mapping[:, aa])
+
+
+def define_rooms_problem() -> RoomsProblem:
+    sucessor_function = {
+        0: {"A": 1, "B": 0, "C": 0},
+        1: {"A": 2, "B": 0, "C": 0},
+        2: {"A": 3, "B": 0, "C": 0},
+        3: {"A": 4, "B": 0, "C": 0},
+        4: {"A": 5, "B": 0, "C": 0},
+        5: {"A": None, "B": 0, "C": 0},  # signifies the end!
+    }
+
+    reward_function = {
+        0: {"A": 1, "B": -1, "C": -1},
+        1: {"A": 1, "B": -1, "C": -1},
+        2: {"A": 1, "B": -1, "C": -1},
+        3: {"A": 1, "B": -1, "C": -1},
+        4: {"A": 1, "B": -1, "C": -1},
+        5: {"A": 1, "B": -1, "C": -1},
+    }
+
+    mappings = {
+        0: {0: "left", 1: "up", 2: "down", 3: "right"},
+        1: {4: "up", 5: "left", 6: "right", 7: "down"},
+        2: {1: "left", 0: "up", 3: "right", 2: "down"},
+        3: {5: "up", 4: "left", 7: "down", 6: "right"},
+    }
+
+    room_mappings = {
+        0: mappings[0],
+        1: mappings[0],
+        2: mappings[1],
+        3: mappings[1],
+        4: mappings[2],
+        5: mappings[2],
+    }
+
+    walls = [
+        [
+            [0, 1, "up"],
+            [0, 2, "down"],
+            [1, 1, "up"],
+            [1, 2, "down"],
+            [2, 1, "up"],
+            [2, 2, "down"],
+            [3, 1, "up"],
+            [3, 2, "down"],
+            [4, 1, "up"],
+            [4, 2, "down"],
+            [1, 2, "up"],
+            [1, 3, "down"],
+            [2, 2, "up"],
+            [2, 3, "down"],
+            [3, 2, "up"],
+            [3, 3, "down"],
+            [4, 2, "up"],
+            [4, 3, "down"],
+            [5, 2, "up"],
+            [5, 3, "down"],
+            [0, 3, "up"],
+            [0, 4, "down"],
+            [1, 3, "up"],
+            [1, 4, "down"],
+            [2, 3, "up"],
+            [2, 4, "down"],
+            [3, 3, "up"],
+            [3, 4, "down"],
+            [4, 3, "up"],
+            [4, 4, "down"],
+            [2, 4, "up"],
+            [2, 5, "down"],
+            [3, 4, "up"],
+            [3, 5, "down"],
+            [4, 4, "up"],
+            [4, 5, "down"],
+            [5, 4, "up"],
+            [5, 5, "down"],
+        ],
+        [
+            [1, 0, "right"],
+            [2, 0, "left"],
+            [1, 1, "right"],
+            [2, 1, "left"],
+            [1, 2, "right"],
+            [2, 2, "left"],
+            [1, 3, "right"],
+            [2, 3, "left"],
+            [1, 4, "right"],
+            [2, 4, "left"],
+            [2, 1, "right"],
+            [3, 1, "left"],
+            [2, 2, "right"],
+            [3, 2, "left"],
+            [2, 3, "right"],
+            [3, 3, "left"],
+            [2, 4, "right"],
+            [3, 4, "left"],
+            [2, 5, "right"],
+            [3, 5, "left"],
+            [3, 0, "right"],
+            [4, 0, "left"],
+            [3, 1, "right"],
+            [4, 1, "left"],
+            [3, 2, "right"],
+            [4, 2, "left"],
+            [3, 3, "right"],
+            [4, 3, "left"],
+            [3, 4, "right"],
+            [4, 4, "left"],
+            [4, 2, "right"],
+            [5, 2, "left"],
+            [4, 3, "right"],
+            [5, 3, "left"],
+            [4, 4, "right"],
+            [5, 4, "left"],
+            [4, 5, "right"],
+            [5, 5, "left"],
+        ],
+        [
+            [2, 5, "right"],
+            [3, 5, "left"],
+            [2, 4, "right"],
+            [3, 4, "left"],
+            [2, 2, "right"],
+            [3, 2, "left"],
+            [2, 2, "up"],
+            [2, 3, "down"],
+            [4, 2, "up"],
+            [4, 3, "down"],
+            [5, 2, "up"],
+            [5, 3, "down"],
+        ],
+        [
+            [0, 1, "right"],
+            [1, 1, "left"],
+            [0, 2, "right"],
+            [1, 2, "left"],
+            [0, 3, "right"],
+            [1, 3, "left"],
+            [4, 2, "right"],
+            [5, 2, "left"],
+            [4, 3, "right"],
+            [5, 3, "left"],
+            [4, 4, "right"],
+            [5, 4, "left"],
+            [1, 0, "up"],
+            [1, 1, "down"],
+            [2, 0, "up"],
+            [2, 1, "down"],
+            [3, 0, "up"],
+            [3, 1, "down"],
+            [2, 4, "up"],
+            [2, 5, "down"],
+            [3, 4, "up"],
+            [3, 5, "down"],
+            [4, 4, "up"],
+            [4, 5, "down"],
+        ],
+        [
+            [0, 0, "right"],
+            [1, 0, "left"],
+            [0, 2, "right"],
+            [1, 2, "left"],
+            [0, 4, "right"],
+            [1, 4, "left"],
+            [1, 1, "right"],
+            [2, 1, "left"],
+            [1, 3, "right"],
+            [2, 3, "left"],
+            [1, 5, "right"],
+            [2, 5, "left"],
+            [2, 0, "right"],
+            [3, 0, "left"],
+            [2, 2, "right"],
+            [3, 2, "left"],
+            [2, 4, "right"],
+            [3, 4, "left"],
+            [3, 1, "right"],
+            [4, 1, "left"],
+            [3, 3, "right"],
+            [4, 3, "left"],
+            [3, 5, "right"],
+            [4, 5, "left"],
+            [4, 0, "right"],
+            [5, 0, "left"],
+            [4, 2, "right"],
+            [5, 2, "left"],
+            [4, 4, "right"],
+            [5, 4, "left"],
+        ],
+        [
+            [0, 0, "up"],
+            [0, 1, "down"],
+            [2, 0, "up"],
+            [2, 1, "down"],
+            [4, 0, "up"],
+            [4, 1, "down"],
+            [1, 1, "up"],
+            [1, 2, "down"],
+            [3, 1, "up"],
+            [3, 2, "down"],
+            [5, 1, "up"],
+            [5, 2, "down"],
+            [0, 2, "up"],
+            [0, 3, "down"],
+            [2, 2, "up"],
+            [2, 3, "down"],
+            [4, 2, "up"],
+            [4, 3, "down"],
+            [1, 3, "up"],
+            [1, 4, "down"],
+            [3, 3, "up"],
+            [3, 4, "down"],
+            [5, 3, "up"],
+            [5, 4, "down"],
+            [0, 4, "up"],
+            [0, 5, "down"],
+            [2, 4, "up"],
+            [2, 5, "down"],
+            [4, 4, "up"],
+            [4, 5, "down"],
+        ],
+    ]
+
+    grid_world_size = (6, 6)
+
+    # make it easy, have the door and start locations be the same for each room
+    start_location = {r: (0, 0) for r in range(9)}
+
+    # make it easy, each door is in the same spot
+    door_locations = {r: {"A": (5, 5), "B": (5, 0), "C": (0, 5)} for r in range(9)}
+
+    rooms_kwargs = dict(list_walls=walls)
+
+    rooms_args = list(
+        [room_mappings, sucessor_function, reward_function, start_location, door_locations]
+    )
+
+    return RoomsProblem(*rooms_args, **rooms_kwargs)
