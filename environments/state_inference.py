@@ -35,7 +35,7 @@ class GridWorld:
         rbf_kernel_size: int = 51,
         rbf_kernel_scale: float = 0.15,
         location_noise_scale=1.0,
-        noise_log_mean: float = -2,
+        noise_log_mean: float = -3,
         noise_log_scale: float = 0.05,
         noise_corruption_prob=0.01,
     ) -> None:
@@ -83,12 +83,12 @@ class GridWorld:
         # truncate
         if x < 0:
             x = 0
-        if x >= self.h:
-            x = self.h
+        if x >= self.map_height:
+            x = self.map_height - 1
         if y < 0:
             y = 0
-        if y >= self.w:
-            y = y
+        if y >= self.map_height:
+            y = self.map_height - 1
 
         return x, y
 
