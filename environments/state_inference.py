@@ -1,6 +1,8 @@
+from collections import namedtuple
+from typing import Dict, Hashable, List, Optional, Tuple, Union
+
 import numpy as np
 import torch
-from typing import Tuple
 from scipy.signal import fftconvolve
 
 
@@ -26,7 +28,7 @@ class RbfKernelEmbedding:
         return fftconvolve(input_space, self.kernel, mode="same")
 
 
-class GridWorld:
+class ObservationModel:
     def __init__(
         self,
         h: int = 10,
@@ -35,7 +37,7 @@ class GridWorld:
         rbf_kernel_size: int = 51,
         rbf_kernel_scale: float = 0.15,
         location_noise_scale=1.0,
-        noise_log_mean: float = -3,
+        noise_log_mean: float = -2,
         noise_log_scale: float = 0.05,
         noise_corruption_prob=0.01,
     ) -> None:
@@ -108,3 +110,170 @@ class GridWorld:
         grid = self._embed_one_hot(x, y)
         grid += self._random_embedding_noise()
         return self.kernel(grid)
+
+    def __call__(self, s: int) -> torch.tensor:
+        return self.embed_state_corrupted(s)
+
+
+class TransitionModel:
+    ## Note: does not take in actions
+
+    def __init__(self):
+        self.transitions = dict()
+        self.pmf = dict()
+
+    def update(self, s: Hashable, sp: Hashable):
+        if s in self.transitions:
+            if sp in self.transitions[s]:
+                self.transitions[s][sp] += 1
+            else:
+                self.transitions[s][sp] = 1
+        else:
+            self.transitions[s] = {sp: 1}
+
+        N = float(sum(self.transitions[s].values()))
+        self.pmf[s] = {sp0: v / N for sp0, v in self.transitions[s].items()}
+
+    def batch_update(self, list_states: List[Hashable]):
+        for ii in range(len(list_states) - 1):
+            self.update(list_states[ii], list_states[ii + 1])
+
+    def get_transition_probs(self, s: Hashable) -> Dict[Hashable, float]:
+        # if a state is not in the model, assume it's self-absorbing
+        if s not in self.pmf:
+            return {s: 1.0}
+        return self.pmf[s]
+
+
+class RewardModel:
+    def __init__(self):
+        self.counts = dict()
+        self.state_reward_function = dict()
+
+    def update(self, s: Hashable, r: float):
+        if s in self.counts.keys():
+            self.counts[s] += np.array([r, 1])
+        else:
+            self.counts[s] = np.array([r, 1])
+
+        self.state_reward_function[s] = self.counts[s][0] / self.counts[s][1]
+
+    def batch_update(self, s: List[Hashable], r: List[float]):
+        for s0, r0 in zip(s, r):
+            self.update(s0, r0)
+
+    def get_states(self):
+        return list(self.state_reward_function.keys())
+
+    def get_reward(self, state):
+        return self.state_reward_function[state]
+
+
+def value_iteration(
+    t: Dict[Union[str, int], TransitionModel],
+    r: RewardModel,
+    gamma: float,
+    iterations: int,
+):
+    list_states = r.get_states()
+    list_actions = list(t.keys())
+    q_values = {s: {a: 0 for a in list_actions} for s in list_states}
+    v = {s: 0 for s in list_states}
+
+    def _inner_sum(s, a):
+        _sum = 0
+        for sp, p in t[a].get_transition_probs(s).items():
+            _sum += p * v[sp]
+        return _sum
+
+    def _expected_reward(s, a):
+        _sum = 0
+        for sp, p in t[a].get_transition_probs(s).items():
+            _sum += p * r.get_reward(sp)
+        return _sum
+
+    for k in range(iterations):
+        for s in list_states:
+            for a in list_actions:
+                q_values[s][a] = _expected_reward(s, a) + gamma * _inner_sum(s, a)
+        # update value function
+        for s, qs in q_values.items():
+            v[s] = max(qs.values())
+
+    return q_values, v
+
+
+### define simple deterministic transition functions using cardinal movements
+def one_hot(a, num_classes):
+    return np.squeeze(np.eye(num_classes)[a.reshape(-1)])
+
+
+def make_cardinal_transition_function(h: int, w: int) -> Dict[str, np.ndarray]:
+    states = np.arange(h * w).reshape(h, w)
+    transitions = {
+        "up": np.vstack([states[0, :], states[:-1, :]]),
+        "down": np.vstack([states[1:, :], states[-1, :]]),
+        "left": np.hstack([states[:, :1], states[:, :-1]]),
+        "right": np.hstack([states[:, 1:], states[:, -1:]]),
+    }
+    transitions = {k: one_hot(v.reshape(-1), h * w) for k, v in transitions.items()}
+    return transitions
+
+
+# ~~~~~~ UNUSED CODE BELOW HERE ~~~~~~
+
+OaorTuple = namedtuple("OAORTuple", ["o", "a", "op", "r"])
+
+
+class WorldModel:
+    def __init__(
+        self,
+        transition_functions: Dict[Union[str, int], np.ndarray],
+        state_reward_function: Dict[Union[str, int], float],
+        observation_model: ObservationModel,
+        initial_state: Optional[int] = None,
+        n_states: Optional[int] = None,
+    ) -> None:
+        self.t = transition_functions
+        self.r = state_reward_function
+        self.observation_model = observation_model
+
+        if not n_states:
+            n_states = self.t[0].shape[0]
+        if not initial_state:
+            initial_state = np.random.randint(n_states)
+
+        self.n_states = n_states
+        self.initial_state = initial_state
+        self.state = initial_state
+        self.observation = self._generate_observation(self.state)
+
+        self.states = np.arange(n_states)
+
+    def _generate_observation(self, state: int) -> torch.tensor:
+        return self.observation_model(state).reshape(-1)
+
+    def get_obseservation(self) -> torch.tensor:
+        return self.observation
+
+    def take_action(self, action: Union[str, int]) -> OaorTuple:
+        assert action in self.t.keys()
+
+        ta = self.t[action]
+        assert np.sum(ta) == 1
+        assert np.all(ta >= 0)
+
+        sucessor_state = np.choice(self.states, 1, p=ta)
+        sucessor_observation = self._generate_observation(sucessor_state)
+
+        obs_tuple = OaorTuple(
+            self.get_obseservation(),
+            action,
+            sucessor_observation,
+            self.r[sucessor_state],
+        )
+
+        self.state = sucessor_state
+        self.observation = sucessor_observation
+
+        return obs_tuple
