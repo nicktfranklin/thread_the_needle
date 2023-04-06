@@ -1,6 +1,6 @@
+import json
 import os.path
 import time
-import json
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -22,7 +22,9 @@ meant to change from trial to trial (here, GridWorld instance to
 # code to make the grid world starts here!
 
 WALL_FILE_NAME = "rooms_walls.json"
-WALL_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), WALL_FILE_NAME)
+WALL_FILE_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), WALL_FILE_NAME
+)
 
 
 class GridWorld(object):
@@ -95,7 +97,6 @@ class GridWorld(object):
             (n_states, n_abstract_actions, n_states), dtype=float
         )
         for s in range(n_states):
-
             x, y = self.inverse_state_loc_key[s]
 
             # cycle through movement, check for both walls and for
@@ -548,7 +549,6 @@ class RoomsProblem(Task):
         primitive_actions=(72, 74, 75, 76, 65, 83, 68, 70),
         list_walls=None,
     ):
-
         # create a state location key
         self.state_location_key = {
             (x, y): (y + x * grid_world_size[1])
@@ -598,7 +598,6 @@ class RoomsProblem(Task):
         self.abstract_action_key = self.current_room.abstract_action_key
 
     def move(self, action):
-
         aa, new_location, goal_id, r = self.current_room.move(action)
         if goal_id is not None:
             next_room = self.successor_function[self.current_room_number][goal_id]
@@ -709,8 +708,8 @@ def define_rooms_problem() -> RoomsProblem:
         5: mappings[2],
     }
 
-    with open(WALL_FILE_PATH, 'r') as f:
-        walls = json.load(f)['walls']
+    with open(WALL_FILE_PATH, "r") as f:
+        walls = json.load(f)["walls"]
 
     # make it easy, have the door and start locations be the same for each room
     start_location = {r: (0, 0) for r in range(9)}

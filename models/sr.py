@@ -19,7 +19,6 @@ def get_optimal_sr_from_transitions(
     optimal_policy,
     gamma=0.95,
 ):
-
     # turn optimal policy in to pmf
     pi = optimal_policy * np.tile(1 / optimal_policy.sum(axis=1), (4, 1)).T
 
@@ -56,7 +55,6 @@ class SRResampler:
         n_rows: Optional[int] = None,
         n_columns: Optional[int] = None,
     ) -> None:
-
         self.learning_rate = learning_rate
         self.gamma = gamma
         self.transition_functions = transition_functions
@@ -75,7 +73,6 @@ class SRResampler:
         n_rows: Optional[int] = None,
         n_columns: Optional[int] = None,
     ) -> np.ndarray:
-
         assert n_rows or self.n_rows, "n_rows not defined"
         assert n_columns or self.n_columns, "n_colmuns not defined"
 
@@ -104,7 +101,6 @@ class SRResampler:
         successor_state: int,
         sr: np.ndarray,
     ) -> np.ndarray:
-
         sr = sr.copy()
         sr[initial_state, :] = sr[initial_state, :] + self.learning_rate * (
             one_hot(initial_state, self.n_states)
@@ -122,7 +118,6 @@ class SRResampler:
         state: int,
         value_function: np.ndarray,
     ) -> int:
-
         # marginalize out the successor state for each action
         q_values = np.array(
             [
@@ -222,7 +217,6 @@ class SRResampler:
         return_iterim_estimates: bool = False,
         steps: int = 100,
     ) -> Union[List[np.ndarray], np.ndarray]:
-
         assert (
             state_values is not None or restimate_state_values
         ), "Must pass a state value function if not reestimating"

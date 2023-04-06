@@ -135,7 +135,6 @@ class MCTS:
         self,
         node: GridWorldNode,
     ) -> Tuple[List[Tuple[GridWorldNode, int]], GridWorldNode]:
-
         # path is list of (state, action) tuples
         path = []
         reward, depth = 0, 0
@@ -167,11 +166,9 @@ class MCTS:
         return node.expand()
 
     def simulate_state_value(self, start_node: GridWorldNode) -> List[float]:
-
         rewards = [0.0] * self.n_sims
 
         for ii in range(self.n_sims):
-
             node = start_node
             reward, depth = 0, 0
 
@@ -186,7 +183,6 @@ class MCTS:
         return rewards
 
     def _single_sim(self, node: GridWorldNode, action: int, return_path: bool = False):
-
         if return_path:
             path = [node]
 
@@ -214,7 +210,7 @@ class MCTS:
 
     def backpropagate(self, path: List[Tuple[GridWorldNode, int]], reward: float):
         # path is a sequence of (state, action) tuples
-        for (node, action) in reversed(path):
+        for node, action in reversed(path):
             self._update_child_value(node, action, reward)
 
     def do_single_rollout(self, start_state):
@@ -328,7 +324,6 @@ class MctsSr(MCTS):
         n_sims: int = 1,
         gamma: float = 0.99,
     ):
-
         super().__init__(
             end_states,
             transition_functions,

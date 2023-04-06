@@ -61,7 +61,6 @@ class ValueIterationNetwork(PlanningModel):
         self.initialization_noise = initialization_noise
 
     def inference(self, iterations: int = 100):
-
         state_action_values, _ = self.value_iteration(
             self.transition_functions,
             self.reward_functions,
@@ -114,7 +113,6 @@ class ValueIterationNetwork(PlanningModel):
 
         # dynamic programing algorithm
         for ii in tnrange(0, iterations):
-
             # calculate tiled values (we could randomize the tiling order but it isn't important)
             for a, (r_a, t_a) in enumerate(zip(reward_functions, transition_functions)):
                 q_0[a] = r_a[tiling] + gamma * t_a[tiling][:, ~tiling].dot(value_1)

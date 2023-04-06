@@ -3,8 +3,8 @@ from typing import List, Optional, Tuple, Union
 import numpy as np
 import scipy.sparse
 
-from models.utils import get_state_action_reward_from_sucessor_rewards
 from environments.utils import _check_valid
+from models.utils import get_state_action_reward_from_sucessor_rewards
 
 
 def define_valid_lattice_transitions(
@@ -58,7 +58,6 @@ def make_diagonal_matrix(
 def convert_movements_to_transition_matrix(
     movements: np.ndarray, n_cols: int, sparse=False
 ) -> Union[np.ndarray, scipy.sparse.csr_matrix]:
-
     transition_matrix = make_diagonal_matrix(movements[:, 2], k=0, sparse=sparse)
     transition_matrix += make_diagonal_matrix(movements[:-1, 3], k=1, sparse=sparse)
     transition_matrix += make_diagonal_matrix(movements[1:, 1], k=-1, sparse=sparse)
@@ -148,7 +147,6 @@ def make_cardinal_transition_matrix(
     sparse: bool = True,
     random_movement_on_error: bool = True,
 ) -> List[Union[np.ndarray, scipy.sparse.csr_matrix]]:
-
     cardinal_movements = make_cardinal_movements_prob(
         n_rows, n_columns, slip_probability, random_movement_on_error
     )
@@ -167,7 +165,6 @@ def add_wall_between_two_states(
     state_b: int,
     transition_functions: List[Union[np.ndarray, scipy.sparse.csr_matrix]],
 ) -> List[Union[np.ndarray, scipy.sparse.csr_matrix]]:
-
     is_sparse = type(transition_functions[0]) == scipy.sparse.csr_matrix
 
     n_actions = len(transition_functions)
@@ -200,8 +197,10 @@ class GridWorld:
         self.n_columns = n_columns
         self.transition_functions = transition_functions
         self.state_reward_function = state_reward_function
-        self.state_action_reward_functions = get_state_action_reward_from_sucessor_rewards(
-            state_reward_function, transition_functions
+        self.state_action_reward_functions = (
+            get_state_action_reward_from_sucessor_rewards(
+                state_reward_function, transition_functions
+            )
         )
 
     @staticmethod
@@ -227,7 +226,6 @@ class GridWorld:
 
 
 def make_thread_the_needle_walls(n_columns: int) -> List[List[int]]:
-
     list_walls = []
     for ii in range(0, n_columns // 2 - 1):
         wall = [
@@ -244,7 +242,6 @@ def make_thread_the_needle_walls(n_columns: int) -> List[List[int]]:
 
 
 def make_thread_the_needle_walls_moved_door(n_columns: int) -> List[List[int]]:
-
     list_walls = []
     for ii in range(0, n_columns // 2 - 0):
         wall = [
@@ -319,7 +316,6 @@ def make_thread_the_needle_optimal_policy(n_rows: int, n_columns: int) -> np.nda
 
 
 def make_thread_the_needle_walls_moved_door(n_columns: int) -> List[List[int]]:
-
     list_walls = []
     for ii in range(0, n_columns // 2 - 0):
         wall = [
@@ -497,7 +493,6 @@ def one_d_reward_at_one_end(
     sparse: bool = True,
     random_movement_on_error: bool = False,
 ) -> Tuple[List[Union[np.ndarray, scipy.sparse.csr_matrix]], np.ndarray, np.ndarray]:
-
     transition_functions = make_cardinal_transition_matrix(
         n_columns=n_columns,
         n_rows=1,
