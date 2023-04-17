@@ -1,4 +1,5 @@
 from collections import namedtuple
+from random import choices
 from typing import Dict, Hashable, List, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
@@ -140,14 +141,59 @@ class ObservationModel:
         axes[2].set_title("Noisy Observation")
         plt.show()
 
+
 class TransitionModel:
-    # Generative model
-    pass
+    # Generative model. Assumes connectivity between neighboring states
+
+    def __init__(self, h: int, w: int) -> None:
+        self.transitions = self._make_transitions(h, w)
+        self.edges = self._make_edges(self.transitions)
+
+    @staticmethod
+    def _make_transitions(h: int, w: int) -> np.ndarray:
+        t = np.zeros((h * w, h * w))
+        for s0 in range(h * w):
+            # if s0 + 1
+
+            if s0 - w >= 0:
+                t[s0, s0 - w] = 1
+            if s0 + w + 1 < h * w:
+                t[s0, s0 + w] = 1
+
+            if (s0 + 1) % w > 0:
+                t[s0, s0 + 1] = 1
+
+            if s0 % w > 0:
+                t[s0, s0 - 1] = 1
+
+        # normalize
+        t /= np.tile(t.sum(axis=1).reshape(-1, 1), h * w)
+        return t
+
+    @staticmethod
+    def _make_edges(transitions: np.ndarray) -> Dict[int, np.ndarray]:
+        edges = {}
+        for s, t in enumerate(transitions):
+            edges[s] = np.where(t > 0)[0]
+        return edges
+
+    def generate_random_walk(self, walk_length: int) -> Tuple[np.ndarray, List[int]]:
+        random_walk = []
+        s = choices(list(self.edges.keys()))[0]
+        random_walk.append(s)
+        state_counts = np.zeros(len(self.edges))
+        for _ in range(walk_length):
+            s = choices(self.edges[s])[0]
+            state_counts[s] += 1
+            random_walk.append(s)
+
+        return state_counts, random_walk
 
 
 class RewardModel:
     # Generative Model
     pass
+
 
 class TransitionEstimator:
     ## Note: does not take in actions
@@ -177,7 +223,6 @@ class TransitionEstimator:
         if s not in self.pmf:
             return {s: 1.0}
         return self.pmf[s]
-
 
 
 class RewardEstimator:
