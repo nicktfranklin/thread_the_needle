@@ -204,15 +204,15 @@ class TransitionModel:
         return state_counts, random_walk
 
     def sample_states(self, n: int, kind: str = "walk") -> np.ndarray:
-        if kind.lower() == "walk":
+        if kind.lower() == "random":
 
             def state_sampler(n):
                 return np.random.choice(len(self.edges), n)
 
-        elif kind.lower() == "random":
+        elif kind.lower() == "walk":
 
             def state_sampler(n):
-                return self.generate_random_walk(n)[1]
+                return self.generate_random_walk(n - 1)[1]
 
         else:
             raise NotImplementedError("only type 'walk' or 'random' are implemented")
