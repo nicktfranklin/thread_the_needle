@@ -145,9 +145,13 @@ class ObservationModel:
 class TransitionModel:
     # Generative model. Assumes connectivity between neighboring states
 
-    def __init__(self, h: int, w: int) -> None:
+    def __init__(
+        self, h: int, w: int, walls: Optional[List[Tuple[int, int]]] = None
+    ) -> None:
         self.transitions = self._make_transitions(h, w)
         self.edges = self._make_edges(self.transitions)
+        if walls:
+            self._add_walls(walls)
 
     @staticmethod
     def _make_transitions(h: int, w: int) -> np.ndarray:
@@ -167,8 +171,11 @@ class TransitionModel:
                 t[s0, s0 - 1] = 1
 
         # normalize
-        t /= np.tile(t.sum(axis=1).reshape(-1, 1), h * w)
-        return t
+        return TransitionModel._normalize(t)
+
+    @staticmethod
+    def _normalize(t: np.ndarray) -> np.ndarray:
+        return t / np.tile(t.sum(axis=1).reshape(-1, 1), t.shape[1])
 
     @staticmethod
     def _make_edges(transitions: np.ndarray) -> Dict[int, np.ndarray]:
@@ -176,6 +183,11 @@ class TransitionModel:
         for s, t in enumerate(transitions):
             edges[s] = np.where(t > 0)[0]
         return edges
+
+    def _add_walls(self, walls: List[Tuple[int, int]]) -> None:
+        for s, sp in walls:
+            self.transitions[s, sp] = 0
+        self.transitions = self._normalize(self.transitions)
 
     def generate_random_walk(self, walk_length: int) -> Tuple[np.ndarray, List[int]]:
         random_walk = []
