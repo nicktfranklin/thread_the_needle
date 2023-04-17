@@ -1,8 +1,10 @@
 from collections import namedtuple
 from typing import Dict, Hashable, List, Optional, Tuple, Union
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import torch.utils.data as data
 from scipy.signal import fftconvolve
 
 
@@ -114,8 +116,40 @@ class ObservationModel:
     def __call__(self, s: int) -> torch.tensor:
         return self.embed_state_corrupted(s)
 
+    def display_state(self, s: int) -> None:
+        # x, y = self.get_obs_coords(s)
+        raw_state = self.get_grid_location(s)
+        _, axes = plt.subplots(1, 3, figsize=(10, 20))
+        axes[0].imshow(1 - raw_state, cmap="gray")
+
+        def plt_lines(h, w, ax):
+            y_lim = ax.get_ylim()
+            x_lim = ax.get_xlim()
+            for h0 in range(h):
+                ax.plot([h0 + 0.5, h0 + 0.5], [-0.5, w + 0.5], c="gray")
+            for w0 in range(w):
+                ax.plot([-0.5, h + 0.5], [w0 + 0.5, w0 + 0.5], c="gray")
+                ax.set_ylim(y_lim)
+                ax.set_xlim(x_lim)
+
+        plt_lines(self.h, self.w, axes[0])
+        axes[1].imshow(self.embed_state(s))
+        axes[2].imshow(self.embed_state_corrupted(s))
+        axes[0].set_title("Grid-States")
+        axes[1].set_title("Noise-free Observations")
+        axes[2].set_title("Noisy Observation")
+        plt.show()
 
 class TransitionModel:
+    # Generative model
+    pass
+
+
+class RewardModel:
+    # Generative Model
+    pass
+
+class TransitionEstimator:
     ## Note: does not take in actions
 
     def __init__(self):
@@ -145,7 +179,8 @@ class TransitionModel:
         return self.pmf[s]
 
 
-class RewardModel:
+
+class RewardEstimator:
     def __init__(self):
         self.counts = dict()
         self.state_reward_function = dict()
@@ -170,8 +205,8 @@ class RewardModel:
 
 
 def value_iteration(
-    t: Dict[Union[str, int], TransitionModel],
-    r: RewardModel,
+    t: Dict[Union[str, int], TransitionEstimator],
+    r: RewardEstimator,
     gamma: float,
     iterations: int,
 ):
