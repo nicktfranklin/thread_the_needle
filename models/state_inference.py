@@ -114,7 +114,6 @@ class MLP(nn.Module):
             )
 
         # pop the last ReLU and dropout layers for the output
-        # self.net.pop()
         self.net.pop()
         self.net.pop()
 
@@ -122,6 +121,22 @@ class MLP(nn.Module):
 
     def forward(self, x):
         return self.net(x)
+
+
+class Encoder(MLP):
+    pass
+
+
+class Decoder(MLP):
+    def __init__(
+        self,
+        input_size: int,
+        hidden_sizes: list,
+        output_size: int,
+        dropout: float = 0.01,
+    ):
+        super().__init__(input_size, hidden_sizes, output_size, dropout)
+        self.net.pop(-1)
 
 
 class mDVAE(nn.Module):
@@ -261,3 +276,10 @@ def train_epochs(model, train_loader, test_loader, train_args):
             print(f"Epoch {epoch}, ELBO Loss (test) {test_loss:.4f}")
 
     return train_losses, test_losses
+
+def encode_states(model: mDVAE, observations: np.array):
+    model.eval()
+    with torch.no_grad():
+        x = torch.tensor(observations).to(DEVICE).float()
+        logits, z = model.encode(x)
+    return logits, z
