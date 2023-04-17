@@ -22,16 +22,20 @@ import torch
 import torch.nn.functional as F
 
 
-
 # Note: there is an issue F.gumbel_softmax that appears to causes an error w
-# where a valide distribution will return nans, preventing training.  Fix from 
+# where a valide distribution will return nans, preventing training.  Fix from
 # https://gist.github.com/GongXinyuu/3536da55639bd9bfdd5a905ebf3ab88e
-def gumbel_softmax(logits, tau=1, hard=False, eps=1e-10, dim=-1):
-    # type: (Tensor, float, bool, float, int) -> Tensor
+def gumbel_softmax(
+    logits: torch.Tensor,
+    tau: float = 1,
+    hard: bool = False,
+    eps: float = 1e-10,
+    dim: int = -1,
+) -> torch.Tensor:
     r"""
     Samples from the `Gumbel-Softmax distribution`_ and optionally discretizes.
     You can use this function to replace "F.gumbel_softmax".
-    
+
     Args:
       logits: `[..., num_features]` unnormalized log probabilities
       tau: non-negative scalar temperature
@@ -61,6 +65,7 @@ def gumbel_softmax(logits, tau=1, hard=False, eps=1e-10, dim=-1):
         https://arxiv.org/abs/1611.00712
         https://arxiv.org/abs/1611.01144
     """
+
     def _gen_gumbels():
         gumbels = -torch.empty_like(logits).exponential_().log()
         if torch.isnan(gumbels).sum() or torch.isinf(gumbels).sum():
@@ -81,6 +86,7 @@ def gumbel_softmax(logits, tau=1, hard=False, eps=1e-10, dim=-1):
         # Reparametrization trick.
         ret = y_soft
     return ret
+
 
 class MLP(nn.Module):
     def __init__(
