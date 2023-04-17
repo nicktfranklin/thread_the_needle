@@ -153,6 +153,8 @@ class TransitionModel:
         if walls:
             self._add_walls(walls)
 
+        self.n_states = h * w
+
     @staticmethod
     def _make_transitions(h: int, w: int) -> np.ndarray:
         t = np.zeros((h * w, h * w))
@@ -200,6 +202,21 @@ class TransitionModel:
             random_walk.append(s)
 
         return state_counts, random_walk
+
+    def sample_states(self, n: int, kind: str = "walk") -> np.ndarray:
+        if kind.lower() == "walk":
+
+            def state_sampler(n):
+                return np.random.choice(len(self.edges), n)
+
+        elif kind.lower() == "random":
+
+            def state_sampler(n):
+                return self.generate_random_walk(n)[1]
+
+        else:
+            raise NotImplementedError("only type 'walk' or 'random' are implemented")
+        return state_sampler(n)
 
 
 class RewardModel:
