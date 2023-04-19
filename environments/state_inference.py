@@ -113,7 +113,9 @@ class ObservationModel:
         grid += self._random_embedding_noise()
         return self.kernel(grid)
 
-    def __call__(self, s: int) -> torch.tensor:
+    def __call__(self, s: Union[int, List[int]]) -> Union[torch.tensor, List[torch.Tensor]]:
+        if isinstance(s, List):
+            return [self.embed_state_corrupted(s0) for s0 in s]
         return self.embed_state_corrupted(s)
 
     def display_state(self, s: int) -> None:
@@ -206,7 +208,7 @@ class TransitionModel:
         if kind.lower() == "random":
 
             def state_sampler(n):
-                return np.random.choice(len(self.edges), n)
+                return np.random.choice(len(self.edges), n).tolist()
 
         elif kind.lower() == "walk":
 

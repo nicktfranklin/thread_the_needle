@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Union
 
 import numpy as np
 import torch
@@ -218,7 +218,7 @@ class mDVAE(nn.Module):
         self.tau *= self.gamma
 
     def encode_states(
-        self, observations: np.array
+        self, observations: Union[np.array, torch.tensor]
     ) -> Tuple[torch.tensor, torch.tensor]:
         self.eval()
         with torch.no_grad():
