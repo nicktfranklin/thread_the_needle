@@ -5,7 +5,6 @@ from typing import Dict, Hashable, List, Optional, Tuple, Union
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torch.utils.data as data
 from scipy.signal import fftconvolve
 
 
@@ -260,7 +259,7 @@ class RewardEstimator:
         self.state_reward_function = dict()
 
     def update(self, s: Hashable, r: float):
-        if s in self.counts.keys():
+        if s in self.counts.keys():  # pylint: disable=consider-iterating-dictionary
             self.counts[s] += np.array([r, 1])
         else:
             self.counts[s] = np.array([r, 1])
@@ -301,7 +300,7 @@ def value_iteration(
             _sum += p * r.get_reward(sp)
         return _sum
 
-    for k in range(iterations):
+    for _ in range(iterations):
         for s in list_states:
             for a in list_actions:
                 q_values[s][a] = _expected_reward(s, a) + gamma * _inner_sum(s, a)
