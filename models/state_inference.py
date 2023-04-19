@@ -2,9 +2,8 @@ from typing import Tuple
 
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-import torch.optim as optim
+from torch import nn, optim
 from torch.distributions.categorical import Categorical
 
 # helper functions for training
@@ -18,10 +17,6 @@ else:
     DEVICE = torch.device("cpu")
 
 
-import torch
-import torch.nn.functional as F
-
-
 # Note: there is an issue F.gumbel_softmax that appears to causes an error w
 # where a valide distribution will return nans, preventing training.  Fix from
 # https://gist.github.com/GongXinyuu/3536da55639bd9bfdd5a905ebf3ab88e
@@ -29,7 +24,6 @@ def gumbel_softmax(
     logits: torch.Tensor,
     tau: float = 1,
     hard: bool = False,
-    eps: float = 1e-10,
     dim: int = -1,
 ) -> torch.Tensor:
     r"""
@@ -102,8 +96,8 @@ class MLP(nn.Module):
 
         # define a simple MLP neural net
         self.net = []
-        hs = [self.nin] + hidden_sizes + [self.nout]
-        for h0, h1 in zip(hs, hs[1:]):
+        hidden_size = [self.nin] + hidden_sizes + [self.nout]
+        for h0, h1 in zip(hidden_size, hidden_size[1:]):
             self.net.extend(
                 [
                     nn.Linear(h0, h1),
@@ -119,7 +113,7 @@ class MLP(nn.Module):
 
         self.net = nn.Sequential(*self.net)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
 
 
@@ -223,8 +217,17 @@ class mDVAE(nn.Module):
     def anneal_tau(self):
         self.tau *= self.gamma
 
+    def encode_states(
+        self, observations: np.array
+    ) -> Tuple[torch.tensor, torch.tensor]:
+        self.eval()
+        with torch.no_grad():
+            x = torch.tensor(observations).to(DEVICE).float()
+            logits, z = self.encode(x)
+        return logits, z
 
-def train(model, train_loader, optimizer, epoch, clip_grad=None):
+
+def train(model, train_loader, optimizer, clip_grad=None):
     model.train()
 
     train_losses = []
@@ -266,7 +269,7 @@ def train_epochs(model, train_loader, test_loader, train_args):
     test_losses = [eval_loss(model, test_loader)]
     for epoch in range(epochs):
         model.train()
-        train_losses.extend(train(model, train_loader, optimizer, epoch, grad_clip))
+        train_losses.extend(train(model, train_loader, optimizer, grad_clip))
         test_loss = eval_loss(model, test_loader)
         test_losses.append(test_loss)
 
@@ -276,10 +279,3 @@ def train_epochs(model, train_loader, test_loader, train_args):
             print(f"Epoch {epoch}, ELBO Loss (test) {test_loss:.4f}")
 
     return train_losses, test_losses
-
-def encode_states(model: mDVAE, observations: np.array):
-    model.eval()
-    with torch.no_grad():
-        x = torch.tensor(observations).to(DEVICE).float()
-        logits, z = model.encode(x)
-    return logits, z
