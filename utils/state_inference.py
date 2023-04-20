@@ -111,7 +111,7 @@ def backwards_pass(
     return filter_posterior
 
 
-def smooth(log_observation: np.ndarray, log_transitions: np.ndarray):
+def BayesianSmoothing(log_observation: np.ndarray, log_transitions: np.ndarray):
     """
     this model assumes symetric transitions
     """
@@ -119,3 +119,7 @@ def smooth(log_observation: np.ndarray, log_transitions: np.ndarray):
         forward_pass(log_observation, log_transitions)
         + backwards_pass(log_observation, log_transitions)
     )
+
+
+def BayesianFilter(log_observation: np.ndarray, log_transitions: np.ndarray):
+    return forward_pass(log_observation, log_transitions)

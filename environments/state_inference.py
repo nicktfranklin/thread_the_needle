@@ -151,7 +151,10 @@ class TransitionModel:
     # Generative model. Assumes connectivity between neighboring states
 
     def __init__(
-        self, h: int, w: int, walls: Optional[List[Tuple[int, int]]] = None
+        self,
+        h: int,
+        w: int,
+        walls: Optional[List[Tuple[int, int]]] = None,
     ) -> None:
         self.transitions = self._make_transitions(h, w)
         self.edges = self._make_edges(self.transitions)
@@ -166,14 +169,18 @@ class TransitionModel:
         for s0 in range(h * w):
             # if s0 + 1
 
+            # down
             if s0 - w >= 0:
                 t[s0, s0 - w] = 1
+            # up
             if s0 + w + 1 < h * w:
                 t[s0, s0 + w] = 1
 
+            # right
             if (s0 + 1) % w > 0:
                 t[s0, s0 + 1] = 1
 
+            # left
             if s0 % w > 0:
                 t[s0, s0 - 1] = 1
 
@@ -196,9 +203,15 @@ class TransitionModel:
             self.transitions[s, sp] = 0
         self.transitions = self._normalize(self.transitions)
 
-    def generate_random_walk(self, walk_length: int) -> Tuple[np.ndarray, List[int]]:
+    def generate_random_walk(
+        self, walk_length: int, initial_state: Optional[int] = None
+    ) -> Tuple[np.ndarray, List[int]]:
         random_walk = []
-        s = choices(list(self.edges.keys()))[0]
+        if initial_state:
+            s = initial_state
+        else:
+            s = choices(list(self.edges.keys()))[0]
+
         random_walk.append(s)
         state_counts = np.zeros(len(self.edges))
         for _ in range(walk_length):
@@ -208,8 +221,11 @@ class TransitionModel:
 
         return state_counts, random_walk
 
-    def sample_states(self, n: int, kind: str = "walk") -> np.ndarray:
+    def sample_states(
+        self, n: int, kind: str = "walk", initial_state: Optional[int] = None
+    ) -> np.ndarray:
         if kind.lower() == "random":
+            assert initial_state is None
 
             def state_sampler(n):
                 return np.random.choice(len(self.edges), n).tolist()
@@ -217,7 +233,7 @@ class TransitionModel:
         elif kind.lower() == "walk":
 
             def state_sampler(n):
-                return self.generate_random_walk(n - 1)[1]
+                return self.generate_random_walk(n - 1, initial_state)[1]
 
         else:
             raise NotImplementedError("only type 'walk' or 'random' are implemented")
