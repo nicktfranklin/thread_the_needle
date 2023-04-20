@@ -66,8 +66,10 @@ class ObservationModel:
         return self.states[s]
 
     def get_grid_location(self, s: int) -> np.ndarray:
+        r = s // self.w
+        c = s % self.w
         raw_state = np.zeros((self.h, self.w))
-        raw_state[0, s] = 1
+        raw_state[r, c] = 1
         return raw_state
 
     def _embed_one_hot(self, x: int, y: int) -> torch.tensor:
