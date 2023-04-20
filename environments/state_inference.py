@@ -115,7 +115,9 @@ class ObservationModel:
         grid += self._random_embedding_noise()
         return self.kernel(grid)
 
-    def __call__(self, s: Union[int, List[int]]) -> Union[torch.tensor, List[torch.Tensor]]:
+    def __call__(
+        self, s: Union[int, List[int]]
+    ) -> Union[torch.tensor, List[torch.Tensor]]:
         if isinstance(s, List):
             return [self.embed_state_corrupted(s0) for s0 in s]
         return self.embed_state_corrupted(s)
