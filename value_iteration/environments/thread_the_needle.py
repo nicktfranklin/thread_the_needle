@@ -3,8 +3,8 @@ from typing import List, Optional, Tuple, Union
 import numpy as np
 import scipy.sparse
 
-from environments.utils import _check_valid
-from models.utils import get_state_action_reward_from_sucessor_rewards
+from value_iteration.environments.utils import _check_valid
+from value_iteration.models.utils import get_state_action_reward_from_sucessor_rewards
 
 
 def define_valid_lattice_transitions(

@@ -5,10 +5,10 @@ import numpy as np
 from scipy.special import logsumexp
 from tqdm import tqdm
 
-from models.utils import (calculate_sr_from_transitions,
+from value_iteration.models.utils import (calculate_sr_from_transitions,
                           get_state_action_reward_from_sucessor_rewards,
                           inverse_cmf_sampler, one_hot)
-from models.value_iteration_network import ValueIterationNetwork
+from value_iteration.models.value_iteration_network import ValueIterationNetwork
 
 
 def get_optimal_sr_from_transitions(

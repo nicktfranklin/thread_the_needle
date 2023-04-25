@@ -4,7 +4,7 @@ import numpy as np
 from scipy import sparse
 from tqdm import tnrange
 
-from models.utils import softmax
+from value_iteration.models.utils import softmax
 
 
 class PlanningModel:
