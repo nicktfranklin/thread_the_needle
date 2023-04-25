@@ -1,10 +1,12 @@
-from typing import Tuple, Union
+from typing import Dict, Hashable, List, Tuple, Union
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn, optim
 from torch.distributions.categorical import Categorical
+
+from state_inference.utils import gumbel_softmax
 
 # helper functions for training
 QUIET = False
@@ -15,71 +17,6 @@ elif torch.cuda.is_available():
     DEVICE = torch.device("cuda:0")
 else:
     DEVICE = torch.device("cpu")
-
-
-# Note: there is an issue F.gumbel_softmax that appears to causes an error w
-# where a valide distribution will return nans, preventing training.  Fix from
-# https://gist.github.com/GongXinyuu/3536da55639bd9bfdd5a905ebf3ab88e
-def gumbel_softmax(
-    logits: torch.Tensor,
-    tau: float = 1,
-    hard: bool = False,
-    dim: int = -1,
-) -> torch.Tensor:
-    r"""
-    Samples from the `Gumbel-Softmax distribution`_ and optionally discretizes.
-    You can use this function to replace "F.gumbel_softmax".
-
-    Args:
-      logits: `[..., num_features]` unnormalized log probabilities
-      tau: non-negative scalar temperature
-      hard: if ``True``, the returned samples will be discretized as one-hot vectors,
-            but will be differentiated as if it is the soft sample in autograd
-      dim (int): A dimension along which softmax will be computed. Default: -1.
-    Returns:
-      Sampled tensor of same shape as `logits` from the Gumbel-Softmax distribution.
-      If ``hard=True``, the returned samples will be one-hot, otherwise they will
-      be probability distributions that sum to 1 across `dim`.
-    .. note::
-      This function is here for legacy reasons, may be removed from nn.Functional in the future.
-    .. note::
-      The main trick for `hard` is to do  `y_hard - y_soft.detach() + y_soft`
-      It achieves two things:
-      - makes the output value exactly one-hot
-      (since we add then subtract y_soft value)
-      - makes the gradient equal to y_soft gradient
-      (since we strip all other gradients)
-    Examples::
-        >>> logits = torch.randn(20, 32)
-        >>> # Sample soft categorical using reparametrization trick:
-        >>> F.gumbel_softmax(logits, tau=1, hard=False)
-        >>> # Sample hard categorical using "Straight-through" trick:
-        >>> F.gumbel_softmax(logits, tau=1, hard=True)
-    .. _Gumbel-Softmax distribution:
-        https://arxiv.org/abs/1611.00712
-        https://arxiv.org/abs/1611.01144
-    """
-
-    def _gen_gumbels():
-        gumbels = -torch.empty_like(logits).exponential_().log()
-        if torch.isnan(gumbels).sum() or torch.isinf(gumbels).sum():
-            # to avoid zero in exp output
-            gumbels = _gen_gumbels()
-        return gumbels
-
-    gumbels = _gen_gumbels()  # ~Gumbel(0,1)
-    gumbels = (logits + gumbels) / tau  # ~Gumbel(logits,tau)
-    y_soft = gumbels.softmax(dim)
-
-    if hard:
-        # Straight through.
-        index = y_soft.max(dim, keepdim=True)[1]
-        y_hard = torch.zeros_like(logits).scatter_(dim, index, 1.0)
-        ret = y_hard - y_soft.detach() + y_soft
-    else:
-        # Reparametrization trick.
-        ret = y_soft
-    return ret
 
 
 class MLP(nn.Module):
@@ -279,3 +216,96 @@ def train_epochs(model, train_loader, test_loader, train_args):
             print(f"Epoch {epoch}, ELBO Loss (test) {test_loss:.4f}")
 
     return train_losses, test_losses
+
+
+class TransitionEstimator:
+    ## Note: does not take in actions
+
+    def __init__(self):
+        self.transitions = dict()
+        self.pmf = dict()
+
+    def update(self, s: Hashable, sp: Hashable):
+        if s in self.transitions:
+            if sp in self.transitions[s]:
+                self.transitions[s][sp] += 1
+            else:
+                self.transitions[s][sp] = 1
+        else:
+            self.transitions[s] = {sp: 1}
+
+        N = float(sum(self.transitions[s].values()))
+        self.pmf[s] = {sp0: v / N for sp0, v in self.transitions[s].items()}
+
+    def batch_update(self, list_states: List[Hashable]):
+        for ii in range(len(list_states) - 1):
+            self.update(list_states[ii], list_states[ii + 1])
+
+    def get_transition_probs(self, s: Hashable) -> Dict[Hashable, float]:
+        # if a state is not in the model, assume it's self-absorbing
+        if s not in self.pmf:
+            return {s: 1.0}
+        return self.pmf[s]
+
+
+class RewardEstimator:
+    def __init__(self):
+        self.counts = dict()
+        self.state_reward_function = dict()
+
+    def update(self, s: Hashable, r: float):
+        if s in self.counts.keys():  # pylint: disable=consider-iterating-dictionary
+            self.counts[s] += np.array([r, 1])
+        else:
+            self.counts[s] = np.array([r, 1])
+
+        self.state_reward_function[s] = self.counts[s][0] / self.counts[s][1]
+
+    def batch_update(self, s: List[Hashable], r: List[float]):
+        for s0, r0 in zip(s, r):
+            self.update(s0, r0)
+
+    def get_states(self):
+        return list(self.state_reward_function.keys())
+
+    def get_reward(self, state):
+        return self.state_reward_function[state]
+
+
+def value_iteration(
+    t: Dict[Union[str, int], TransitionEstimator],
+    r: RewardEstimator,
+    gamma: float,
+    iterations: int,
+):
+    list_states = r.get_states()
+    list_actions = list(t.keys())
+    q_values = {s: {a: 0 for a in list_actions} for s in list_states}
+    v = {s: 0 for s in list_states}
+
+    def _inner_sum(s, a):
+        _sum = 0
+        for sp, p in t[a].get_transition_probs(s).items():
+            _sum += p * v[sp]
+        return _sum
+
+    def _expected_reward(s, a):
+        _sum = 0
+        for sp, p in t[a].get_transition_probs(s).items():
+            _sum += p * r.get_reward(sp)
+        return _sum
+
+    for _ in range(iterations):
+        for s in list_states:
+            for a in list_actions:
+                q_values[s][a] = _expected_reward(s, a) + gamma * _inner_sum(s, a)
+        # update value function
+        for s, qs in q_values.items():
+            v[s] = max(qs.values())
+
+    return q_values, v
+
+
+class RewardModel:
+    # Generative Model
+    pass
