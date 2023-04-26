@@ -1,4 +1,4 @@
-from typing import Dict, Hashable, List, Tuple, Union
+from typing import Any, Dict, Hashable, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -9,15 +9,89 @@ from torch.utils.data import DataLoader
 
 from state_inference.utils import gumbel_softmax
 
-# helper functions for training
-QUIET = False
-
 if torch.backends.mps.is_available():
     DEVICE = torch.device("mps")
 elif torch.cuda.is_available():
     DEVICE = torch.device("cuda:0")
 else:
     DEVICE = torch.device("cpu")
+
+QUIET = False
+
+
+def train(
+    model: nn.Module,
+    train_loader: DataLoader,
+    optimizer: torch.optim.Optimizer,
+    clip_grad: bool = None,
+    preprocess: Optional[callable] = None,
+) -> List[torch.Tensor]:
+    model.train()
+
+    train_losses = []
+    for x in train_loader:
+        if preprocess:
+            x = preprocess(x)
+
+        optimizer.zero_grad()
+        loss = model.loss(x)
+        loss.backward()
+
+        if clip_grad:
+            torch.nn.utils.clip_grad_norm(model.parameters(), clip_grad)
+
+        optimizer.step()
+        train_losses.append(loss.item())
+
+    return train_losses
+
+
+def eval_loss(
+    model: nn.Module,
+    data_loader: DataLoader,
+    preprocess: Optional[callable] = None,
+) -> torch.Tensor:
+    model.eval()
+    total_loss = 0
+    with torch.no_grad():
+        for x in data_loader:
+            if preprocess:
+                x = preprocess(x)
+            x = x.to(DEVICE).float()
+            loss = model.loss(x)
+            total_loss += loss * x.shape[0]
+        avg_loss = total_loss / len(data_loader.dataset)
+
+    return avg_loss.item()
+
+
+def train_epochs(
+    model: nn.Module,
+    train_loader: DataLoader,
+    test_loader: DataLoader,
+    train_args: Dict[str, Any],
+    preprocess: Optional[callable] = None,
+):
+    epochs, lr = train_args["epochs"], train_args["lr"]
+    grad_clip = train_args.get("grad_clip", None)
+    optimizer = optim.AdamW(model.parameters(), lr=lr)
+
+    train_losses = []
+    test_losses = [eval_loss(model, test_loader)]
+    for epoch in range(epochs):
+        model.train()
+        train_losses.extend(
+            train(model, train_loader, optimizer, grad_clip, preprocess=preprocess)
+        )
+        test_loss = eval_loss(model, test_loader, preprocess=preprocess)
+        test_losses.append(test_loss)
+
+        model.anneal_tau()
+
+        if not QUIET:
+            print(f"Epoch {epoch}, ELBO Loss (test) {test_loss:.4f}")
+
+    return train_losses, test_losses
 
 
 class MLP(nn.Module):
@@ -81,7 +155,6 @@ class mDVAE(nn.Module):
         beta: float = 1,
         tau: float = 1,
         gamma: float = 1,
-        random_encoder: bool = False,
     ):
         super().__init__()
         self.encoder = encoder
@@ -91,12 +164,6 @@ class mDVAE(nn.Module):
         self.beta = beta
         self.tau = tau
         self.gamma = gamma
-        self.random_encoder = random_encoder
-
-        if random_encoder:
-            for child in self.encoder.children():
-                for param in child.parameters():
-                    param.requires_grad = False
 
     def reparameterize(self, logits):
         # either sample the state or take the argmax
@@ -116,31 +183,22 @@ class mDVAE(nn.Module):
     def decode(self, z):
         return self.decoder(z.view(-1, self.z_layers * self.z_dim).float())
 
-    def forward(self, x):
-        _, z = self.encode(x)
-        return self.decode(z)
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        logits, z = self.encode(x)
+        return (logits, z), self.decode(z)
 
     def kl_loss(self, logits):
         return Categorical(logits=logits).entropy().mean()
 
-    def reconstruction_loss(self, x, z):
-        x_hat = self.decode(z)
-        return F.mse_loss(x_hat, x)
-
     def loss(self, x: torch.Tensor) -> torch.Tensor:
         x = x.to(DEVICE).float()
-        logits, z = self.encode(x)
-        return self.loss_from_embedding(x, logits, z)
+        (logits, _), x_hat = self(x)
 
-    def loss_from_embedding(self, x, logits, z):
+        # get the two components of the ELBO loss
         kl_loss = self.kl_loss(logits)
-        recon_loss = self.reconstruction_loss(x, z)
-        return recon_loss + kl_loss * self.beta
+        recon_loss = F.mse_loss(x_hat, x)
 
-    def state_probability(self, x):
-        with torch.no_grad():
-            logits = self.encoder(x)
-            return Categorical(logits=logits).probs
+        return recon_loss + kl_loss * self.beta
 
     def get_state(self, x):
         self.eval()
@@ -149,7 +207,7 @@ class mDVAE(nn.Module):
 
     def decode_state(self, s: Tuple[int]):
         self.eval()
-        z = F.one_hot(torch.tensor(s).to(DEVICE), self.z_dim).view(-1).unsqueeze(0)
+        z = F.one_hot(torch.Tensor(s).to(DEVICE), self.z_dim).view(-1).unsqueeze(0)
         with torch.no_grad():
             return self.decode(z).detach().cpu().numpy()
 
@@ -157,73 +215,18 @@ class mDVAE(nn.Module):
         self.tau *= self.gamma
 
     def encode_states(
-        self, observations: Union[np.array, torch.tensor]
-    ) -> Tuple[torch.tensor, torch.tensor]:
+        self, observations: Union[np.array, torch.Tensor]
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         self.eval()
         with torch.no_grad():
-            x = torch.tensor(observations).to(DEVICE).float()
+            x = torch.Tensor(observations).to(DEVICE).float()
             logits, z = self.encode(x)
         return logits, z
 
 
-def train(
-    model: nn.Module,
-    train_loader: DataLoader,
-    optimizer: torch.optim.Optimizer,
-    clip_grad: bool = None,
-) -> List[torch.Tensor]:
-    model.train()
-
-    train_losses = []
-    for x in train_loader:
-        optimizer.zero_grad()
-        loss = model.loss(x)
-        loss.backward()
-
-        if clip_grad:
-            torch.nn.utils.clip_grad_norm(model.parameters(), clip_grad)
-
-        optimizer.step()
-        train_losses.append(loss.item())
-
-    return train_losses
-
-
-def eval_loss(model: nn.Module, data_loader: DataLoader) -> torch.Tensor:
-    model.eval()
-    total_loss = 0
-    with torch.no_grad():
-        for x in data_loader:
-            x = x.to(DEVICE).float()
-            loss = model.loss(x)
-            total_loss += loss * x.shape[0]
-        avg_loss = total_loss / len(data_loader.dataset)
-
-    return avg_loss.item()
-
-
-def train_epochs(model, train_loader, test_loader, train_args):
-    epochs, lr = train_args["epochs"], train_args["lr"]
-    grad_clip = train_args.get("grad_clip", None)
-    optimizer = optim.AdamW(model.parameters(), lr=lr)
-
-    train_losses = []
-    test_losses = [eval_loss(model, test_loader)]
-    for epoch in range(epochs):
-        model.train()
-        train_losses.extend(train(model, train_loader, optimizer, grad_clip))
-        test_loss = eval_loss(model, test_loader)
-        test_losses.append(test_loss)
-
-        model.anneal_tau()
-
-        if not QUIET:
-            print(f"Epoch {epoch}, ELBO Loss (test) {test_loss:.4f}")
-
-    return train_losses, test_losses
-
-
 class TransitionModel(MLP):
+    """a model that states in states and predicts a distribution over states"""
+
     def loss(self, batch: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
         inputs, targets = batch  # unpack the batch
         inputs, targets = inputs.to(DEVICE).float, inputs.to(DEVICE).float
@@ -231,6 +234,65 @@ class TransitionModel(MLP):
         outs = self(inputs)  # apply the model
         loss = F.mse_loss(outs, targets)  # compute the (squared error) loss
         return loss
+
+
+class PomdpModel(nn.Module):
+    def __init__(
+        self,
+        observation_model: mDVAE,
+        transition_model: nn.Module,
+    ) -> None:
+        super().__init__()
+
+        self.observation_model = observation_model
+        self.transition_model = transition_model
+
+    def train_state_model(
+        self,
+        train_loader: DataLoader,
+        optimizer: torch.optim.Optimizer,
+        clip_grad: bool = None,
+    ) -> List[torch.Tensor]:
+        def preprocess_fn(
+            batch_data: Tuple[torch.Tensor, torch.Tensor]
+        ) -> torch.Tensor:
+            return batch_data[0]
+
+        return train(
+            model=self.observation_model,
+            train_loader=train_loader,
+            optimizer=optimizer,
+            clip_grad=clip_grad,
+            preprocess=preprocess_fn,
+        )
+
+    def train_transition_model(
+        self,
+        train_loader: DataLoader,
+        optimizer: torch.optim.Optimizer,
+        clip_grad: bool = None,
+    ):
+        def _preprocess_fn(
+            batch_data: Tuple[torch.Tensor, torch.Tensor]
+        ) -> Tuple[torch.Tensor, torch.Tensor]:
+            x, y = batch_data
+            return self.observation_model.encode_states(
+                x
+            ), self.observation_model.encode_states(y)
+
+        return train(
+            model=self.observation_model,
+            train_loader=train_loader,
+            optimizer=optimizer,
+            clip_grad=clip_grad,
+            preprocess=_preprocess_fn,
+        )
+
+    def _smooth_state_estimates(self, x: torch.Tensor):
+        state_logits, _ = self.observation_model.encode(x)
+
+    def forward(self, x):
+        raise NotImplementedError
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
         optimizer = torch.optim.Adam(
