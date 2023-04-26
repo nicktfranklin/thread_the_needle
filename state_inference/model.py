@@ -5,6 +5,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn, optim
 from torch.distributions.categorical import Categorical
+from torch.utils.data import DataLoader
 
 from state_inference.utils import gumbel_softmax
 
@@ -126,7 +127,8 @@ class mDVAE(nn.Module):
         x_hat = self.decode(z)
         return F.mse_loss(x_hat, x)
 
-    def loss(self, x):
+    def loss(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.to(DEVICE).float()
         logits, z = self.encode(x)
         return self.loss_from_embedding(x, logits, z)
 
@@ -164,13 +166,16 @@ class mDVAE(nn.Module):
         return logits, z
 
 
-def train(model, train_loader, optimizer, clip_grad=None):
+def train(
+    model: nn.Module,
+    train_loader: DataLoader,
+    optimizer: torch.optim.Optimizer,
+    clip_grad: bool = None,
+) -> List[torch.Tensor]:
     model.train()
 
     train_losses = []
     for x in train_loader:
-        x = x.to(DEVICE).float()
-
         optimizer.zero_grad()
         loss = model.loss(x)
         loss.backward()
@@ -184,7 +189,7 @@ def train(model, train_loader, optimizer, clip_grad=None):
     return train_losses
 
 
-def eval_loss(model, data_loader):
+def eval_loss(model: nn.Module, data_loader: DataLoader) -> torch.Tensor:
     model.eval()
     total_loss = 0
     with torch.no_grad():
@@ -218,7 +223,23 @@ def train_epochs(model, train_loader, test_loader, train_args):
     return train_losses, test_losses
 
 
-class TransitionEstimator:
+class TransitionModel(MLP):
+    def loss(self, batch: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+        inputs, targets = batch  # unpack the batch
+        inputs, targets = inputs.to(DEVICE).float, inputs.to(DEVICE).float
+
+        outs = self(inputs)  # apply the model
+        loss = F.mse_loss(outs, targets)  # compute the (squared error) loss
+        return loss
+
+    def configure_optimizers(self) -> torch.optim.Optimizer:
+        optimizer = torch.optim.Adam(
+            self.parameters(), lr=3e-4
+        )  # https://fsdl.me/ol-reliable-img
+        return optimizer
+
+
+class TabularTransitionModel:
     ## Note: does not take in actions
 
     def __init__(self):
@@ -248,7 +269,7 @@ class TransitionEstimator:
         return self.pmf[s]
 
 
-class RewardEstimator:
+class TabularRewardEstimator:
     def __init__(self):
         self.counts = dict()
         self.state_reward_function = dict()
@@ -273,8 +294,8 @@ class RewardEstimator:
 
 
 def value_iteration(
-    t: Dict[Union[str, int], TransitionEstimator],
-    r: RewardEstimator,
+    t: Dict[Union[str, int], TabularTransitionModel],
+    r: TabularRewardEstimator,
     gamma: float,
     iterations: int,
 ):

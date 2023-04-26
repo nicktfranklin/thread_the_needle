@@ -5,9 +5,12 @@ import numpy as np
 from scipy.special import logsumexp
 from tqdm import tqdm
 
-from value_iteration.models.utils import (calculate_sr_from_transitions,
-                          get_state_action_reward_from_sucessor_rewards,
-                          inverse_cmf_sampler, one_hot)
+from value_iteration.models.utils import (
+    calculate_sr_from_transitions,
+    get_state_action_reward_from_sucessor_rewards,
+    inverse_cmf_sampler,
+    one_hot,
+)
 from value_iteration.models.value_iteration_network import ValueIterationNetwork
 
 
@@ -175,8 +178,6 @@ class SRResampler:
         gamma: float = 1,
     ) -> List[np.ndarray]:
         # Q(s, a) = T(s, a, s')V(s')
-
-        n_actions = len(transition_functions)
 
         state_value_function = get_value_function_from_sr(
             successor_representation, state_reward_function
