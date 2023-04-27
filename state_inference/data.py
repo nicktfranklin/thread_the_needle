@@ -1,6 +1,5 @@
 from typing import Optional, Tuple
 
-import numpy as np
 import torch
 from torch.utils.data import Dataset
 
@@ -14,7 +13,7 @@ def generate_random_walk(
     initial_state: Optional[int] = None,
 ) -> torch.tensor:
     states = transition_model.sample_states(length, "walk", initial_state=initial_state)
-    obs = torch.stack([observation_model(s).unsqueeze(0) for s in states])
+    obs = torch.stack([observation_model(s) for s in states])
     return obs
 
 
@@ -39,7 +38,6 @@ class ObservationDataset(Dataset):
                 ]
             )
         self.n = self.observations.shape[0]
-        # self.observations = self.observations.view(self.n, -1)
 
     def __getitem__(self, idx):
         return self.observations[idx]
@@ -48,7 +46,7 @@ class ObservationDataset(Dataset):
         return self.n
 
 
-class SequenceDataset(Dataset):
+class PomdpDataset(Dataset):
     """Data set contains (o, o') tuples"""
 
     def __init__(
@@ -70,7 +68,6 @@ class SequenceDataset(Dataset):
             )
             x.append(obs[:-1])
             y.append(obs[1:])
-            print(obs[:-1].shape)
         self.x = torch.stack(x)
         self.y = torch.stack(y)
 

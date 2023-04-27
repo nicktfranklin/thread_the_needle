@@ -2,17 +2,17 @@ from typing import List
 
 import numpy as np
 import torch
+import torch.nn as nn
 from scipy.special import logsumexp
 from sklearn.linear_model import LogisticRegression
 
 from state_inference.env import ObservationModel
-from state_inference.model import mDVAE
 
 
 class StateReconstruction:
     def __init__(
         self,
-        vae_model: mDVAE,
+        vae_model: nn.Module,
         observation_model: ObservationModel,
         train_states: List[int],
     ):

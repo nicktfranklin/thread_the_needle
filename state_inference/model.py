@@ -98,7 +98,7 @@ class MLP(nn.Module):
     def __init__(
         self,
         input_size: int,
-        hidden_sizes: list,
+        hidden_sizes: List[int],
         output_size: int,
         dropout: float = 0.01,
     ):
@@ -137,7 +137,7 @@ class Decoder(MLP):
     def __init__(
         self,
         input_size: int,
-        hidden_sizes: list,
+        hidden_sizes: List[int],
         output_size: int,
         dropout: float = 0.01,
     ):
@@ -236,6 +236,22 @@ class mDVAE(nn.Module):
 class TransitionModel(MLP):
     """a model that states in states and predicts a distribution over states"""
 
+    def __init__(
+        self,
+        hidden_sizes: List[int],
+        z_dim: int,
+        z_layers: int,
+        dropout: float = 0.01,
+    ):
+        super().__init__(z_dim * z_layers, hidden_sizes, z_dim * z_layers, dropout)
+        self.z_dim = z_dim
+        self.z_layers = z_layers
+
+        self.net.pop(-1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return super().forward(x).view(-1, self.z_layers, self.z_dim)
+
     def loss(self, batch: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
         inputs, targets = batch  # unpack the batch
         inputs, targets = inputs.to(DEVICE).float, inputs.to(DEVICE).float
@@ -248,13 +264,28 @@ class TransitionModel(MLP):
 class PomdpModel(nn.Module):
     def __init__(
         self,
-        observation_model: mDVAE,
+        encoder: nn.Module,
+        decoder: nn.Module,
         transition_model: nn.Module,
+        z_dim: int,
+        transition_model_hidden: List[int],
+        z_layers: int = 2,
+        beta: float = 1,
+        tau: float = 1,
+        gamma: float = 1,
     ) -> None:
         super().__init__()
 
-        self.observation_model = observation_model
-        self.transition_model = transition_model
+        self.observation_model = mDVAE(
+            encoder=encoder,
+            decoder=decoder,
+            z_dim=z_dim,
+            z_layers=z_layers,
+            beta=beta,
+            tau=tau,
+            gamma=gamma,
+        )
+        self.transition_model = transition_model(transition_model_hidden, z_dim, z_layers)
 
     def train_state_model(
         self,
