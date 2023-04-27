@@ -14,7 +14,7 @@ def generate_random_walk(
     initial_state: Optional[int] = None,
 ) -> torch.tensor:
     states = transition_model.sample_states(length, "walk", initial_state=initial_state)
-    obs = torch.tensor(np.array([observation_model(s).reshape(-1) for s in states]))
+    obs = torch.stack([observation_model(s).unsqueeze(0) for s in states])
     return obs
 
 
@@ -32,15 +32,14 @@ class ObservationDataset(Dataset):
             )
         else:
             # for test, use the uncorrupted dataset
-            self.observations = torch.tensor(
-                np.array(
-                    [
-                        observation_model.embed_state(s).reshape(-1)
-                        for s in range(transition_model.n_states)
-                    ]
-                )
+            self.observations = torch.stack(
+                [
+                    observation_model.embed_state(s)
+                    for s in range(transition_model.n_states)
+                ]
             )
         self.n = self.observations.shape[0]
+        # self.observations = self.observations.view(self.n, -1)
 
     def __getitem__(self, idx):
         return self.observations[idx]
@@ -69,8 +68,9 @@ class SequenceDataset(Dataset):
             obs = generate_random_walk(
                 chain_len + 1, transition_model, observation_model
             )
-            x.append(obs[:-1].view(chain_len, -1))
-            y.append(obs[1:].view(chain_len, -1))
+            x.append(obs[:-1])
+            y.append(obs[1:])
+            print(obs[:-1].shape)
         self.x = torch.stack(x)
         self.y = torch.stack(y)
 

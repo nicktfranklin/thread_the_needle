@@ -30,6 +30,13 @@ class RbfKernelEmbedding:
         return fftconvolve(input_space, self.kernel, mode="same")
 
 
+def make_tensor(func: callable):
+    def wrapper(*args, **kwargs):
+        return torch.tensor(func(*args, **kwargs))
+
+    return wrapper
+
+
 class ObservationModel:
     def __init__(
         self,
@@ -77,6 +84,7 @@ class ObservationModel:
         grid[x, y] = 1.0
         return grid
 
+    @make_tensor
     def embed_state(self, s: int) -> torch.tensor:
         x, y = self.get_obs_coords(s)
         grid = self._embed_one_hot(x, y)
@@ -108,6 +116,7 @@ class ObservationModel:
         )
         return corrupted_mask
 
+    @make_tensor
     def embed_state_corrupted(self, s: int) -> torch.tensor:
         x, y = self.get_obs_coords(s)
         x, y = self._location_corruption(x, y)

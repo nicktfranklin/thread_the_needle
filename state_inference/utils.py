@@ -4,20 +4,20 @@ import numpy as np
 import torch
 from scipy.special import logsumexp
 from sklearn.linear_model import LogisticRegression
-from torch import nn
 
 from state_inference.env import ObservationModel
+from state_inference.model import mDVAE
 
 
 class StateReconstruction:
     def __init__(
         self,
-        vae_model: nn.Module,
+        vae_model: mDVAE,
         observation_model: ObservationModel,
         train_states: List[int],
     ):
         n = len(train_states)
-        train_observations = np.array(observation_model(train_states)).reshape(n, -1)
+        train_observations = torch.stack(observation_model(train_states)).view(n, -1)
 
         # encodes the states
         logits_train, _ = vae_model.encode_states(train_observations)
@@ -31,7 +31,7 @@ class StateReconstruction:
 
     def _embed(self, states: List[int]):
         n = len(states)
-        obs_test = np.array(self.observation_model(states)).reshape(n, -1)
+        obs_test = torch.stack(self.observation_model(states)).view(n, -1)
         embed_logits_test, _ = self.vae_model.encode_states(obs_test)
         embed_logits_test = embed_logits_test.view(n, -1).detach().cpu().numpy()
         return embed_logits_test

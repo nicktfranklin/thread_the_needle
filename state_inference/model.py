@@ -175,8 +175,12 @@ class mDVAE(nn.Module):
         return z
 
     def encode(self, x):
+        # flatten input
+        x = x.view(x.shape[0], -1)
+
         # reshape encoder output to (n_batch, z_layers, z_dim)
         logits = self.encoder(x).view(-1, self.z_layers, self.z_dim)
+
         z = self.reparameterize(logits)
         return logits, z
 
@@ -184,8 +188,9 @@ class mDVAE(nn.Module):
         return self.decoder(z.view(-1, self.z_layers * self.z_dim).float())
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        shape = x.shape  # preserve original shape
         logits, z = self.encode(x)
-        return (logits, z), self.decode(z)
+        return (logits, z), self.decode(z).view(shape)
 
     def kl_loss(self, logits):
         return Categorical(logits=logits).entropy().mean()
@@ -207,7 +212,11 @@ class mDVAE(nn.Module):
 
     def decode_state(self, s: Tuple[int]):
         self.eval()
-        z = F.one_hot(torch.Tensor(s).to(DEVICE), self.z_dim).view(-1).unsqueeze(0)
+        z = (
+            F.one_hot(torch.Tensor(s).to(torch.int64).to(DEVICE), self.z_dim)
+            .view(-1)
+            .unsqueeze(0)
+        )
         with torch.no_grad():
             return self.decode(z).detach().cpu().numpy()
 
@@ -232,7 +241,7 @@ class TransitionModel(MLP):
         inputs, targets = inputs.to(DEVICE).float, inputs.to(DEVICE).float
 
         outs = self(inputs)  # apply the model
-        loss = F.mse_loss(outs, targets)  # compute the (squared error) loss
+        loss = F.cross_entropy(outs, targets)  # compute the (cross entropy) loss
         return loss
 
 
@@ -289,7 +298,17 @@ class PomdpModel(nn.Module):
         )
 
     def _smooth_state_estimates(self, x: torch.Tensor):
-        state_logits, _ = self.observation_model.encode(x)
+        """assumption is that x is a sequence of observations"""
+
+        # encoded logits are (n_sequence * z_layers * z_dim)
+        state_logits, z = self.observation_model.encode(x)
+
+        # use z to predict transition logits
+
+        # normalize (broadcasting)
+        state_logits = state_logits - torch.logsumexp(state_logits, dim=2)[:, :, None]
+
+        # get transition logits
 
     def forward(self, x):
         raise NotImplementedError
