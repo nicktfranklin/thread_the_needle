@@ -147,6 +147,6 @@ def train_epochs(
         model.prep_next_batch()
 
         if not QUIET:
-            print(f"Epoch {epoch}, ELBO Loss (test) {test_loss:.4f}")
+            print(f"Epoch {epoch}, ELBO Loss (test) {test_loss:.6f}")
 
     return train_losses, test_losses

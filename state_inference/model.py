@@ -187,66 +187,44 @@ class PomdpModel(ModelBase):
     def __init__(
         self,
         observation_model: StateVae,
-        transition_model: nn.Module,
+        forward_transitions: nn.Module,
+        reverse_transitions: nn.Module,
     ) -> None:
         super().__init__()
 
         self.observation_model = observation_model
-        self.transition_model = transition_model
+        self.forward_transitions = forward_transitions
+        self.reverse_transitions = reverse_transitions
 
-    def train_state_model(
-        self,
-        train_loader: DataLoader,
-        optimizer: torch.optim.Optimizer,
-        clip_grad: bool = None,
-    ) -> List[torch.Tensor]:
-        def preprocess_fn(
-            batch_data: Tuple[torch.Tensor, torch.Tensor]
-        ) -> torch.Tensor:
-            return batch_data[0]
+    @staticmethod
+    def combine_log_probs(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """
+        Takes in two logit tensors of size (n X z_layers x z_dim)
+        and outputs the normalized log probability vectors
+        """
+        x = x - torch.logsumexp(x, dim=2)[:, :, None]
+        y = y - torch.logsumexp(y, dim=2)[:, :, None]
 
-        return train(
-            model=self.observation_model,
-            train_loader=train_loader,
-            optimizer=optimizer,
-            clip_grad=clip_grad,
-            preprocess=preprocess_fn,
-        )
+        z = x + y
+        return z - torch.logsumexp(z, dim=2)[:, :, None]
 
-    def train_transition_model(
-        self,
-        train_loader: DataLoader,
-        optimizer: torch.optim.Optimizer,
-        clip_grad: bool = None,
-    ):
-        def _preprocess_fn(
-            batch_data: Tuple[torch.Tensor, torch.Tensor]
-        ) -> Tuple[torch.Tensor, torch.Tensor]:
-            x, y = batch_data
-            z_train = self.observation_model.encode_states(x)
-            z_target = self.observation_model.encode_states(y)
-            return z_train, z_target
+    def loss(self, batch: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+        inputs, targets = batch  # unpack the batch
+        inputs, targets = inputs.to(DEVICE).float(), inputs.to(DEVICE).float()
 
-        return train(
-            model=self.observation_model,
-            train_loader=train_loader,
-            optimizer=optimizer,
-            clip_grad=clip_grad,
-            preprocess=_preprocess_fn,
-        )
+        # encode
+        _, inputs_z = self.observation_model.encode(inputs)
+        _, targets_z = self.observation_model.encode(targets)
 
-    def _smooth_state_estimates(self, x: torch.Tensor):
-        """assumption is that x is a sequence of observations"""
+        # predict the transition
+        outs_forward = self.forward_transitions(inputs_z.float())
+        loss_forward = F.cross_entropy(outs_forward, targets_z.float())
 
-        # encoded logits are (n_sequence * z_layers * z_dim)
-        state_logits, z = self.observation_model.encode(x)
+        # predict the inverse transition
+        out_reverse = self.reverse_transitions(targets_z.float())
+        loss_reverse = F.cross_entropy(out_reverse, inputs_z.float())
 
-        # use z to predict transition logits
-
-        # normalize (broadcasting)
-        state_logits = state_logits - torch.logsumexp(state_logits, dim=2)[:, :, None]
-
-        # get transition logits
+        return loss_forward + loss_reverse
 
 
 class RewardModel:
