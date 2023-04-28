@@ -68,8 +68,8 @@ class PomdpDataset(Dataset):
             )
             x.append(obs[:-1])
             y.append(obs[1:])
-        self.x = torch.stack(x)
-        self.y = torch.stack(y)
+        self.x = torch.vstack(x)
+        self.y = torch.vstack(y)
 
         self.n = n
 

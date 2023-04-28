@@ -1,98 +1,30 @@
-from typing import Any, Dict, Hashable, List, Optional, Tuple, Union
+from typing import List, Tuple
 
-import numpy as np
 import torch
 import torch.nn.functional as F
-from torch import nn, optim
+from torch import nn
 from torch.distributions.categorical import Categorical
 from torch.utils.data import DataLoader
 
-if torch.backends.mps.is_available():
-    DEVICE = torch.device("mps")
-elif torch.cuda.is_available():
-    DEVICE = torch.device("cuda:0")
-else:
-    DEVICE = torch.device("cpu")
-
-QUIET = False
+from state_inference.pytorch_utils import DEVICE, gumbel_softmax, train
 
 
-def train(
-    model: nn.Module,
-    train_loader: DataLoader,
-    optimizer: torch.optim.Optimizer,
-    clip_grad: bool = None,
-    preprocess: Optional[callable] = None,
-) -> List[torch.Tensor]:
-    model.train()
+class ModelBase(nn.Module):
+    def __init__(self):
+        super().__init__()
 
-    train_losses = []
-    for x in train_loader:
-        if preprocess:
-            x = preprocess(x)
+    def configure_optimizers(self, lr: float = 3e-4):
+        optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+        return optimizer
 
-        optimizer.zero_grad()
-        loss = model.loss(x)
-        loss.backward()
+    def forward(self, x):
+        raise NotImplementedError
 
-        if clip_grad:
-            torch.nn.utils.clip_grad_norm(model.parameters(), clip_grad)
-
-        optimizer.step()
-        train_losses.append(loss.item())
-
-    return train_losses
+    def prep_next_batch(self):
+        pass
 
 
-def eval_loss(
-    model: nn.Module,
-    data_loader: DataLoader,
-    preprocess: Optional[callable] = None,
-) -> torch.Tensor:
-    model.eval()
-    total_loss = 0
-    with torch.no_grad():
-        for x in data_loader:
-            if preprocess:
-                x = preprocess(x)
-            x = x.to(DEVICE).float()
-            loss = model.loss(x)
-            total_loss += loss * x.shape[0]
-        avg_loss = total_loss / len(data_loader.dataset)
-
-    return avg_loss.item()
-
-
-def train_epochs(
-    model: nn.Module,
-    train_loader: DataLoader,
-    test_loader: DataLoader,
-    train_args: Dict[str, Any],
-    preprocess: Optional[callable] = None,
-):
-    epochs, lr = train_args["epochs"], train_args["lr"]
-    grad_clip = train_args.get("grad_clip", None)
-    optimizer = optim.AdamW(model.parameters(), lr=lr)
-
-    train_losses = []
-    test_losses = [eval_loss(model, test_loader)]
-    for epoch in range(epochs):
-        model.train()
-        train_losses.extend(
-            train(model, train_loader, optimizer, grad_clip, preprocess=preprocess)
-        )
-        test_loss = eval_loss(model, test_loader, preprocess=preprocess)
-        test_losses.append(test_loss)
-
-        model.anneal_tau()
-
-        if not QUIET:
-            print(f"Epoch {epoch}, ELBO Loss (test) {test_loss:.4f}")
-
-    return train_losses, test_losses
-
-
-class MLP(nn.Module):
+class MLP(ModelBase):
     def __init__(
         self,
         input_size: int,
@@ -128,7 +60,8 @@ class MLP(nn.Module):
 
 
 class Encoder(MLP):
-    pass
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return super().forward(x.view(x.shape[0], -1))
 
 
 class Decoder(MLP):
@@ -143,75 +76,11 @@ class Decoder(MLP):
         self.net.pop(-1)
 
 
-# Note: there is an issue F.gumbel_softmax that appears to causes an error w
-# where a valide distribution will return nans, preventing training.  Fix from
-# https://gist.github.com/GongXinyuu/3536da55639bd9bfdd5a905ebf3ab88e
-def gumbel_softmax(
-    logits: torch.Tensor,
-    tau: float = 1,
-    hard: bool = False,
-    dim: int = -1,
-) -> torch.Tensor:
-    r"""
-    Samples from the `Gumbel-Softmax distribution`_ and optionally discretizes.
-    You can use this function to replace "F.gumbel_softmax".
-    Args:
-      logits: `[..., num_features]` unnormalized log probabilities
-      tau: non-negative scalar temperature
-      hard: if ``True``, the returned samples will be discretized as one-hot vectors,
-            but will be differentiated as if it is the soft sample in autograd
-      dim (int): A dimension along which softmax will be computed. Default: -1.
-    Returns:
-      Sampled tensor of same shape as `logits` from the Gumbel-Softmax distribution.
-      If ``hard=True``, the returned samples will be one-hot, otherwise they will
-      be probability distributions that sum to 1 across `dim`.
-    .. note::
-      This function is here for legacy reasons, may be removed from nn.Functional in the future.
-    .. note::
-      The main trick for `hard` is to do  `y_hard - y_soft.detach() + y_soft`
-      It achieves two things:
-      - makes the output value exactly one-hot
-      (since we add then subtract y_soft value)
-      - makes the gradient equal to y_soft gradient
-      (since we strip all other gradients)
-    Examples::
-        >>> logits = torch.randn(20, 32)
-        >>> # Sample soft categorical using reparametrization trick:
-        >>> F.gumbel_softmax(logits, tau=1, hard=False)
-        >>> # Sample hard categorical using "Straight-through" trick:
-        >>> F.gumbel_softmax(logits, tau=1, hard=True)
-    .. _Gumbel-Softmax distribution:
-        https://arxiv.org/abs/1611.00712
-        https://arxiv.org/abs/1611.01144
-    """
-
-    def _gen_gumbels():
-        gumbels = -torch.empty_like(logits).exponential_().log()
-        if torch.isnan(gumbels).sum() or torch.isinf(gumbels).sum():
-            # to avoid zero in exp output
-            gumbels = _gen_gumbels()
-        return gumbels
-
-    gumbels = _gen_gumbels()  # ~Gumbel(0,1)
-    gumbels = (logits + gumbels) / tau  # ~Gumbel(logits,tau)
-    y_soft = gumbels.softmax(dim)
-
-    if hard:
-        # Straight through.
-        index = y_soft.max(dim, keepdim=True)[1]
-        y_hard = torch.zeros_like(logits).scatter_(dim, index, 1.0)
-        ret = y_hard - y_soft.detach() + y_soft
-    else:
-        # Reparametrization trick.
-        ret = y_soft
-    return ret
-
-
-class mDVAE(nn.Module):
+class StateVae(ModelBase):
     def __init__(
         self,
-        encoder: nn.Module,
-        decoder: nn.Module,
+        encoder: ModelBase,
+        decoder: ModelBase,
         z_dim: int,
         z_layers: int = 2,
         beta: float = 1,
@@ -237,12 +106,8 @@ class mDVAE(nn.Module):
         return z
 
     def encode(self, x):
-        # flatten input
-        x = x.view(x.shape[0], -1)
-
         # reshape encoder output to (n_batch, z_layers, z_dim)
         logits = self.encoder(x).view(-1, self.z_layers, self.z_dim)
-
         z = self.reparameterize(logits)
         return logits, z
 
@@ -250,9 +115,8 @@ class mDVAE(nn.Module):
         return self.decoder(z.view(-1, self.z_layers * self.z_dim).float())
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        shape = x.shape  # preserve original shape
         logits, z = self.encode(x)
-        return (logits, z), self.decode(z).view(shape)
+        return (logits, z), self.decode(z).view(x.shape)  # preserve original shape
 
     def kl_loss(self, logits):
         return Categorical(logits=logits).entropy().mean()
@@ -285,17 +149,11 @@ class mDVAE(nn.Module):
     def anneal_tau(self):
         self.tau *= self.gamma
 
-    def encode_states(
-        self, observations: Union[np.array, torch.Tensor]
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        self.eval()
-        with torch.no_grad():
-            x = torch.Tensor(observations).to(DEVICE).float()
-            logits, z = self.encode(x)
-        return logits, z
+    def prep_next_batch(self):
+        self.anneal_tau()
 
 
-class TransitionModel(MLP):
+class TransitionPredictor(MLP):
     """a model that states in states and predicts a distribution over states"""
 
     def __init__(
@@ -312,44 +170,29 @@ class TransitionModel(MLP):
         self.net.pop(-1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return super().forward(x).view(-1, self.z_layers, self.z_dim)
+        return (
+            super().forward(x.view(x.shape[0], -1)).view(-1, self.z_layers, self.z_dim)
+        )
 
     def loss(self, batch: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
         inputs, targets = batch  # unpack the batch
-        inputs, targets = inputs.to(DEVICE).float, inputs.to(DEVICE).float
+        inputs, targets = inputs.to(DEVICE).float(), inputs.to(DEVICE).float()
 
         outs = self(inputs)  # apply the model
         loss = F.cross_entropy(outs, targets)  # compute the (cross entropy) loss
         return loss
 
 
-class PomdpModel(nn.Module):
+class PomdpModel(ModelBase):
     def __init__(
         self,
-        encoder: nn.Module,
-        decoder: nn.Module,
+        observation_model: StateVae,
         transition_model: nn.Module,
-        z_dim: int,
-        transition_model_hidden: List[int],
-        z_layers: int = 2,
-        beta: float = 1,
-        tau: float = 1,
-        gamma: float = 1,
     ) -> None:
         super().__init__()
 
-        self.observation_model = mDVAE(
-            encoder=encoder,
-            decoder=decoder,
-            z_dim=z_dim,
-            z_layers=z_layers,
-            beta=beta,
-            tau=tau,
-            gamma=gamma,
-        )
-        self.transition_model = transition_model(
-            transition_model_hidden, z_dim, z_layers
-        )
+        self.observation_model = observation_model
+        self.transition_model = transition_model
 
     def train_state_model(
         self,
@@ -380,9 +223,9 @@ class PomdpModel(nn.Module):
             batch_data: Tuple[torch.Tensor, torch.Tensor]
         ) -> Tuple[torch.Tensor, torch.Tensor]:
             x, y = batch_data
-            return self.observation_model.encode_states(
-                x
-            ), self.observation_model.encode_states(y)
+            z_train = self.observation_model.encode_states(x)
+            z_target = self.observation_model.encode_states(y)
+            return z_train, z_target
 
         return train(
             model=self.observation_model,
@@ -404,103 +247,6 @@ class PomdpModel(nn.Module):
         state_logits = state_logits - torch.logsumexp(state_logits, dim=2)[:, :, None]
 
         # get transition logits
-
-    def forward(self, x):
-        raise NotImplementedError
-
-    def configure_optimizers(self) -> torch.optim.Optimizer:
-        optimizer = torch.optim.Adam(
-            self.parameters(), lr=3e-4
-        )  # https://fsdl.me/ol-reliable-img
-        return optimizer
-
-
-class TabularTransitionModel:
-    ## Note: does not take in actions
-
-    def __init__(self):
-        self.transitions = dict()
-        self.pmf = dict()
-
-    def update(self, s: Hashable, sp: Hashable):
-        if s in self.transitions:
-            if sp in self.transitions[s]:
-                self.transitions[s][sp] += 1
-            else:
-                self.transitions[s][sp] = 1
-        else:
-            self.transitions[s] = {sp: 1}
-
-        N = float(sum(self.transitions[s].values()))
-        self.pmf[s] = {sp0: v / N for sp0, v in self.transitions[s].items()}
-
-    def batch_update(self, list_states: List[Hashable]):
-        for ii in range(len(list_states) - 1):
-            self.update(list_states[ii], list_states[ii + 1])
-
-    def get_transition_probs(self, s: Hashable) -> Dict[Hashable, float]:
-        # if a state is not in the model, assume it's self-absorbing
-        if s not in self.pmf:
-            return {s: 1.0}
-        return self.pmf[s]
-
-
-class TabularRewardEstimator:
-    def __init__(self):
-        self.counts = dict()
-        self.state_reward_function = dict()
-
-    def update(self, s: Hashable, r: float):
-        if s in self.counts.keys():  # pylint: disable=consider-iterating-dictionary
-            self.counts[s] += np.array([r, 1])
-        else:
-            self.counts[s] = np.array([r, 1])
-
-        self.state_reward_function[s] = self.counts[s][0] / self.counts[s][1]
-
-    def batch_update(self, s: List[Hashable], r: List[float]):
-        for s0, r0 in zip(s, r):
-            self.update(s0, r0)
-
-    def get_states(self):
-        return list(self.state_reward_function.keys())
-
-    def get_reward(self, state):
-        return self.state_reward_function[state]
-
-
-def value_iteration(
-    t: Dict[Union[str, int], TabularTransitionModel],
-    r: TabularRewardEstimator,
-    gamma: float,
-    iterations: int,
-):
-    list_states = r.get_states()
-    list_actions = list(t.keys())
-    q_values = {s: {a: 0 for a in list_actions} for s in list_states}
-    v = {s: 0 for s in list_states}
-
-    def _inner_sum(s, a):
-        _sum = 0
-        for sp, p in t[a].get_transition_probs(s).items():
-            _sum += p * v[sp]
-        return _sum
-
-    def _expected_reward(s, a):
-        _sum = 0
-        for sp, p in t[a].get_transition_probs(s).items():
-            _sum += p * r.get_reward(sp)
-        return _sum
-
-    for _ in range(iterations):
-        for s in list_states:
-            for a in list_actions:
-                q_values[s][a] = _expected_reward(s, a) + gamma * _inner_sum(s, a)
-        # update value function
-        for s, qs in q_values.items():
-            v[s] = max(qs.values())
-
-    return q_values, v
 
 
 class RewardModel:

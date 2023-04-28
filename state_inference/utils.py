@@ -7,6 +7,7 @@ from scipy.special import logsumexp
 from sklearn.linear_model import LogisticRegression
 
 from state_inference.env import ObservationModel
+from state_inference.pytorch_utils import DEVICE
 
 
 class StateReconstruction:
@@ -20,7 +21,7 @@ class StateReconstruction:
         train_observations = torch.stack(observation_model(train_states)).view(n, -1)
 
         # encodes the states
-        logits_train, _ = vae_model.encode_states(train_observations)
+        logits_train, _ = vae_model.encode(train_observations.to(DEVICE))
 
         X_train = logits_train.view(n, -1).detach().cpu().numpy()
 
@@ -32,7 +33,7 @@ class StateReconstruction:
     def _embed(self, states: List[int]):
         n = len(states)
         obs_test = torch.stack(self.observation_model(states)).view(n, -1)
-        embed_logits_test, _ = self.vae_model.encode_states(obs_test)
+        embed_logits_test, _ = self.vae_model.encode(obs_test.to(DEVICE))
         embed_logits_test = embed_logits_test.view(n, -1).detach().cpu().numpy()
         return embed_logits_test
 
