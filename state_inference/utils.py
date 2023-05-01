@@ -54,7 +54,7 @@ class StateReconstruction:
         return -self.log_loss_by_time(pred_log_probs, states).mean()
 
     def accuracy(self, pred_log_probs: np.ndarray, states: List[int]):
-        return np.exp(self.log_loss_by_time(pred_log_probs, states)).mean()
+        return np.exp(self.log_loss_by_time(pred_log_probs, states))
 
     @staticmethod
     def entropy(log_probability: np.ndarray):
