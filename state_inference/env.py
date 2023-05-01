@@ -2,10 +2,13 @@ from collections import namedtuple
 from random import choices
 from typing import Dict, List, Optional, Tuple, Union
 
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from scipy.signal import fftconvolve
+
+from value_iteration.environments.thread_the_needle import GridWorld
 
 
 # The state-location is smoothed by convoling an RBF kernel with the
@@ -72,9 +75,13 @@ class ObservationModel:
     def get_obs_coords(self, s: int) -> Tuple[int, int]:
         return self.states[s]
 
-    def get_grid_location(self, s: int) -> np.ndarray:
+    def get_grid_coords(self, s: int) -> Tuple[int, int]:
         r = s // self.w
         c = s % self.w
+        return r, c
+
+    def get_grid_location(self, s: int) -> np.ndarray:
+        r, c = self.get_grid_coords(s)
         raw_state = np.zeros((self.h, self.w))
         raw_state[r, c] = 1
         return raw_state
@@ -167,10 +174,13 @@ class TransitionModel:
     ) -> None:
         self.transitions = self._make_transitions(h, w)
         self.edges = self._make_edges(self.transitions)
+        self.walls = walls
         if walls:
             self._add_walls(walls)
 
         self.n_states = h * w
+        self.h = h
+        self.w = w
 
     @staticmethod
     def _make_transitions(h: int, w: int) -> np.ndarray:
@@ -210,16 +220,19 @@ class TransitionModel:
     def _add_walls(self, walls: List[Tuple[int, int]]) -> None:
         for s, sp in walls:
             self.transitions[s, sp] = 0
+            self.transitions[sp, s] = 0
         self.transitions = self._normalize(self.transitions)
+        self.edges = self._make_edges(self.transitions)
 
     def generate_random_walk(
         self, walk_length: int, initial_state: Optional[int] = None
     ) -> Tuple[np.ndarray, List[int]]:
         random_walk = []
-        if initial_state:
+        if initial_state is not None:
             s = initial_state
         else:
             s = choices(list(self.edges.keys()))[0]
+        print(s)
 
         random_walk.append(s)
         state_counts = np.zeros(len(self.edges))
@@ -247,6 +260,36 @@ class TransitionModel:
         else:
             raise NotImplementedError("only type 'walk' or 'random' are implemented")
         return state_sampler(n)
+
+    def display_gridworld(
+        self, ax: Optional[matplotlib.axes.Axes] = None, wall_color="k"
+    ) -> matplotlib.axes.Axes:
+        if not ax:
+            _, ax = plt.subplots(figsize=(5, 5))
+            ax.invert_yaxis()
+
+        ax.set_yticks([])
+        ax.set_xticks([])
+        # plot the gridworld tiles
+        for r in range(self.h):
+            ax.plot([-0.5, self.w - 0.5], [r - 0.5, r - 0.5], c="grey", lw=0.5)
+        for c in range(self.w):
+            ax.plot([c - 0.5, c - 0.5], [-0.5, self.h - 0.5], c="grey", lw=0.5)
+
+        for s0, s1 in self.walls:
+            r0, c0 = GridWorld.get_position_from_state(s0, self.w)
+            r1, c1 = GridWorld.get_position_from_state(s1, self.w)
+
+            x = (r0 + r1) / 2
+            y = (c0 + c1) / 2
+
+            assert (r0 == r1) or (c0 == c1), f"Not a valid wall! {r0} {r1} {c0} {s1}"
+            if c0 == c1:
+                ax.plot([y - 0.5, y + 0.5], [x, x], c=wall_color, lw=3)
+            else:
+                ax.plot([y, y], [x - 0.5, x + 0.5], c=wall_color, lw=3)
+
+        return ax
 
 
 ### define simple deterministic transition functions using cardinal movements

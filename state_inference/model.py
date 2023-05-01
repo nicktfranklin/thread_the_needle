@@ -4,9 +4,8 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.distributions.categorical import Categorical
-from torch.utils.data import DataLoader
 
-from state_inference.pytorch_utils import DEVICE, gumbel_softmax, train
+from state_inference.pytorch_utils import DEVICE, gumbel_softmax
 
 
 class ModelBase(nn.Module):
@@ -225,6 +224,9 @@ class PomdpModel(ModelBase):
         loss_reverse = F.cross_entropy(out_reverse, inputs_z.float())
 
         return loss_forward + loss_reverse
+
+    def forward(self, x):
+        raise NotImplementedError
 
 
 class RewardModel:
