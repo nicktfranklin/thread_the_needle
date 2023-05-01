@@ -9,6 +9,8 @@ from state_inference.pytorch_utils import DEVICE, gumbel_softmax
 
 
 class ModelBase(nn.Module):
+    device = DEVICE
+
     def __init__(self):
         super().__init__()
 
@@ -132,7 +134,8 @@ class StateVae(ModelBase):
 
     def get_state(self, x):
         self.eval()
-        _, z = self.encode(x)
+        with torch.no_grad():
+            _, z = self.encode(x)
         return torch.argmax(z, dim=-1)
 
     def decode_state(self, s: Tuple[int]):

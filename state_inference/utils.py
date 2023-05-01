@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from scipy.special import logsumexp
-from sklearn.linear_model import LogisticRegression
+from sklearn.neural_network import MLPClassifier
 
 from state_inference.env import ObservationModel
 from state_inference.pytorch_utils import DEVICE
@@ -21,11 +21,14 @@ class StateReconstruction:
         train_observations = torch.stack(observation_model(train_states)).view(n, -1)
 
         # encodes the states
-        logits_train, _ = vae_model.encode(train_observations.to(DEVICE))
+        z_train = vae_model.get_state(train_observations.to(DEVICE))
 
-        X_train = logits_train.view(n, -1).detach().cpu().numpy()
+        X_train = z_train.view(n, -1).detach().cpu().numpy()
 
-        self.clf = LogisticRegression(max_iter=10000).fit(X_train, train_states)
+        # self.clf = LogisticRegression(solver="lbfgs").fit(X_train, train_states)
+        self.clf = MLPClassifier(
+            hidden_layer_sizes=[100, 100, 100], learning_rate_init=3e-4
+        ).fit(X_train, train_states)
 
         self.observation_model = observation_model
         self.vae_model = vae_model
@@ -33,9 +36,11 @@ class StateReconstruction:
     def _embed(self, states: List[int]):
         n = len(states)
         obs_test = torch.stack(self.observation_model(states)).view(n, -1)
-        embed_logits_test, _ = self.vae_model.encode(obs_test.to(DEVICE))
-        embed_logits_test = embed_logits_test.view(n, -1).detach().cpu().numpy()
-        return embed_logits_test
+        embed_state_vars = self.vae_model.get_state(obs_test.to(DEVICE))
+        embed_state_vars = embed_state_vars.view(n, -1).detach().cpu().numpy()
+        return embed_state_vars
+
+    # def _internal_log_predict(self, states: List[])
 
     def predict_log_prob(self, states: List[int]):
         # returns (n_samples, n_classes) matrix of log probs
