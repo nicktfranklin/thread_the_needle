@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from scipy.special import logsumexp
-from sklearn.neural_network import MLPClassifier
+from sklearn.neighbors import KNeighborsClassifier
 
 from state_inference.env import ObservationModel
 from state_inference.pytorch_utils import DEVICE
@@ -25,9 +25,8 @@ class StateReconstruction:
 
         X_train = z_train.view(n, -1).detach().cpu().numpy()
 
-        # self.clf = LogisticRegression(solver="lbfgs").fit(X_train, train_states)
-        self.clf = MLPClassifier(
-            hidden_layer_sizes=[100, 100, 100], learning_rate_init=3e-4
+        self.clf = KNeighborsClassifier(
+            n_neighbors=100, weights="distance", metric="cityblock"
         ).fit(X_train, train_states)
 
         self.observation_model = observation_model
@@ -39,14 +38,6 @@ class StateReconstruction:
         embed_state_vars = self.vae_model.get_state(obs_test.to(DEVICE))
         embed_state_vars = embed_state_vars.view(n, -1).detach().cpu().numpy()
         return embed_state_vars
-
-    # def _internal_log_predict(self, states: List[])
-
-    def predict_log_prob(self, states: List[int]):
-        # returns (n_samples, n_classes) matrix of log probs
-        return normalize_log_probabilities(
-            self.clf.predict_log_proba(self._embed(states))
-        )
 
     def predict_prob(self, states: List[int]):
         return self.clf.predict_proba(self._embed(states))
