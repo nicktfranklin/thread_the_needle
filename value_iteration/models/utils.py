@@ -22,7 +22,7 @@ def sample_trajectory_until_goal(
 
 
 def inverse_cmf_sampler(pmf: Union[np.ndarray, scipy.sparse.csr_matrix]) -> int:
-    if isinstance(pmf, scipy.sparse.csr_matrix):
+    if type(pmf) == scipy.sparse.csr_matrix:
         pmf = pmf.toarray()
 
     return np.array(np.cumsum(np.array(pmf)) < np.random.rand(), dtype=int).sum()

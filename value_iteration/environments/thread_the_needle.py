@@ -3,8 +3,8 @@ from typing import List, Optional, Tuple, Union
 import numpy as np
 import scipy.sparse
 
-from environments.utils import _check_valid
-from models.utils import get_state_action_reward_from_sucessor_rewards
+from value_iteration.environments.utils import _check_valid
+from value_iteration.models.utils import get_state_action_reward_from_sucessor_rewards
 
 
 def define_valid_lattice_transitions(
@@ -99,7 +99,7 @@ def sample_random_transition_matrix(
     movements = define_valid_lattice_transitions(n_rows, n_columns)
     movement_probs = draw_dirichlet_transitions(movements)
     return convert_movements_to_transition_matrix(
-        movement_probs, n_columnssparse=sparse
+        movement_probs, n_columns, sparse=sparse
     )
 
 
@@ -165,7 +165,7 @@ def add_wall_between_two_states(
     state_b: int,
     transition_functions: List[Union[np.ndarray, scipy.sparse.csr_matrix]],
 ) -> List[Union[np.ndarray, scipy.sparse.csr_matrix]]:
-    is_sparse = type(transition_functions[0]) == scipy.sparse.csr_matrix
+    is_sparse = isinstance(transition_functions[0], scipy.sparse.csr_matrix)
 
     n_actions = len(transition_functions)
     modified_transitions = []
@@ -313,22 +313,6 @@ def make_thread_the_needle_optimal_policy(n_rows: int, n_columns: int) -> np.nda
     optimal_policy[0, :] = np.ones(4)
 
     return optimal_policy
-
-
-def make_thread_the_needle_walls_moved_door(n_columns: int) -> List[List[int]]:
-    list_walls = []
-    for ii in range(0, n_columns // 2 - 0):
-        wall = [
-            n_columns * (n_columns // 2 - 1) + ii,
-            n_columns * (n_columns // 2) + ii,
-        ]
-        list_walls.append(wall)
-
-    for ii in range(1, n_columns - 1):
-        list_walls.append(
-            [n_columns * ii + (n_columns // 2) - 1, n_columns * ii + n_columns // 2]
-        )
-    return list_walls
 
 
 def make_thread_the_needle_with_doors_optimal_policy(

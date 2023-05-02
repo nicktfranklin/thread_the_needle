@@ -1,11 +1,13 @@
 from typing import List
 
 import numpy as np
+import torch
+import torch.nn as nn
 from scipy.special import logsumexp
-from sklearn.linear_model import LogisticRegression
-from torch import nn
+from sklearn.neighbors import KNeighborsClassifier
 
-from environments.state_inference import ObservationModel
+from state_inference.env import ObservationModel
+from state_inference.pytorch_utils import DEVICE
 
 
 class StateReconstruction:
@@ -16,33 +18,32 @@ class StateReconstruction:
         train_states: List[int],
     ):
         n = len(train_states)
-        train_observations = np.array(observation_model(train_states)).reshape(n, -1)
+        train_observations = torch.stack(observation_model(train_states)).view(n, -1)
 
         # encodes the states
-        logits_train, _ = vae_model.encode_states(train_observations)
+        z_train = vae_model.get_state(train_observations.to(DEVICE))
 
-        X_train = logits_train.view(n, -1).detach().cpu().numpy()
+        X_train = z_train.view(n, -1).detach().cpu().numpy()
 
-        self.clf = LogisticRegression(max_iter=10000).fit(X_train, train_states)
+        self.clf = KNeighborsClassifier(
+            n_neighbors=100, weights="distance", metric="cityblock"
+        ).fit(X_train, train_states)
 
         self.observation_model = observation_model
         self.vae_model = vae_model
 
     def _embed(self, states: List[int]):
         n = len(states)
-        obs_test = np.array(self.observation_model(states)).reshape(n, -1)
-        embed_logits_test, _ = self.vae_model.encode_states(obs_test)
-        embed_logits_test = embed_logits_test.view(n, -1).detach().cpu().numpy()
-        return embed_logits_test
-
-    def predict_log_prob(self, states: List[int]):
-        # returns (n_samples, n_classes) matrix of log probs
-        return normalize_log_probabilities(
-            self.clf.predict_log_proba(self._embed(states))
-        )
+        obs_test = torch.stack(self.observation_model(states)).view(n, -1)
+        embed_state_vars = self.vae_model.get_state(obs_test.to(DEVICE))
+        embed_state_vars = embed_state_vars.view(n, -1).detach().cpu().numpy()
+        return embed_state_vars
 
     def predict_prob(self, states: List[int]):
         return self.clf.predict_proba(self._embed(states))
+
+    def predict_state_prob_from_z(self, state_vars: np.ndarray) -> np.ndarray:
+        return self.clf.predict_proba(state_vars)
 
     @staticmethod
     def log_loss_by_time(pred_log_probs: np.ndarray, states: List[int]):
@@ -52,7 +53,7 @@ class StateReconstruction:
         return -self.log_loss_by_time(pred_log_probs, states).mean()
 
     def accuracy(self, pred_log_probs: np.ndarray, states: List[int]):
-        return np.exp(self.log_loss_by_time(pred_log_probs, states)).mean()
+        return np.exp(self.log_loss_by_time(pred_log_probs, states))
 
     @staticmethod
     def entropy(log_probability: np.ndarray):

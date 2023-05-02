@@ -1,11 +1,14 @@
 from collections import namedtuple
 from random import choices
-from typing import Dict, Hashable, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from scipy.signal import fftconvolve
+
+from value_iteration.environments.thread_the_needle import GridWorld
 
 
 # The state-location is smoothed by convoling an RBF kernel with the
@@ -28,6 +31,13 @@ class RbfKernelEmbedding:
     def __call__(self, input_space: torch.tensor) -> torch.tensor:
         assert len(input_space.shape) == 2
         return fftconvolve(input_space, self.kernel, mode="same")
+
+
+def make_tensor(func: callable):
+    def wrapper(*args, **kwargs):
+        return torch.tensor(func(*args, **kwargs))
+
+    return wrapper
 
 
 class ObservationModel:
@@ -65,9 +75,13 @@ class ObservationModel:
     def get_obs_coords(self, s: int) -> Tuple[int, int]:
         return self.states[s]
 
-    def get_grid_location(self, s: int) -> np.ndarray:
+    def get_grid_coords(self, s: int) -> Tuple[int, int]:
         r = s // self.w
         c = s % self.w
+        return r, c
+
+    def get_grid_location(self, s: int) -> np.ndarray:
+        r, c = self.get_grid_coords(s)
         raw_state = np.zeros((self.h, self.w))
         raw_state[r, c] = 1
         return raw_state
@@ -77,6 +91,7 @@ class ObservationModel:
         grid[x, y] = 1.0
         return grid
 
+    @make_tensor
     def embed_state(self, s: int) -> torch.tensor:
         x, y = self.get_obs_coords(s)
         grid = self._embed_one_hot(x, y)
@@ -108,6 +123,7 @@ class ObservationModel:
         )
         return corrupted_mask
 
+    @make_tensor
     def embed_state_corrupted(self, s: int) -> torch.tensor:
         x, y = self.get_obs_coords(s)
         x, y = self._location_corruption(x, y)
@@ -158,10 +174,13 @@ class TransitionModel:
     ) -> None:
         self.transitions = self._make_transitions(h, w)
         self.edges = self._make_edges(self.transitions)
+        self.walls = walls
         if walls:
             self._add_walls(walls)
 
         self.n_states = h * w
+        self.h = h
+        self.w = w
 
     @staticmethod
     def _make_transitions(h: int, w: int) -> np.ndarray:
@@ -201,16 +220,19 @@ class TransitionModel:
     def _add_walls(self, walls: List[Tuple[int, int]]) -> None:
         for s, sp in walls:
             self.transitions[s, sp] = 0
+            self.transitions[sp, s] = 0
         self.transitions = self._normalize(self.transitions)
+        self.edges = self._make_edges(self.transitions)
 
     def generate_random_walk(
         self, walk_length: int, initial_state: Optional[int] = None
     ) -> Tuple[np.ndarray, List[int]]:
         random_walk = []
-        if initial_state:
+        if initial_state is not None:
             s = initial_state
         else:
             s = choices(list(self.edges.keys()))[0]
+        print(s)
 
         random_walk.append(s)
         state_counts = np.zeros(len(self.edges))
@@ -239,98 +261,35 @@ class TransitionModel:
             raise NotImplementedError("only type 'walk' or 'random' are implemented")
         return state_sampler(n)
 
+    def display_gridworld(
+        self, ax: Optional[matplotlib.axes.Axes] = None, wall_color="k"
+    ) -> matplotlib.axes.Axes:
+        if not ax:
+            _, ax = plt.subplots(figsize=(5, 5))
+            ax.invert_yaxis()
 
-class RewardModel:
-    # Generative Model
-    pass
+        ax.set_yticks([])
+        ax.set_xticks([])
+        # plot the gridworld tiles
+        for r in range(self.h):
+            ax.plot([-0.5, self.w - 0.5], [r - 0.5, r - 0.5], c="grey", lw=0.5)
+        for c in range(self.w):
+            ax.plot([c - 0.5, c - 0.5], [-0.5, self.h - 0.5], c="grey", lw=0.5)
 
+        for s0, s1 in self.walls:
+            r0, c0 = GridWorld.get_position_from_state(s0, self.w)
+            r1, c1 = GridWorld.get_position_from_state(s1, self.w)
 
-class TransitionEstimator:
-    ## Note: does not take in actions
+            x = (r0 + r1) / 2
+            y = (c0 + c1) / 2
 
-    def __init__(self):
-        self.transitions = dict()
-        self.pmf = dict()
-
-    def update(self, s: Hashable, sp: Hashable):
-        if s in self.transitions:
-            if sp in self.transitions[s]:
-                self.transitions[s][sp] += 1
+            assert (r0 == r1) or (c0 == c1), f"Not a valid wall! {r0} {r1} {c0} {s1}"
+            if c0 == c1:
+                ax.plot([y - 0.5, y + 0.5], [x, x], c=wall_color, lw=3)
             else:
-                self.transitions[s][sp] = 1
-        else:
-            self.transitions[s] = {sp: 1}
+                ax.plot([y, y], [x - 0.5, x + 0.5], c=wall_color, lw=3)
 
-        N = float(sum(self.transitions[s].values()))
-        self.pmf[s] = {sp0: v / N for sp0, v in self.transitions[s].items()}
-
-    def batch_update(self, list_states: List[Hashable]):
-        for ii in range(len(list_states) - 1):
-            self.update(list_states[ii], list_states[ii + 1])
-
-    def get_transition_probs(self, s: Hashable) -> Dict[Hashable, float]:
-        # if a state is not in the model, assume it's self-absorbing
-        if s not in self.pmf:
-            return {s: 1.0}
-        return self.pmf[s]
-
-
-class RewardEstimator:
-    def __init__(self):
-        self.counts = dict()
-        self.state_reward_function = dict()
-
-    def update(self, s: Hashable, r: float):
-        if s in self.counts.keys():  # pylint: disable=consider-iterating-dictionary
-            self.counts[s] += np.array([r, 1])
-        else:
-            self.counts[s] = np.array([r, 1])
-
-        self.state_reward_function[s] = self.counts[s][0] / self.counts[s][1]
-
-    def batch_update(self, s: List[Hashable], r: List[float]):
-        for s0, r0 in zip(s, r):
-            self.update(s0, r0)
-
-    def get_states(self):
-        return list(self.state_reward_function.keys())
-
-    def get_reward(self, state):
-        return self.state_reward_function[state]
-
-
-def value_iteration(
-    t: Dict[Union[str, int], TransitionEstimator],
-    r: RewardEstimator,
-    gamma: float,
-    iterations: int,
-):
-    list_states = r.get_states()
-    list_actions = list(t.keys())
-    q_values = {s: {a: 0 for a in list_actions} for s in list_states}
-    v = {s: 0 for s in list_states}
-
-    def _inner_sum(s, a):
-        _sum = 0
-        for sp, p in t[a].get_transition_probs(s).items():
-            _sum += p * v[sp]
-        return _sum
-
-    def _expected_reward(s, a):
-        _sum = 0
-        for sp, p in t[a].get_transition_probs(s).items():
-            _sum += p * r.get_reward(sp)
-        return _sum
-
-    for _ in range(iterations):
-        for s in list_states:
-            for a in list_actions:
-                q_values[s][a] = _expected_reward(s, a) + gamma * _inner_sum(s, a)
-        # update value function
-        for s, qs in q_values.items():
-            v[s] = max(qs.values())
-
-    return q_values, v
+        return ax
 
 
 ### define simple deterministic transition functions using cardinal movements
