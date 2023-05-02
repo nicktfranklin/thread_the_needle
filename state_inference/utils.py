@@ -42,6 +42,9 @@ class StateReconstruction:
     def predict_prob(self, states: List[int]):
         return self.clf.predict_proba(self._embed(states))
 
+    def predict_state_prob_from_z(self, state_vars: np.ndarray) -> np.ndarray:
+        return self.clf.predict_proba(state_vars)
+
     @staticmethod
     def log_loss_by_time(pred_log_probs: np.ndarray, states: List[int]):
         return np.array([ps[s] for ps, s in zip(*[pred_log_probs, states])])
