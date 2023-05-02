@@ -297,7 +297,11 @@ def one_hot(a, num_classes):
     return np.squeeze(np.eye(num_classes)[a.reshape(-1)])
 
 
-def make_cardinal_transition_function(h: int, w: int) -> Dict[str, np.ndarray]:
+def make_cardinal_transition_function(
+    h: int,
+    w: int,
+    walls: Optional[List[Tuple[int, int]]] = None,
+) -> Dict[str, np.ndarray]:
     states = np.arange(h * w).reshape(h, w)
     transitions = {
         "up": np.vstack([states[0, :], states[:-1, :]]),
@@ -306,10 +310,22 @@ def make_cardinal_transition_function(h: int, w: int) -> Dict[str, np.ndarray]:
         "right": np.hstack([states[:, 1:], states[:, -1:]]),
     }
     transitions = {k: one_hot(v.reshape(-1), h * w) for k, v in transitions.items()}
+
+    if walls is not None:
+
+        def filter_transition_function(t):
+            def _filter_wall(b1, b2):
+                t[b1][b1], t[b1][b2] = t[b1][b2], 0
+                t[b2][b2], t[b2][b1] = t[b2][b1], 0
+
+            for b1, b2 in walls:
+                _filter_wall(b1, b2)
+            return t
+
+        transitions = {k: filter_transition_function(t) for k, t in transitions.items()}
+
     return transitions
 
-
-# ~~~~~~ UNUSED CODE BELOW HERE ~~~~~~
 
 OaorTuple = namedtuple("OAORTuple", ["o", "a", "op", "r"])
 
@@ -317,14 +333,14 @@ OaorTuple = namedtuple("OAORTuple", ["o", "a", "op", "r"])
 class WorldModel:
     def __init__(
         self,
-        transition_functions: Dict[Union[str, int], np.ndarray],
-        state_reward_function: Dict[Union[str, int], float],
+        state_action_transitions: Dict[Union[str, int], np.ndarray],
+        state_rewards: Dict[Union[str, int], float],
         observation_model: ObservationModel,
         initial_state: Optional[int] = None,
         n_states: Optional[int] = None,
     ) -> None:
-        self.t = transition_functions
-        self.r = state_reward_function
+        self.t = state_action_transitions
+        self.r = state_rewards
         self.observation_model = observation_model
 
         if not n_states:
@@ -334,13 +350,16 @@ class WorldModel:
 
         self.n_states = n_states
         self.initial_state = initial_state
-        self.state = initial_state
-        self.observation = self._generate_observation(self.state)
+        self.current_state = initial_state
+        self.observation = self._generate_observation(self.current_state)
 
         self.states = np.arange(n_states)
 
+    def reset_trial(self) -> None:
+        self.current_state = self.initial_state
+
     def _generate_observation(self, state: int) -> torch.tensor:
-        return self.observation_model(state).reshape(-1)
+        return self.observation_model(state)
 
     def get_obseservation(self) -> torch.tensor:
         return self.observation
@@ -362,7 +381,7 @@ class WorldModel:
             self.r[sucessor_state],
         )
 
-        self.state = sucessor_state
+        self.current_state = sucessor_state
         self.observation = sucessor_observation
 
         return obs_tuple

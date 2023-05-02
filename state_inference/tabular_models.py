@@ -1,6 +1,29 @@
-from typing import Dict, Hashable, List, Union
+from abc import ABC, abstractmethod
+from typing import Dict, Hashable, List, Set, Union
 
 import numpy as np
+import torch
+from torch import nn
+
+from state_inference.env import OaorTuple
+
+
+class TabularAgent(ABC):
+    def __init__(
+        self, observation_model: nn.Module, set_action: Set[Union[int, str]]
+    ) -> None:
+        self.observation_model = observation_model
+        self.set_action = set_action
+
+    @abstractmethod
+    def take_action(
+        self, observation: Union[torch.Tensor, np.ndarray]
+    ) -> Union[str, int]:
+        ...
+
+    def update(self, obs_tuple: OaorTuple) -> None:
+        
+
 
 
 class TabularTransitionModel:
