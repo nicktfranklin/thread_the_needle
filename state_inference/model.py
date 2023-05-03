@@ -88,6 +88,9 @@ class StateVae(ModelBase):
         tau: float = 1,
         gamma: float = 1,
     ):
+        """
+        Note: larger values of beta result in more independent state values
+        """
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
@@ -141,7 +144,9 @@ class StateVae(ModelBase):
                 x = x[None, ...]
 
             _, z = self.encode(x.to(self.device))
-        return torch.argmax(z, dim=-1)
+
+            state_vars = torch.argmax(z, dim=-1).detach().cpu().numpy()
+        return tuple(*state_vars.tolist())
 
     def decode_state(self, s: Tuple[int]):
         self.eval()
