@@ -135,7 +135,12 @@ class StateVae(ModelBase):
     def get_state(self, x):
         self.eval()
         with torch.no_grad():
-            _, z = self.encode(x)
+            # expand if unbatched
+            assert x.view(-1).shape[0] % self.encoder.nin == 0
+            if x.view(-1).shape[0] == self.encoder.nin:
+                x = x[None, ...]
+
+            _, z = self.encode(x.to(self.device))
         return torch.argmax(z, dim=-1)
 
     def decode_state(self, s: Tuple[int]):
