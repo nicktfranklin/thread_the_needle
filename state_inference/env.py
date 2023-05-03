@@ -367,18 +367,17 @@ class WorldModel:
     def take_action(self, action: Union[str, int]) -> OaorTuple:
         assert action in self.t.keys()
 
-        ta = self.t[action]
-        assert np.sum(ta) == 1
-        assert np.all(ta >= 0)
-
-        sucessor_state = np.choice(self.states, 1, p=ta)
+        ta = self.t[action][self.current_state]
+        assert np.sum(ta) == 1, print(ta)
+        assert np.all(ta >= 0), print(ta)
+        sucessor_state = np.random.choice(self.states, p=ta)
         sucessor_observation = self._generate_observation(sucessor_state)
 
         obs_tuple = OaorTuple(
             self.get_obseservation(),
             action,
             sucessor_observation,
-            self.r[sucessor_state],
+            self.r.get(sucessor_state, 0),
         )
 
         self.current_state = sucessor_state
