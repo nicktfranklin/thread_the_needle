@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from scipy.signal import fftconvolve
+from torch import Tensor
 
 from value_iteration.environments.thread_the_needle import GridWorld
 
@@ -20,7 +21,7 @@ class RbfKernelEmbedding:
         self.kernel = torch.empty([kernel_size, kernel_size]).float()
         center = torch.ones([1, 1]) * kernel_size // 2
 
-        def _rbf(x: torch.tensor) -> float:
+        def _rbf(x: torch.Tensor) -> float:
             dist = ((x - center) ** 2).sum() ** 0.5
             return torch.exp(-len_scale * dist)
 
@@ -28,7 +29,7 @@ class RbfKernelEmbedding:
             for c in range(kernel_size):
                 self.kernel[r, c] = _rbf(torch.tensor([r, c]))
 
-    def __call__(self, input_space: torch.tensor) -> torch.tensor:
+    def __call__(self, input_space: Tensor) -> torch.Tensor:
         assert len(input_space.shape) == 2
         return fftconvolve(input_space, self.kernel, mode="same")
 
@@ -86,13 +87,13 @@ class ObservationModel:
         raw_state[r, c] = 1
         return raw_state
 
-    def _embed_one_hot(self, x: int, y: int) -> torch.tensor:
+    def _embed_one_hot(self, x: int, y: int) -> Tensor:
         grid = torch.zeros((self.map_height, self.map_height))
         grid[x, y] = 1.0
         return grid
 
     @make_tensor
-    def embed_state(self, s: int) -> torch.tensor:
+    def embed_state(self, s: int) -> Tensor:
         x, y = self.get_obs_coords(s)
         grid = self._embed_one_hot(x, y)
         return self.kernel(grid)
@@ -113,7 +114,7 @@ class ObservationModel:
 
         return x, y
 
-    def _random_embedding_noise(self) -> torch.tensor:
+    def _random_embedding_noise(self) -> Tensor:
         corrupted_mask = torch.exp(
             torch.randn(self.map_height, self.map_height) * self.noise_log_scale
             + self.noise_log_mean
@@ -124,16 +125,14 @@ class ObservationModel:
         return corrupted_mask
 
     @make_tensor
-    def embed_state_corrupted(self, s: int) -> torch.tensor:
+    def embed_state_corrupted(self, s: int) -> Tensor:
         x, y = self.get_obs_coords(s)
         x, y = self._location_corruption(x, y)
         grid = self._embed_one_hot(x, y)
         grid += self._random_embedding_noise()
         return self.kernel(grid)
 
-    def __call__(
-        self, s: Union[int, List[int]]
-    ) -> Union[torch.tensor, List[torch.Tensor]]:
+    def __call__(self, s: Union[int, List[int]]) -> Union[Tensor, List[Tensor]]:
         if isinstance(s, List):
             return [self.embed_state_corrupted(s0) for s0 in s]
         return self.embed_state_corrupted(s)
@@ -315,8 +314,8 @@ def make_cardinal_transition_function(
 
         def filter_transition_function(t):
             def _filter_wall(b1, b2):
-                t[b1][b1], t[b1][b2] = t[b1][b2], 0
-                t[b2][b2], t[b2][b1] = t[b2][b1], 0
+                t[b1][b1], t[b1][b2] = t[b1][b1] + t[b1][b2], 0
+                t[b2][b2], t[b2][b1] = t[b2][b2] + t[b2][b1], 0
 
             for b1, b2 in walls:
                 _filter_wall(b1, b2)
@@ -358,17 +357,20 @@ class WorldModel:
     def reset_trial(self) -> None:
         self.current_state = self.initial_state
 
-    def _generate_observation(self, state: int) -> torch.tensor:
+    def _generate_observation(self, state: int) -> Tensor:
         return self.observation_model(state)
 
-    def get_obseservation(self) -> torch.tensor:
+    def get_obseservation(self) -> Tensor:
         return self.observation
+
+    def get_state(self) -> Tensor:
+        return self.current_state
 
     def take_action(self, action: Union[str, int]) -> OaorTuple:
         assert action in self.t.keys()
 
         ta = self.t[action][self.current_state]
-        assert np.sum(ta) == 1, print(ta)
+        assert np.sum(ta) == 1, (action, self.current_state, ta)
         assert np.all(ta >= 0), print(ta)
         sucessor_state = np.random.choice(self.states, p=ta)
         sucessor_observation = self._generate_observation(sucessor_state)
