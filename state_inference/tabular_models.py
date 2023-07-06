@@ -1,18 +1,21 @@
 from abc import ABC, abstractmethod
 from collections import Counter, namedtuple
 from dataclasses import dataclass
-from random import choice
-from typing import Dict, Hashable, List, Set, Union
+from random import choice, choices
+from typing import Dict, Hashable, List, Optional, Set, Union
 
+import matplotlib
 import numpy as np
 import torch
+from matplotlib import pyplot as plt
+from scipy.special import logsumexp
 from torch import Tensor
 
 from state_inference.env import OaorTuple, WorldModel
 from state_inference.model import StateVae
 
 
-class TabularAgent(ABC):
+class BaseAgent(ABC):
     def __init__(
         self, state_inference_model: StateVae, set_action: Set[Union[int, str]]
     ) -> None:
@@ -33,7 +36,7 @@ class TabularAgent(ABC):
         ...
 
 
-class OnPolicyCritic(TabularAgent):
+class OnPolicyCritic(BaseAgent):
     def __init__(
         self,
         state_inference_model: StateVae,
@@ -66,6 +69,52 @@ class OnPolicyCritic(TabularAgent):
             gamma=self.gamma,
             iterations=self.n_iter,
         )
+
+
+class Sarsa(BaseAgent):
+    default_q_value = 0.001  # optimistic
+
+    def __init__(
+        self,
+        state_inference_model: StateVae,
+        set_action: Set[Union[int, str]],
+        learning_rate: float = 0.1,
+        gamma: float = 0.80,
+    ) -> None:
+        super().__init__(state_inference_model, set_action)
+
+        self.alpha = learning_rate
+        self.gamma = gamma
+
+        self.q_values = dict()
+        self.default_q_function = {a: self.default_q_value for a in set_action}
+
+        # # keep track of previous actions for on-policy updates
+        self.a_next = self._pre_sample_policy(0)  # initialize with a random action
+
+    def update(self, obs_tuple: OaorTuple) -> None:
+        o, a, op, r = obs_tuple
+        s, sp = self.get_state(o), self.get_state(op)
+
+        # pre-choose the next action acording to current policy
+        self.a_next = self._pre_sample_policy(sp)
+
+        # update the q values with the on-policy algorithm
+        q = self.q_values.get(s, self.default_q_function)
+        qp = self.q_values.get(sp, self.default_q_function)
+        pe = r + self.gamma + qp[self.a_next] - q[a]
+
+        q[a] = q[a] + self.alpha * pe
+        self.q_values[s] = q
+
+    def _pre_sample_policy(self, s: Hashable) -> Union[str, int]:
+        q = self.q_values.get(s, self.default_q_function)
+        z = logsumexp(list(q.values()))
+        p = {action: np.exp(v - z) for action, v in q.items()}
+        return choices(list(p.keys()), weights=list(p.values()))
+
+    def sample_policy(self, observation: Hashable) -> Union[str, int]:
+        return self.a_next
 
 
 class TabularTransitionEstimator:
@@ -199,10 +248,18 @@ class TrialResults:
             history[s] = c
         return history.reshape(h, w)
 
+    def plot_cumulative_reward(
+        self, ax: Optional[matplotlib.axes.Axes] = None, label: Optional[str] = None
+    ) -> None:
+        if ax == None:
+            plt.figure()
+            ax = plt.gca()
+        ax.plot(np.cumsum(self.r), label="label")
+
 
 class Simulator:
     def __init__(
-        self, task: WorldModel, agent: TabularAgent, max_trial_length: int = 100
+        self, task: WorldModel, agent: BaseAgent, max_trial_length: int = 100
     ) -> None:
         self.task = task
         self.agent = agent

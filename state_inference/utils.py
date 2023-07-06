@@ -23,11 +23,9 @@ class StateReconstruction:
         # encodes the states
         z_train = vae_model.get_state(train_observations.to(DEVICE))
 
-        X_train = z_train.view(n, -1).detach().cpu().numpy()
-
         self.clf = KNeighborsClassifier(
             n_neighbors=100, weights="distance", metric="cityblock"
-        ).fit(X_train, train_states)
+        ).fit(z_train, train_states)
 
         self.observation_model = observation_model
         self.vae_model = vae_model
@@ -36,7 +34,6 @@ class StateReconstruction:
         n = len(states)
         obs_test = torch.stack(self.observation_model(states)).view(n, -1)
         embed_state_vars = self.vae_model.get_state(obs_test.to(DEVICE))
-        embed_state_vars = embed_state_vars.view(n, -1).detach().cpu().numpy()
         return embed_state_vars
 
     def predict_prob(self, states: List[int]):

@@ -146,7 +146,7 @@ class StateVae(ModelBase):
             _, z = self.encode(x.to(self.device))
 
             state_vars = torch.argmax(z, dim=-1).detach().cpu().numpy()
-        return tuple(*state_vars.tolist())
+        return state_vars
 
     def decode_state(self, s: Tuple[int]):
         self.eval()
