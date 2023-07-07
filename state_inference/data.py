@@ -3,7 +3,7 @@ from typing import Optional, Tuple
 import torch
 from torch.utils.data import Dataset
 
-from state_inference.env import ObservationModel, TransitionModel
+from state_inference.gridworld_env import ObservationModel, TransitionModel
 
 
 def generate_random_walk(

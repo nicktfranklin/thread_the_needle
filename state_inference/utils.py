@@ -6,7 +6,7 @@ import torch.nn as nn
 from scipy.special import logsumexp
 from sklearn.neighbors import KNeighborsClassifier
 
-from state_inference.env import ObservationModel
+from state_inference.gridworld_env import ObservationModel
 from state_inference.pytorch_utils import DEVICE
 
 

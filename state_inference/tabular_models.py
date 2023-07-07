@@ -11,7 +11,7 @@ from matplotlib import pyplot as plt
 from scipy.special import logsumexp
 from torch import Tensor
 
-from state_inference.env import OaorTuple, WorldModel
+from state_inference.gridworld_env import ObsTuple, WorldModel
 from state_inference.model import StateVae
 
 
@@ -32,7 +32,7 @@ class BaseAgent(ABC):
         ...
 
     @abstractmethod
-    def update(self, obs_tuple: OaorTuple) -> None:
+    def update(self, obs_tuple: ObsTuple) -> None:
         ...
 
 
@@ -55,7 +55,7 @@ class OnPolicyCritic(BaseAgent):
         """For debugging, has a random policy"""
         return choice(list(self.set_action))
 
-    def update(self, obs_tuple: OaorTuple) -> None:
+    def update(self, obs_tuple: ObsTuple) -> None:
         o, _, op, r = obs_tuple
         s, sp = self.get_state(o), self.get_state(op)
 
@@ -92,7 +92,7 @@ class Sarsa(BaseAgent):
         # # keep track of previous actions for on-policy updates
         self.a_next = self._pre_sample_policy(0)  # initialize with a random action
 
-    def update(self, obs_tuple: OaorTuple) -> None:
+    def update(self, obs_tuple: ObsTuple) -> None:
         o, a, op, r = obs_tuple
         s, sp = self.get_state(o), self.get_state(op)
 
