@@ -427,14 +427,14 @@ class Env(ABC):
         ...
 
 
-# class GridWorld(Env):
-#     def __init__(
-#         self,
-#         transition_model: TransitionModel,
-#         observation_model: ObservationModel,
-#         reward_model: RewardModel,
-#     ) -> None:
-#         super().__init__()
-#         self.transition_model = transition_model
-#         self.observation_model = observation_model
-#         self.reward_model = reward_model
+class GridWorldEnv(Env):
+    def __init__(
+        self,
+        transition_model: TransitionModel,
+        observation_model: ObservationModel,
+        reward_model: RewardModel,
+    ) -> None:
+        super().__init__()
+        self.transition_model = transition_model
+        self.observation_model = observation_model
+        self.reward_model = reward_model

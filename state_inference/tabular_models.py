@@ -9,7 +9,6 @@ import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from scipy.special import logsumexp
-from torch import Tensor
 
 from state_inference.gridworld_env import ObsTuple, WorldModel
 from state_inference.model import StateVae
@@ -22,8 +21,8 @@ class BaseAgent(ABC):
         self.state_inference_model = state_inference_model
         self.set_action = set_action
 
-    def get_state(self, obs: int) -> Tensor:
-        return self.state_inference_model.get_state(obs)
+    def get_hashed_state(self, obs: int) -> tuple[int]:
+        return tuple(*self.state_inference_model.get_state(obs))
 
     @abstractmethod
     def sample_policy(
@@ -51,13 +50,15 @@ class OnPolicyCritic(BaseAgent):
         self.n_iter = n_iter
         self.values = None
 
-    def sample_policy(self, observation: Union[Tensor, np.ndarray]) -> Union[str, int]:
+    def sample_policy(
+        self, observation: Union[torch.Tensor, np.ndarray]
+    ) -> Union[str, int]:
         """For debugging, has a random policy"""
         return choice(list(self.set_action))
 
     def update(self, obs_tuple: ObsTuple) -> None:
         o, _, op, r = obs_tuple
-        s, sp = self.get_state(o), self.get_state(op)
+        s, sp = self.get_hashed_state(o), self.get_hashed_state(op)
 
         self.rewards.update(sp, r)
         self.transitions.update(s, sp)
@@ -94,7 +95,7 @@ class Sarsa(BaseAgent):
 
     def update(self, obs_tuple: ObsTuple) -> None:
         o, a, op, r = obs_tuple
-        s, sp = self.get_state(o), self.get_state(op)
+        s, sp = self.get_hashed_state(o), self.get_hashed_state(op)
 
         # pre-choose the next action acording to current policy
         self.a_next = self._pre_sample_policy(sp)
@@ -213,8 +214,8 @@ class Step:
     s: int
     sp: int
     r: float
-    o: Tensor
-    op: Tensor
+    o: torch.Tensor
+    op: torch.Tensor
     a: int
 
 
@@ -223,8 +224,8 @@ class TrialResults:
     s: List[int]
     sp: List[int]
     r: List[float]
-    o: List[Tensor]
-    op: List[Tensor]
+    o: List[torch.Tensor]
+    op: List[torch.Tensor]
     a: List[int]
 
     @classmethod
