@@ -10,7 +10,7 @@ import torch
 from matplotlib import pyplot as plt
 from scipy.special import logsumexp
 
-from state_inference.gridworld_env import ObsTuple, WorldModel
+from state_inference.gridworld_env import ActType, DiffusionEnv, ObsType
 from state_inference.model import StateVae
 
 
@@ -25,13 +25,11 @@ class BaseAgent(ABC):
         return tuple(*self.state_inference_model.get_state(obs))
 
     @abstractmethod
-    def sample_policy(
-        self, observation: Union[torch.Tensor, np.ndarray]
-    ) -> Union[str, int]:
+    def sample_policy(self, observation: ObsType) -> Union[str, int]:
         ...
 
     @abstractmethod
-    def update(self, obs_tuple: ObsTuple) -> None:
+    def update(self, o_prev: ObsType, o: ObsType, a: ActType, r: float) -> None:
         ...
 
 
@@ -50,18 +48,15 @@ class OnPolicyCritic(BaseAgent):
         self.n_iter = n_iter
         self.values = None
 
-    def sample_policy(
-        self, observation: Union[torch.Tensor, np.ndarray]
-    ) -> Union[str, int]:
+    def sample_policy(self, observation: ObsType) -> Union[str, int]:
         """For debugging, has a random policy"""
         return choice(list(self.set_action))
 
-    def update(self, obs_tuple: ObsTuple) -> None:
-        o, _, op, r = obs_tuple
-        s, sp = self.get_hashed_state(o), self.get_hashed_state(op)
+    def update(self, o_prev: ObsType, o: ObsType, a: ActType, r: float) -> None:
+        s_prev, s = self.get_hashed_state(o_prev), self.get_hashed_state(o)
 
-        self.rewards.update(sp, r)
-        self.transitions.update(s, sp)
+        self.rewards.update(s_prev, r)
+        self.transitions.update(s_prev, s)
 
     def update_values(self):
         _, self.values = value_iteration(
@@ -93,20 +88,19 @@ class Sarsa(BaseAgent):
         # # keep track of previous actions for on-policy updates
         self.a_next = self._pre_sample_policy(0)  # initialize with a random action
 
-    def update(self, obs_tuple: ObsTuple) -> None:
-        o, a, op, r = obs_tuple
-        s, sp = self.get_hashed_state(o), self.get_hashed_state(op)
+    def update(self, o_prev: ObsType, o: ObsType, a: ActType, r: float) -> None:
+        s_prev, s = self.get_hashed_state(o_prev), self.get_hashed_state(o)
 
         # pre-choose the next action acording to current policy
-        self.a_next = self._pre_sample_policy(sp)
+        self.a_next = self._pre_sample_policy(s)
 
         # update the q values with the on-policy algorithm
-        q = self.q_values.get(s, self.default_q_function)
-        qp = self.q_values.get(sp, self.default_q_function)
+        q = self.q_values.get(s_prev, self.default_q_function)
+        qp = self.q_values.get(s, self.default_q_function)
         pe = r + self.gamma + qp[self.a_next] - q[a]
 
         q[a] = q[a] + self.alpha * pe
-        self.q_values[s] = q
+        self.q_values[s_prev] = q
 
     def _pre_sample_policy(self, s: Hashable) -> Union[str, int]:
         q = self.q_values.get(s, self.default_q_function)
@@ -260,19 +254,23 @@ class TrialResults:
 
 class Simulator:
     def __init__(
-        self, task: WorldModel, agent: BaseAgent, max_trial_length: int = 100
+        self, task: DiffusionEnv, agent: BaseAgent, max_trial_length: int = 100
     ) -> None:
         self.task = task
         self.agent = agent
         self.max_trial_length = max_trial_length
+        self.obs_prev = None
 
     def _check_end(self, t: int) -> bool:
         if self.max_trial_length is None:
             return True
         return self.max_trial_length > t
 
+    def initialize_observation(self, o: ObsType) -> None:
+        self.obs_prev = o
+
     def simulate_trial(self) -> TrialResults:
-        self.task.reset_trial()
+        self.obs_prev = self.task.reset()
 
         o = self.task.get_obseservation()
         s = self.task.get_state()
@@ -280,7 +278,7 @@ class Simulator:
         trial_history = []
         while self._check_end(t):
             a = self.agent.sample_policy(o)
-            oaor = self.task.take_action(a)
+            oaor = self.task.step(a)
 
             self.agent.update(oaor)
 

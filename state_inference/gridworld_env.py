@@ -345,68 +345,6 @@ class RewardModel:
         pass
 
 
-ObsTuple = namedtuple("ObsTuple", ["o", "a", "op", "r"])
-
-
-class WorldModel:
-    def __init__(
-        self,
-        state_action_transitions: Dict[Union[str, int], np.ndarray],
-        state_rewards: Dict[Union[str, int], float],
-        observation_model: ObservationModel,
-        initial_state: Optional[int] = None,
-        n_states: Optional[int] = None,
-    ) -> None:
-        self.t = state_action_transitions
-        self.r = state_rewards
-        self.observation_model = observation_model
-
-        if not n_states:
-            n_states = self.t[0].shape[0]
-        if not initial_state:
-            initial_state = np.random.randint(n_states)
-
-        self.n_states = n_states
-        self.initial_state = initial_state
-        self.current_state = initial_state
-        self.observation = self._generate_observation(self.current_state)
-
-        self.states = np.arange(n_states)
-
-    def reset_trial(self) -> None:
-        self.current_state = self.initial_state
-
-    def _generate_observation(self, state: int) -> torch.Tensor:
-        return self.observation_model(state)
-
-    def get_obseservation(self) -> torch.Tensor:
-        return self.observation
-
-    def get_state(self) -> torch.Tensor:
-        return self.current_state
-
-    def take_action(self, action: Union[str, int]) -> ObsTuple:
-        assert action in self.t.keys()
-
-        ta = self.t[action][self.current_state]
-        assert np.sum(ta) == 1, (action, self.current_state, ta)
-        assert np.all(ta >= 0), print(ta)
-        sucessor_state = np.random.choice(self.states, p=ta)
-        sucessor_observation = self._generate_observation(sucessor_state)
-
-        obs_tuple = ObsTuple(
-            self.get_obseservation(),
-            action,
-            sucessor_observation,
-            self.r.get(sucessor_state, 0),
-        )
-
-        self.current_state = sucessor_state
-        self.observation = sucessor_observation
-
-        return obs_tuple
-
-
 class Env(ABC):
     """Modeled after the gymnasium API"""
 
@@ -427,14 +365,82 @@ class Env(ABC):
         ...
 
 
-class GridWorldEnv(Env):
+# class GridWorldEnv(Env):
+#     def __init__(
+#         self,
+#         transition_model: TransitionModel,
+#         observation_model: ObservationModel,
+#         reward_model: RewardModel,
+#     ) -> None:
+#         super().__init__()
+#         self.transition_model = transition_model
+#         self.observation_model = observation_model
+#         self.reward_model = reward_model
+
+
+class DiffusionEnv(Env):
     def __init__(
         self,
-        transition_model: TransitionModel,
+        state_action_transitions: Dict[Union[str, int], np.ndarray],
+        state_rewards: Dict[Union[str, int], float],
         observation_model: ObservationModel,
-        reward_model: RewardModel,
+        initial_state: Optional[int] = None,
+        n_states: Optional[int] = None,
+        end_state: Optional[list[int]] = None,
     ) -> None:
-        super().__init__()
-        self.transition_model = transition_model
+        self.t = state_action_transitions
+        self.r = state_rewards
         self.observation_model = observation_model
-        self.reward_model = reward_model
+
+        if not n_states:
+            n_states = self.t[0].shape[0]
+        if not initial_state:
+            initial_state = np.random.randint(n_states)
+
+        self.n_states = n_states
+        self.initial_state = initial_state
+        self.current_state = initial_state
+        self.observation = self._generate_observation(self.current_state)
+
+        self.states = np.arange(n_states)
+        self.end_state = end_state
+
+    def _check_terminate(self, state: int) -> bool:
+        if self.end_state == None:
+            return False
+        return state in self.end_state
+
+    def reset(self) -> None:
+        self.current_state = self.initial_state
+
+    def _generate_observation(self, state: int) -> torch.Tensor:
+        return self.observation_model(state)
+
+    def get_obseservation(self) -> torch.Tensor:
+        return self.observation
+
+    def get_state(self) -> torch.Tensor:
+        return self.current_state
+
+    def step(
+        self, action: ActType
+    ) -> tuple[ObsType, float, bool, bool, Dict[str, Any]]:
+        assert action in self.t.keys()
+
+        ta = self.t[action][self.current_state]
+        assert np.sum(ta) == 1, (action, self.current_state, ta)
+        assert np.all(ta >= 0), print(ta)
+        sucessor_state = np.random.choice(self.states, p=ta)
+        sucessor_observation = self._generate_observation(sucessor_state)
+
+        reward = self.r.get(sucessor_state, 0)
+        terminated = self._check_terminate(sucessor_state)
+        truncated = False
+        info = dict()
+
+        output = tuple([sucessor_observation, reward, terminated, truncated, info])
+
+        self.current_state = sucessor_state
+        self.observation = sucessor_observation
+
+        return output
