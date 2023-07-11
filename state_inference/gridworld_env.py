@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-from random import choices
 from typing import Any, Dict, List, Optional, SupportsFloat, TypeVar, Union
 
 import matplotlib
@@ -8,7 +7,8 @@ import numpy as np
 import torch
 from scipy.signal import fftconvolve
 
-from models.utils import inverse_cmf_sampler
+from state_inference.pytorch_utils import make_tensor
+from state_inference.utils import one_hot
 from value_iteration.environments.thread_the_needle import GridWorld
 
 ObsType = TypeVar("ObsType", np.ndarray, torch.Tensor)
@@ -37,18 +37,6 @@ class RbfKernelEmbedding:
     def __call__(self, input_space: torch.Tensor) -> torch.Tensor:
         assert len(input_space.shape) == 2
         return fftconvolve(input_space, self.kernel, mode="same")
-
-
-def make_tensor(func: callable):
-    def wrapper(*args, **kwargs):
-        return torch.tensor(func(*args, **kwargs))
-
-    return wrapper
-
-
-### define simple deterministic transition functions using cardinal movements
-def one_hot(a, num_classes):
-    return np.squeeze(np.eye(num_classes)[a.reshape(-1)])
 
 
 class ObservationModel:
@@ -184,11 +172,11 @@ class TransitionModel:
         walls: Optional[list[tuple[int, int]]] = None,
     ) -> None:
         self.random_transitions = self._make_random_transitions(h, w)
-        self.edges = self._make_edges(self.random_transitions)
+        self.state_action_transitions = self.make_cardinal_transition_function(
+            h, w, walls
+        )
+        self.adjecency_list = self._make_adjecency_list(self.random_transitions)
         self.walls = walls
-        if walls:
-            self._add_walls(walls)
-
         self.n_states = h * w
         self.h = h
         self.w = w
@@ -227,7 +215,7 @@ class TransitionModel:
 
     @staticmethod
     def _make_random_transitions(
-        h: int, w: int, actions: Optional[list[ActType]] = None
+        h: int, w: int, walls: Optional[list[tuple[StateType, StateType]]] = None
     ) -> np.ndarray:
         t = np.zeros((h * w, h * w))
         for s0 in range(h * w):
@@ -247,65 +235,31 @@ class TransitionModel:
                 t[s0, s0 - 1] = 1
 
         # normalize
-        return TransitionModel._normalize(t)
+        t = TransitionModel._normalize(t)
+        if walls:
+            return TransitionModel._add_walls(t, walls)
+        return t
 
-    def _add_walls(self, walls: list[tuple[int, int]]) -> None:
+    @staticmethod
+    def _add_walls(
+        transitions: dict[StateType, StateType],
+        walls: list[tuple[StateType, StateType]],
+    ) -> dict[StateType, StateType]:
         for s, sp in walls:
-            self.random_transitions[s, sp] = 0
-            self.random_transitions[sp, s] = 0
-        self.random_transitions = self._normalize(self.random_transitions)
-        self.edges = self._make_edges(self.random_transitions)
+            transitions[s, sp] = 0
+            transitions[sp, s] = 0
+        return TransitionModel._normalize(transitions)
 
     @staticmethod
     def _normalize(t: np.ndarray) -> np.ndarray:
         return t / np.tile(t.sum(axis=1).reshape(-1, 1), t.shape[1])
 
     @staticmethod
-    def _make_edges(transitions: np.ndarray) -> Dict[int, np.ndarray]:
+    def _make_adjecency_list(transitions: np.ndarray) -> Dict[int, np.ndarray]:
         edges = {}
         for s, t in enumerate(transitions):
             edges[s] = np.where(t > 0)[0]
         return edges
-
-    def sample_sucessor_state(self, s: StateType) -> StateType:
-        return inverse_cmf_sampler(self.random_transitions[s])
-
-    def generate_random_walk(
-        self, walk_length: int, initial_state: Optional[int] = None
-    ) -> tuple[np.ndarray, list[int]]:
-        random_walk = []
-        if initial_state is not None:
-            s = initial_state
-        else:
-            s = choices(list(self.edges.keys()))[0]
-        print(s)
-
-        random_walk.append(s)
-        state_counts = np.zeros(len(self.edges))
-        for _ in range(walk_length):
-            s = choices(self.edges[s])[0]
-            state_counts[s] += 1
-            random_walk.append(s)
-
-        return state_counts, random_walk
-
-    def sample_states(
-        self, n: int, kind: str = "walk", initial_state: Optional[StateType] = None
-    ) -> np.ndarray:
-        if kind.lower() == "random":
-            assert initial_state is None
-
-            def state_sampler(n):
-                return np.random.choice(len(self.edges), n).tolist()
-
-        elif kind.lower() == "walk":
-
-            def state_sampler(n):
-                return self.generate_random_walk(n - 1, initial_state)[1]
-
-        else:
-            raise NotImplementedError("only type 'walk' or 'random' are implemented")
-        return state_sampler(n)
 
     def display_gridworld(
         self, ax: Optional[matplotlib.axes.Axes] = None, wall_color="k"

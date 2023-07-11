@@ -1,20 +1,10 @@
-from typing import Optional, Tuple
+from typing import Tuple
 
 import torch
 from torch.utils.data import Dataset
 
 from state_inference.gridworld_env import ObservationModel, TransitionModel
-
-
-def generate_random_walk(
-    length: int,
-    transition_model: TransitionModel,
-    observation_model: ObservationModel,
-    initial_state: Optional[int] = None,
-) -> torch.tensor:
-    states = transition_model.sample_states(length, "walk", initial_state=initial_state)
-    obs = torch.stack([observation_model(s) for s in states])
-    return obs
+from state_inference.sampling_functions import generate_random_walk
 
 
 class ObservationDataset(Dataset):

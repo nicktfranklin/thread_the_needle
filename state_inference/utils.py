@@ -121,3 +121,8 @@ def BayesianSmoothing(log_observation: np.ndarray, log_transitions: np.ndarray):
 
 def BayesianFilter(log_observation: np.ndarray, log_transitions: np.ndarray):
     return forward_pass(log_observation, log_transitions)
+
+
+def one_hot(a, num_classes):
+    ### define simple deterministic transition functions using cardinal movements
+    return np.squeeze(np.eye(num_classes)[a.reshape(-1)])
