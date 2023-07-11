@@ -150,3 +150,10 @@ def train_epochs(
             print(f"Epoch {epoch}, ELBO Loss (test) {test_loss:.6f}")
 
     return train_losses, test_losses
+
+
+def make_tensor(func: callable):
+    def wrapper(*args, **kwargs):
+        return torch.tensor(func(*args, **kwargs))
+
+    return wrapper

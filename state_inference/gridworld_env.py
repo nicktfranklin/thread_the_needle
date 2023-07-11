@@ -172,7 +172,7 @@ class TransitionModel:
         walls: Optional[list[tuple[int, int]]] = None,
     ) -> None:
         self.random_transitions = self._make_random_transitions(h, w)
-        self.state_action_transitions = self.make_cardinal_transition_function(
+        self.state_action_transitions = self._make_cardinal_transition_function(
             h, w, walls
         )
         self.adjecency_list = self._make_adjecency_list(self.random_transitions)
@@ -182,7 +182,7 @@ class TransitionModel:
         self.w = w
 
     @staticmethod
-    def make_cardinal_transition_function(
+    def _make_cardinal_transition_function(
         h: int,
         w: int,
         walls: Optional[list[tuple[int, int]]] = None,
@@ -261,6 +261,13 @@ class TransitionModel:
             edges[s] = np.where(t > 0)[0]
         return edges
 
+    def get_sucessor_distribution(
+        self, state: StateType, action: ActType
+    ) -> np.ndarray:
+        assert state in self.adjecency_list
+        assert action in self.state_action_transitions.keys()
+        return self.state_action_transitions[action][state]
+
     def display_gridworld(
         self, ax: Optional[matplotlib.axes.Axes] = None, wall_color="k"
     ) -> matplotlib.axes.Axes:
@@ -334,7 +341,7 @@ class Env(ABC):
 class DiffusionEnv(Env):
     def __init__(
         self,
-        state_action_transitions: Dict[Union[str, int], np.ndarray],
+        transition_model: TransitionModel,
         reward_model: RewardModel,
         observation_model: ObservationModel,
         initial_state: Optional[int] = None,
@@ -342,7 +349,7 @@ class DiffusionEnv(Env):
         end_state: Optional[list[int]] = None,
         random_initial_state: bool = False,
     ) -> None:
-        self.transition_model = state_action_transitions
+        self.transition_model = transition_model
         self.reward_model = reward_model
         self.observation_model = observation_model
 
@@ -384,12 +391,14 @@ class DiffusionEnv(Env):
     def step(
         self, action: ActType
     ) -> tuple[ObsType, float, bool, bool, Dict[str, Any]]:
-        assert action in self.transition_model.keys()
+        pdf_s = self.transition_model.get_sucessor_distribution(
+            self.current_state, action
+        )
 
-        ta = self.transition_model[action][self.current_state]
-        assert np.sum(ta) == 1, (action, self.current_state, ta)
-        assert np.all(ta >= 0), print(ta)
-        sucessor_state = np.random.choice(self.states, p=ta)
+        assert np.sum(pdf_s) == 1, (action, self.current_state, pdf_s)
+        assert np.all(pdf_s >= 0), print(pdf_s)
+
+        sucessor_state = np.random.choice(self.states, p=pdf_s)
         sucessor_observation = self._generate_observation(sucessor_state)
 
         reward = self.reward_model.get_reward(sucessor_state)
