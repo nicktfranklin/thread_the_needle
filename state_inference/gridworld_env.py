@@ -342,8 +342,22 @@ def one_hot(a, num_classes):
 
 
 class RewardModel:
-    def get_reward(self, state: StateType, action: ActType):
-        pass
+    def __init__(
+        self,
+        state_rewards: Optional[Dict[StateType, RewType]] = None,
+        state_action_rewards: Optional[Dict[tuple[StateType, ActType], RewType]] = None,
+    ) -> None:
+        # only one of the reward functions should be specified.
+        assert (state_rewards is not None) ^ (state_action_rewards is not None)
+
+        self.state_rewards = state_rewards
+        self.state_action_rewards = state_action_rewards
+
+    def get_reward(self, state: StateType, action: Optional[ActType] = None):
+        if self.state_rewards is not None:
+            return self.state_rewards.get(state, 0)
+
+        return self.state_action_rewards.get((state, action), 0)
 
 
 class Env(ABC):
@@ -383,7 +397,7 @@ class DiffusionEnv(Env):
     def __init__(
         self,
         state_action_transitions: Dict[Union[str, int], np.ndarray],
-        state_rewards: Dict[Union[str, int], float],
+        reward_model: RewardModel,
         observation_model: ObservationModel,
         initial_state: Optional[int] = None,
         n_states: Optional[int] = None,
@@ -391,7 +405,7 @@ class DiffusionEnv(Env):
         random_initial_state: bool = False,
     ) -> None:
         self.transition_model = state_action_transitions
-        self.r = state_rewards
+        self.reward_model = reward_model
         self.observation_model = observation_model
 
         # self.n_states = n_states if n_states else self.transition_model.n_states
@@ -440,7 +454,7 @@ class DiffusionEnv(Env):
         sucessor_state = np.random.choice(self.states, p=ta)
         sucessor_observation = self._generate_observation(sucessor_state)
 
-        reward = self.r.get(sucessor_state, 0)
+        reward = self.reward_model.get_reward(sucessor_state)
         terminated = self._check_terminate(sucessor_state)
         truncated = False
         info = dict()
