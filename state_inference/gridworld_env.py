@@ -13,9 +13,7 @@ from value_iteration.environments.thread_the_needle import GridWorld
 
 ObsType = TypeVar("ObsType", np.ndarray, torch.Tensor)
 ActType = TypeVar("ActType")
-StateType = TypeVar(
-    "StateType",
-)
+StateType = TypeVar("StateType")
 RewType = TypeVar("RewType")
 
 
@@ -46,6 +44,11 @@ def make_tensor(func: callable):
         return torch.tensor(func(*args, **kwargs))
 
     return wrapper
+
+
+### define simple deterministic transition functions using cardinal movements
+def one_hot(a, num_classes):
+    return np.squeeze(np.eye(num_classes)[a.reshape(-1)])
 
 
 class ObservationModel:
@@ -179,10 +182,9 @@ class TransitionModel:
         h: int,
         w: int,
         walls: Optional[list[tuple[int, int]]] = None,
-        actions: Optional[list[ActType]] = None,
     ) -> None:
-        self.transitions = self._make_transitions(h, w, actions)
-        self.edges = self._make_edges(self.transitions)
+        self.random_transitions = self._make_random_transitions(h, w)
+        self.edges = self._make_edges(self.random_transitions)
         self.walls = walls
         if walls:
             self._add_walls(walls)
@@ -224,7 +226,7 @@ class TransitionModel:
         return transitions
 
     @staticmethod
-    def _make_transitions(
+    def _make_random_transitions(
         h: int, w: int, actions: Optional[list[ActType]] = None
     ) -> np.ndarray:
         t = np.zeros((h * w, h * w))
@@ -249,10 +251,10 @@ class TransitionModel:
 
     def _add_walls(self, walls: list[tuple[int, int]]) -> None:
         for s, sp in walls:
-            self.transitions[s, sp] = 0
-            self.transitions[sp, s] = 0
-        self.transitions = self._normalize(self.transitions)
-        self.edges = self._make_edges(self.transitions)
+            self.random_transitions[s, sp] = 0
+            self.random_transitions[sp, s] = 0
+        self.random_transitions = self._normalize(self.random_transitions)
+        self.edges = self._make_edges(self.random_transitions)
 
     @staticmethod
     def _normalize(t: np.ndarray) -> np.ndarray:
@@ -266,7 +268,7 @@ class TransitionModel:
         return edges
 
     def sample_sucessor_state(self, s: StateType) -> StateType:
-        return inverse_cmf_sampler(self.transitions[s])
+        return inverse_cmf_sampler(self.random_transitions[s])
 
     def generate_random_walk(
         self, walk_length: int, initial_state: Optional[int] = None
@@ -336,11 +338,6 @@ class TransitionModel:
         return ax
 
 
-### define simple deterministic transition functions using cardinal movements
-def one_hot(a, num_classes):
-    return np.squeeze(np.eye(num_classes)[a.reshape(-1)])
-
-
 class RewardModel:
     def __init__(
         self,
@@ -378,19 +375,6 @@ class Env(ABC):
         options: Optional[dict[str, Any]] = None,
     ) -> tuple[ObsType, dict[str, Any]]:
         ...
-
-
-# class GridWorldEnv(Env):
-#     def __init__(
-#         self,
-#         transition_model: TransitionModel,
-#         observation_model: ObservationModel,
-#         reward_model: RewardModel,
-#     ) -> None:
-#         super().__init__()
-#         self.transition_model = transition_model
-#         self.observation_model = observation_model
-#         self.reward_model = reward_model
 
 
 class DiffusionEnv(Env):
