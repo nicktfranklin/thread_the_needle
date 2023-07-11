@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-from collections import namedtuple
 from random import choices
 from typing import Any, Dict, List, Optional, SupportsFloat, TypeVar, Union
 
@@ -193,6 +192,38 @@ class TransitionModel:
         self.w = w
 
     @staticmethod
+    def make_cardinal_transition_function(
+        h: int,
+        w: int,
+        walls: Optional[list[tuple[int, int]]] = None,
+    ) -> Dict[str, np.ndarray]:
+        states = np.arange(h * w).reshape(h, w)
+        transitions = {
+            "up": np.vstack([states[0, :], states[:-1, :]]),
+            "down": np.vstack([states[1:, :], states[-1, :]]),
+            "left": np.hstack([states[:, :1], states[:, :-1]]),
+            "right": np.hstack([states[:, 1:], states[:, -1:]]),
+        }
+        transitions = {k: one_hot(v.reshape(-1), h * w) for k, v in transitions.items()}
+
+        if walls is not None:
+
+            def filter_transition_function(t):
+                def _filter_wall(b1, b2):
+                    t[b1][b1], t[b1][b2] = t[b1][b1] + t[b1][b2], 0
+                    t[b2][b2], t[b2][b1] = t[b2][b2] + t[b2][b1], 0
+
+                for b1, b2 in walls:
+                    _filter_wall(b1, b2)
+                return t
+
+            transitions = {
+                k: filter_transition_function(t) for k, t in transitions.items()
+            }
+
+        return transitions
+
+    @staticmethod
     def _make_transitions(
         h: int, w: int, actions: Optional[list[ActType]] = None
     ) -> np.ndarray:
@@ -216,6 +247,13 @@ class TransitionModel:
         # normalize
         return TransitionModel._normalize(t)
 
+    def _add_walls(self, walls: list[tuple[int, int]]) -> None:
+        for s, sp in walls:
+            self.transitions[s, sp] = 0
+            self.transitions[sp, s] = 0
+        self.transitions = self._normalize(self.transitions)
+        self.edges = self._make_edges(self.transitions)
+
     @staticmethod
     def _normalize(t: np.ndarray) -> np.ndarray:
         return t / np.tile(t.sum(axis=1).reshape(-1, 1), t.shape[1])
@@ -226,13 +264,6 @@ class TransitionModel:
         for s, t in enumerate(transitions):
             edges[s] = np.where(t > 0)[0]
         return edges
-
-    def _add_walls(self, walls: list[tuple[int, int]]) -> None:
-        for s, sp in walls:
-            self.transitions[s, sp] = 0
-            self.transitions[sp, s] = 0
-        self.transitions = self._normalize(self.transitions)
-        self.edges = self._make_edges(self.transitions)
 
     def sample_sucessor_state(self, s: StateType) -> StateType:
         return inverse_cmf_sampler(self.transitions[s])
@@ -310,36 +341,6 @@ def one_hot(a, num_classes):
     return np.squeeze(np.eye(num_classes)[a.reshape(-1)])
 
 
-def make_cardinal_transition_function(
-    h: int,
-    w: int,
-    walls: Optional[list[tuple[int, int]]] = None,
-) -> Dict[str, np.ndarray]:
-    states = np.arange(h * w).reshape(h, w)
-    transitions = {
-        "up": np.vstack([states[0, :], states[:-1, :]]),
-        "down": np.vstack([states[1:, :], states[-1, :]]),
-        "left": np.hstack([states[:, :1], states[:, :-1]]),
-        "right": np.hstack([states[:, 1:], states[:, -1:]]),
-    }
-    transitions = {k: one_hot(v.reshape(-1), h * w) for k, v in transitions.items()}
-
-    if walls is not None:
-
-        def filter_transition_function(t):
-            def _filter_wall(b1, b2):
-                t[b1][b1], t[b1][b2] = t[b1][b1] + t[b1][b2], 0
-                t[b2][b2], t[b2][b1] = t[b2][b2] + t[b2][b1], 0
-
-            for b1, b2 in walls:
-                _filter_wall(b1, b2)
-            return t
-
-        transitions = {k: filter_transition_function(t) for k, t in transitions.items()}
-
-    return transitions
-
-
 class RewardModel:
     def get_reward(self, state: StateType, action: ActType):
         pass
@@ -387,21 +388,21 @@ class DiffusionEnv(Env):
         initial_state: Optional[int] = None,
         n_states: Optional[int] = None,
         end_state: Optional[list[int]] = None,
+        random_initial_state: bool = False,
     ) -> None:
-        self.t = state_action_transitions
+        self.transition_model = state_action_transitions
         self.r = state_rewards
         self.observation_model = observation_model
 
-        if not n_states:
-            n_states = self.t[0].shape[0]
-        if not initial_state:
-            initial_state = np.random.randint(n_states)
-
+        # self.n_states = n_states if n_states else self.transition_model.n_states
         self.n_states = n_states
         self.initial_state = initial_state
-        self.current_state = initial_state
-        self.observation = self._generate_observation(self.current_state)
+        assert (
+            random_initial_state is not None or initial_state is not None
+        ), "must specify either the inital location or random initialization"
+        self.current_state = self._get_initial_state()
 
+        self.observation = self._generate_observation(self.current_state)
         self.states = np.arange(n_states)
         self.end_state = end_state
 
@@ -410,11 +411,17 @@ class DiffusionEnv(Env):
             return False
         return state in self.end_state
 
-    def reset(self) -> None:
-        self.current_state = self.initial_state
+    def _get_initial_state(self) -> int:
+        if self.initial_state:
+            return self.initial_state
+        return np.random.randint(self.n_states)
 
     def _generate_observation(self, state: int) -> torch.Tensor:
         return self.observation_model(state)
+
+    def reset(self) -> torch.Tensor:
+        self.current_state = self._get_initial_state()
+        return self._generate_observation(self.current_state)
 
     def get_obseservation(self) -> torch.Tensor:
         return self.observation
@@ -425,9 +432,9 @@ class DiffusionEnv(Env):
     def step(
         self, action: ActType
     ) -> tuple[ObsType, float, bool, bool, Dict[str, Any]]:
-        assert action in self.t.keys()
+        assert action in self.transition_model.keys()
 
-        ta = self.t[action][self.current_state]
+        ta = self.transition_model[action][self.current_state]
         assert np.sum(ta) == 1, (action, self.current_state, ta)
         assert np.all(ta >= 0), print(ta)
         sucessor_state = np.random.choice(self.states, p=ta)

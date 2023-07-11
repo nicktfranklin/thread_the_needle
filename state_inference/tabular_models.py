@@ -208,8 +208,8 @@ class Step:
     s: int
     sp: int
     r: float
+    o_prev: torch.Tensor
     o: torch.Tensor
-    op: torch.Tensor
     a: int
 
 
@@ -218,21 +218,21 @@ class TrialResults:
     s: List[int]
     sp: List[int]
     r: List[float]
+    o_prev: List[torch.Tensor]
     o: List[torch.Tensor]
-    op: List[torch.Tensor]
     a: List[int]
 
     @classmethod
     def make(cls, results: List[Step]):
-        s, sp, r, o, op, a = [], [], [], [], [], []
+        s, sp, r, o, o_prev, a = [], [], [], [], [], []
         for t in results:
             s.append(t.s)
             sp.append(t.sp)
             r.append(t.r)
             o.append(t.o)
-            op.append(t.op)
+            o_prev.append(t.o_prev)
             a.append(t.a)
-        return TrialResults(s, sp, r, o, op, a)
+        return TrialResults(s, sp, r, o_prev, o, a)
 
     def get_total_reward(self):
         return np.sum(self.r)
@@ -261,8 +261,8 @@ class Simulator:
         self.max_trial_length = max_trial_length
         self.obs_prev = None
 
-    def _check_end(self, t: int) -> bool:
-        if self.max_trial_length is None:
+    def _check_end(self, t: int, is_terminated: bool) -> bool:
+        if is_terminated or self.max_trial_length is None:
             return True
         return self.max_trial_length > t
 
@@ -272,18 +272,20 @@ class Simulator:
     def simulate_trial(self) -> TrialResults:
         self.obs_prev = self.task.reset()
 
-        o = self.task.get_obseservation()
+        o_prev = self.task.get_obseservation()
         s = self.task.get_state()
         t = 0
         trial_history = []
-        while self._check_end(t):
-            a = self.agent.sample_policy(o)
-            oaor = self.task.step(a)
+        is_terminated = False
 
-            self.agent.update(oaor)
+        while self._check_end(t, is_terminated):
+            a = self.agent.sample_policy(o_prev)
+            o, r, is_terminated, _, _ = self.task.step(a)
+
+            self.agent.update(o_prev, o, a, r)
 
             trial_history.append(
-                Step(s=s, a=a, sp=self.task.get_state(), r=oaor.r, o=oaor.o, op=oaor.op)
+                Step(s=s, a=a, sp=self.task.get_state(), r=r, o_prev=o_prev, o=o)
             )
             s = self.task.get_state()
 
