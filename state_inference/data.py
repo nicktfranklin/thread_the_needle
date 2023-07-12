@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import Dataset
 
 from state_inference.gridworld_env import ObservationModel, TransitionModel
-from state_inference.sampling_functions import generate_random_walk
+from state_inference.sampling_functions import sample_random_walk
 
 
 class ObservationDataset(Dataset):
@@ -16,7 +16,7 @@ class ObservationDataset(Dataset):
         train: bool = True,
     ) -> Dataset:
         if train:
-            self.observations = generate_random_walk(
+            self.observations = sample_random_walk(
                 n, transition_model, observation_model
             )
         else:
@@ -53,9 +53,7 @@ class PomdpDataset(Dataset):
         chain_len = n // n_chains
 
         for _ in range(n_chains):
-            obs = generate_random_walk(
-                chain_len + 1, transition_model, observation_model
-            )
+            obs = sample_random_walk(chain_len + 1, transition_model, observation_model)
             x.append(obs[:-1])
             y.append(obs[1:])
         self.x = torch.vstack(x)

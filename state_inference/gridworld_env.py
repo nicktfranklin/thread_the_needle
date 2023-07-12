@@ -7,9 +7,12 @@ import numpy as np
 import torch
 from scipy.signal import fftconvolve
 
-from state_inference.pytorch_utils import make_tensor
-from state_inference.utils import one_hot
-from value_iteration.environments.thread_the_needle import GridWorld
+from state_inference.utils.pytorch_utils import make_tensor
+from state_inference.utils.utils import one_hot
+from value_iteration.environments.thread_the_needle import (
+    GridWorld,
+    make_thread_the_needle_walls,
+)
 
 ObsType = TypeVar("ObsType", np.ndarray, torch.Tensor)
 ActType = TypeVar("ActType")
@@ -338,7 +341,7 @@ class Env(ABC):
         ...
 
 
-class DiffusionEnv(Env):
+class GridWorldEnv(Env):
     def __init__(
         self,
         transition_model: TransitionModel,
@@ -412,3 +415,27 @@ class DiffusionEnv(Env):
         self.observation = sucessor_observation
 
         return output
+
+
+class ThreadTheNeedleEnv(GridWorldEnv):
+    @classmethod
+    def create_env(
+        cls,
+        h: int,
+        w: int,
+        map_height: int,
+        rewards: dict[StateType, RewType],
+        observation_kwargs: dict[str, Any],
+        **gridworld_env_kwargs,
+    ):
+        # Define the transitions for the thread the needle task
+        walls = make_thread_the_needle_walls(20)
+        transition_model = TransitionModel(h, w, walls)
+
+        observation_model = ObservationModel(h, w, map_height, **observation_kwargs)
+
+        reward_model = RewardModel(rewards)
+
+        return cls(
+            transition_model, reward_model, observation_model, **gridworld_env_kwargs
+        )

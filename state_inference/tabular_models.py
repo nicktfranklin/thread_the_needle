@@ -9,9 +9,16 @@ import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from scipy.special import logsumexp
+from sklearn.neighbors import KNeighborsClassifier
 
-from state_inference.gridworld_env import ActType, DiffusionEnv, ObsType
+from state_inference.gridworld_env import (
+    ActType,
+    GridWorldEnv,
+    ObservationModel,
+    ObsType,
+)
 from state_inference.model import StateVae
+from state_inference.utils.pytorch_utils import DEVICE
 
 
 class BaseAgent(ABC):
@@ -254,7 +261,7 @@ class TrialResults:
 
 class Simulator:
     def __init__(
-        self, task: DiffusionEnv, agent: BaseAgent, max_trial_length: int = 100
+        self, task: GridWorldEnv, agent: BaseAgent, max_trial_length: int = 100
     ) -> None:
         self.task = task
         self.agent = agent
@@ -291,3 +298,50 @@ class Simulator:
 
             t += 1
         return TrialResults.make(trial_history)
+
+
+class StateReconstruction:
+    def __init__(
+        self,
+        vae_model: StateVae,
+        observation_model: ObservationModel,
+        train_states: List[int],
+    ):
+        n = len(train_states)
+        train_observations = torch.stack(observation_model(train_states)).view(n, -1)
+
+        # encodes the states
+        z_train = vae_model.get_state(train_observations.to(DEVICE))
+
+        self.clf = KNeighborsClassifier(
+            n_neighbors=100, weights="distance", metric="cityblock"
+        ).fit(z_train, train_states)
+
+        self.observation_model = observation_model
+        self.vae_model = vae_model
+
+    def _embed(self, states: List[int]):
+        n = len(states)
+        obs_test = torch.stack(self.observation_model(states)).view(n, -1)
+        embed_state_vars = self.vae_model.get_state(obs_test.to(DEVICE))
+        return embed_state_vars
+
+    def predict_prob(self, states: List[int]):
+        return self.clf.predict_proba(self._embed(states))
+
+    def predict_state_prob_from_z(self, state_vars: np.ndarray) -> np.ndarray:
+        return self.clf.predict_proba(state_vars)
+
+    @staticmethod
+    def log_loss_by_time(pred_log_probs: np.ndarray, states: List[int]):
+        return np.array([ps[s] for ps, s in zip(*[pred_log_probs, states])])
+
+    def cross_entropy(self, pred_log_probs: np.ndarray, states: List[int]):
+        return -self.log_loss_by_time(pred_log_probs, states).mean()
+
+    def accuracy(self, pred_log_probs: np.ndarray, states: List[int]):
+        return np.exp(self.log_loss_by_time(pred_log_probs, states))
+
+    @staticmethod
+    def entropy(log_probability: np.ndarray):
+        return -np.sum([log_probability * np.exp(log_probability)], axis=1)

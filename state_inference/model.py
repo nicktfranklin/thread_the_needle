@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch.distributions.categorical import Categorical
 
-from state_inference.pytorch_utils import DEVICE, gumbel_softmax
+from state_inference.utils.pytorch_utils import DEVICE, gumbel_softmax
 
 
 class ModelBase(nn.Module):

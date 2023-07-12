@@ -7,7 +7,7 @@ import torch
 from state_inference.gridworld_env import ObservationModel, StateType, TransitionModel
 
 
-def _generate_random_walk_of_states(
+def sample_random_walk_states(
     transition_model: TransitionModel,
     walk_length: int,
     initial_state: Optional[int] = None,
@@ -17,7 +17,6 @@ def _generate_random_walk_of_states(
         s = initial_state
     else:
         s = choices(list(transition_model.adjecency_list.keys()))[0]
-    print(s)
 
     random_walk.append(s)
     for _ in range(walk_length):
@@ -34,13 +33,13 @@ def sample_states(
     return np.random.choice(len(transition_model.adjecency_list), n).tolist()
 
 
-def generate_random_walk(
+def sample_random_walk(
     length: int,
     transition_model: TransitionModel,
     observation_model: ObservationModel,
     initial_state: Optional[int] = None,
 ) -> torch.tensor:
-    states = _generate_random_walk_of_states(
+    states = sample_random_walk_states(
         transition_model, length, initial_state=initial_state
     )
     obs = torch.stack([observation_model(s) for s in states])
