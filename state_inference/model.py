@@ -75,6 +75,7 @@ class Decoder(MLP):
     ):
         super().__init__(input_size, hidden_sizes, output_size, dropout)
         self.net.pop(-1)
+        self.net.append(torch.nn.Sigmoid())
 
 
 class StateVae(ModelBase):
