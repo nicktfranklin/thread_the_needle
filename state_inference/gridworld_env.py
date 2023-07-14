@@ -1,25 +1,19 @@
-from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, SupportsFloat, TypeVar, Union
+from typing import Any, Dict, List, Optional, TypeVar, Union
 
 import gymnasium as gym
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-import torch
 from scipy.signal import fftconvolve
 
-from state_inference.utils.pytorch_utils import (
-    convert_float_to_8bit,
-    make_tensor,
-    normalize,
-)
+from state_inference.utils.pytorch_utils import normalize
 from state_inference.utils.utils import one_hot
 from value_iteration.environments.thread_the_needle import (
     GridWorld,
     make_thread_the_needle_walls,
 )
 
-ObsType = TypeVar("ObsType", np.ndarray, torch.Tensor)
+ObsType = TypeVar("ObsType")
 ActType = TypeVar("ActType")
 StateType = TypeVar("StateType")
 RewType = TypeVar("RewType")
@@ -31,19 +25,18 @@ class RbfKernelEmbedding:
     def __init__(self, kernel_size: int = 51, len_scale: float = 0.15) -> None:
         assert kernel_size % 2 == 1, "Kernel size must be odd"
 
-        self.kernel = torch.empty([kernel_size, kernel_size]).float()
-        center = torch.ones([1, 1]) * kernel_size // 2
+        self.kernel = np.empty([kernel_size, kernel_size], dtype=float)
+        center = np.ones([1, 1], dtype=float) * kernel_size // 2
 
-        def _rbf(x: torch.Tensor) -> float:
+        def _rbf(x: np.ndarray) -> float:
             dist = ((x - center) ** 2).sum() ** 0.5
-            return torch.exp(-len_scale * dist)
+            return np.exp(-len_scale * dist)
 
         for r in range(kernel_size):
             for c in range(kernel_size):
-                self.kernel[r, c] = _rbf(torch.Tensor([r, c]))
+                self.kernel[r, c] = _rbf(np.array([r, c]))
 
-    @make_tensor
-    def __call__(self, input_space: torch.Tensor) -> torch.Tensor:
+    def __call__(self, input_space: np.ndarray) -> np.ndarray:
         assert len(input_space.shape) == 2
         return fftconvolve(input_space, self.kernel, mode="same")
 
@@ -98,16 +91,19 @@ class ObservationModel:
         raw_state[r, c] = 1
         return raw_state
 
-    def _embed_one_hot(self, x: int, y: int) -> torch.Tensor:
-        grid = torch.zeros((self.map_height, self.map_height))
+    def _embed_one_hot(self, x: int, y: int) -> np.ndarray:
+        grid = np.zeros((self.map_height, self.map_height))
         grid[x, y] = 1.0
         return grid
 
-    def _make_embedding_from_grid(self, grid: torch.tensor) -> torch.tensor:
+    def _make_embedding_from_grid(self, grid: np.ndarray) -> np.ndarray:
         embedding = self.kernel(grid)
-        return convert_float_to_8bit(normalize(embedding))
 
-    def embed_state(self, s: StateType) -> torch.Tensor:
+        # convert from float to 8bit
+        embedding = normalize(embedding)
+        return (embedding * 255).astype(int)
+
+    def embed_state(self, s: StateType) -> np.ndarray:
         x, y = self.get_obs_coords(s)
         grid = self._embed_one_hot(x, y)
         return self._make_embedding_from_grid(grid)
@@ -128,17 +124,18 @@ class ObservationModel:
 
         return x, y
 
-    def _random_embedding_noise(self) -> torch.Tensor:
-        corrupted_mask = torch.exp(
-            torch.randn(self.map_height, self.map_height) * self.noise_log_scale
+    def _random_embedding_noise(self) -> np.ndarray:
+        corrupted_mask = np.exp(
+            np.random.randn(self.map_height, self.map_height) * self.noise_log_scale
             + self.noise_log_mean
         )
         corrupted_mask *= (
-            torch.rand(self.map_height, self.map_height) < self.noise_corruption_prob
+            np.random.uniform(size=(self.map_height, self.map_height))
+            < self.noise_corruption_prob
         )
         return corrupted_mask
 
-    def embed_state_corrupted(self, s: StateType) -> torch.Tensor:
+    def embed_state_corrupted(self, s: StateType) -> np.ndarray:
         x, y = self.get_obs_coords(s)
         x, y = self._location_corruption(x, y)
         grid = self._embed_one_hot(x, y)
@@ -146,20 +143,18 @@ class ObservationModel:
 
         return self._make_embedding_from_grid(grid)
 
-    def _discretize_observation(self, obs: torch.Tensor):
+    def _discretize_observation(self, obs: np.ndarray):
         # normalize to the discrete range
         obs = (obs - obs.min()) / (obs.max() - obs.min()) * (
             self.discrete_range[1] - self.discrete_range[0]
         ) + self.discrete_range[0]
 
-        return obs.type(torch.int)
+        return obs.astype(int)
 
-    def embed_state_discrete(self, s: StateType) -> torch.Tensor:
+    def embed_state_discrete(self, s: StateType) -> np.ndarray:
         return self._discretize_observation(self.embed_state_corrupted(s))
 
-    def __call__(
-        self, s: Union[int, List[int]]
-    ) -> Union[torch.Tensor, List[torch.Tensor]]:
+    def __call__(self, s: Union[int, List[int]]) -> Union[np.ndarray, List[np.ndarray]]:
         if isinstance(s, list):
             return [self.embed_state_corrupted(s0) for s0 in s]
         return self.embed_state_corrupted(s)
@@ -382,7 +377,15 @@ class GridWorldEnv(gym.Env):
         # attributes for gym.Env
         # See: https://gymnasium.farama.org/api/env/
         self.action_space = None
-        self.observation_space = None
+        self.observation_space = gym.spaces.Box(
+            low=0,
+            high=255,
+            shape=(
+                self.observation_model.map_height,
+                self.observation_model.map_height,
+            ),
+            dtype=np.int32,
+        )
         self.metadata = None
         self.render_mode = None
         self.reward_range = self.reward_model.get_rew_range()
@@ -398,17 +401,17 @@ class GridWorldEnv(gym.Env):
             return self.initial_state
         return np.random.randint(self.n_states)
 
-    def _generate_observation(self, state: int) -> torch.Tensor:
+    def _generate_observation(self, state: int) -> np.ndarray:
         return self.observation_model(state)
 
-    def get_obseservation(self) -> torch.Tensor:
+    def get_obseservation(self) -> np.ndarray:
         return self.observation
 
-    def get_state(self) -> torch.Tensor:
+    def get_state(self) -> np.ndarray:
         return self.current_state
 
     # Key methods from Gymnasium:
-    def reset(self) -> torch.Tensor:
+    def reset(self) -> np.ndarray:
         self.current_state = self._get_initial_state()
         return self._generate_observation(self.current_state)
 

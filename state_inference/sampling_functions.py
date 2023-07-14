@@ -5,6 +5,7 @@ import numpy as np
 import torch
 
 from state_inference.gridworld_env import ObservationModel, StateType, TransitionModel
+from state_inference.utils.pytorch_utils import make_tensor
 
 
 def sample_random_walk_states(
@@ -42,5 +43,5 @@ def sample_random_walk(
     states = sample_random_walk_states(
         transition_model, length, initial_state=initial_state
     )
-    obs = torch.stack([observation_model(s) for s in states])
+    obs = torch.stack([make_tensor(observation_model(s)) for s in states])
     return obs

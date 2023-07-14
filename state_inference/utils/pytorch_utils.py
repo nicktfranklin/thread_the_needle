@@ -153,11 +153,8 @@ def train_epochs(
     return train_losses, test_losses
 
 
-def make_tensor(func: callable):
-    def wrapper(*args, **kwargs):
-        return torch.tensor(func(*args, **kwargs))
-
-    return wrapper
+def make_tensor(x: np.ndarray) -> torch.FloatTensor:
+    return torch.tensor(x, dtype=float)
 
 
 def normalize(
@@ -187,3 +184,12 @@ def convert_8bit_to_float(
     assert x.min() >= 0
 
     return (x / 255).type(torch.float)
+
+
+def convert_8bit_array_to_float_tensor(
+    x: Union[List[np.ndarray], np.ndarray]
+) -> Union[torch.tensor, List[torch.tensor]]:
+    if isinstance(x, list):
+        return [convert_8bit_array_to_float_tensor(x0) for x0 in x]
+
+    return convert_8bit_to_float(make_tensor(x))

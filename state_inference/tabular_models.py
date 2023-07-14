@@ -18,7 +18,10 @@ from state_inference.gridworld_env import (
     ObsType,
 )
 from state_inference.model import StateVae
-from state_inference.utils.pytorch_utils import DEVICE, convert_8bit_to_float
+from state_inference.utils.pytorch_utils import (
+    DEVICE,
+    convert_8bit_array_to_float_tensor,
+)
 
 
 class BaseAgent(ABC):
@@ -256,7 +259,7 @@ class TrialResults:
         if ax == None:
             plt.figure()
             ax = plt.gca()
-        ax.plot(np.cumsum(self.r), label="label")
+        ax.plot(np.cumsum(self.r), label=label)
 
 
 class Simulator:
@@ -276,8 +279,9 @@ class Simulator:
     def initialize_observation(self, o: ObsType) -> None:
         self.obs_prev = o
 
-    def preprocess_obs(self, o: ObsType) -> torch.FloatTensor:
-        return convert_8bit_to_float(o)
+    @staticmethod
+    def preprocess_obs(o: ObsType) -> torch.FloatTensor:
+        return convert_8bit_array_to_float_tensor(o)
 
     def task_reset(self):
         return self.preprocess_obs(self.task.reset())
@@ -321,9 +325,9 @@ class StateReconstruction:
         train_states: List[int],
     ):
         n = len(train_states)
-        train_observations = convert_8bit_to_float(
-            torch.stack(observation_model(train_states)).view(n, -1)
-        )
+        train_observations = torch.stack(
+            convert_8bit_array_to_float_tensor(observation_model(train_states))
+        ).view(n, -1)
 
         # encodes the states
         z_train = vae_model.get_state(train_observations.to(DEVICE))
@@ -337,9 +341,9 @@ class StateReconstruction:
 
     def _embed(self, states: List[int]):
         n = len(states)
-        obs_test = convert_8bit_to_float(
-            torch.stack(self.observation_model(states)).view(n, -1)
-        )
+        obs_test = torch.stack(
+            convert_8bit_array_to_float_tensor(self.observation_model(states))
+        ).view(n, -1)
         embed_state_vars = self.vae_model.get_state(obs_test.to(DEVICE))
         return embed_state_vars
 

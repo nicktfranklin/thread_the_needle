@@ -5,7 +5,7 @@ from torch.utils.data import Dataset
 
 from state_inference.gridworld_env import ObservationModel, TransitionModel
 from state_inference.sampling_functions import sample_random_walk
-from state_inference.utils.pytorch_utils import convert_8bit_to_float
+from state_inference.utils.pytorch_utils import convert_8bit_to_float, make_tensor
 
 
 class ObservationDataset(Dataset):
@@ -24,7 +24,7 @@ class ObservationDataset(Dataset):
             # for test, use the uncorrupted dataset
             self.observations = torch.stack(
                 [
-                    observation_model.embed_state(s)
+                    make_tensor(observation_model.embed_state(s))
                     for s in range(transition_model.n_states)
                 ]
             )
