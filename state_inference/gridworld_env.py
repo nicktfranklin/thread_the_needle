@@ -1,13 +1,18 @@
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, SupportsFloat, TypeVar, Union
 
+import gymnasium as gym
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from scipy.signal import fftconvolve
 
-from state_inference.utils.pytorch_utils import make_tensor
+from state_inference.utils.pytorch_utils import (
+    convert_float_to_8bit,
+    make_tensor,
+    normalize,
+)
 from state_inference.utils.utils import one_hot
 from value_iteration.environments.thread_the_needle import (
     GridWorld,
@@ -37,6 +42,7 @@ class RbfKernelEmbedding:
             for c in range(kernel_size):
                 self.kernel[r, c] = _rbf(torch.Tensor([r, c]))
 
+    @make_tensor
     def __call__(self, input_space: torch.Tensor) -> torch.Tensor:
         assert len(input_space.shape) == 2
         return fftconvolve(input_space, self.kernel, mode="same")
@@ -53,7 +59,8 @@ class ObservationModel:
         location_noise_scale=1.0,
         noise_log_mean: float = -2,
         noise_log_scale: float = 0.05,
-        noise_corruption_prob=0.01,
+        noise_corruption_prob: float = 0.01,
+        discrete_range: Optional[tuple[int, int]] = None,
     ) -> None:
         assert map_height % h == 0
         assert map_height % w == 0
@@ -73,6 +80,9 @@ class ObservationModel:
         self.noise_log_mean = noise_log_mean
         self.noise_log_scale = noise_log_scale
         self.noise_corruption_prob = noise_corruption_prob
+        self.discrete_range = (
+            discrete_range if discrete_range is not None else tuple([0, 255])
+        )
 
     def get_obs_coords(self, s: StateType) -> tuple[int, int]:
         return self.states[s]
@@ -93,11 +103,14 @@ class ObservationModel:
         grid[x, y] = 1.0
         return grid
 
-    @make_tensor
+    def _make_embedding_from_grid(self, grid: torch.tensor) -> torch.tensor:
+        embedding = self.kernel(grid)
+        return convert_float_to_8bit(normalize(embedding))
+
     def embed_state(self, s: StateType) -> torch.Tensor:
         x, y = self.get_obs_coords(s)
         grid = self._embed_one_hot(x, y)
-        return self.kernel(grid)
+        return self._make_embedding_from_grid(grid)
 
     def _location_corruption(self, x: int, y: int) -> tuple[int, int]:
         x += int(round(np.random.normal(loc=0, scale=self.loc_noise_scale)))
@@ -125,13 +138,24 @@ class ObservationModel:
         )
         return corrupted_mask
 
-    @make_tensor
     def embed_state_corrupted(self, s: StateType) -> torch.Tensor:
         x, y = self.get_obs_coords(s)
         x, y = self._location_corruption(x, y)
         grid = self._embed_one_hot(x, y)
         grid += self._random_embedding_noise()
-        return self.kernel(grid)
+
+        return self._make_embedding_from_grid(grid)
+
+    def _discretize_observation(self, obs: torch.Tensor):
+        # normalize to the discrete range
+        obs = (obs - obs.min()) / (obs.max() - obs.min()) * (
+            self.discrete_range[1] - self.discrete_range[0]
+        ) + self.discrete_range[0]
+
+        return obs.type(torch.int)
+
+    def embed_state_discrete(self, s: StateType) -> torch.Tensor:
+        return self._discretize_observation(self.embed_state_corrupted(s))
 
     def __call__(
         self, s: Union[int, List[int]]
@@ -320,28 +344,15 @@ class RewardModel:
 
         return self.state_action_rewards.get((state, action), 0)
 
-
-class Env(ABC):
-    """Modeled after the gymnasium API"""
-
-    @abstractmethod
-    def step(
-        self, action: ActType
-    ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
-        """Run one timestep of the environment's dynamics using the agent actions."""
-        ...
-
-    @abstractmethod
-    def reset(
-        self,
-        *,
-        seed: Optional[int] = None,
-        options: Optional[dict[str, Any]] = None,
-    ) -> tuple[ObsType, dict[str, Any]]:
-        ...
+    def get_rew_range(self) -> tuple[RewType, RewType]:
+        if self.state_rewards is not None:
+            rews = self.state_rewards.values()
+        else:
+            rews = self.state_action_rewards.values()
+        return tuple([min(rews), max(rews)])
 
 
-class GridWorldEnv(Env):
+class GridWorldEnv(gym.Env):
     def __init__(
         self,
         transition_model: TransitionModel,
@@ -368,6 +379,15 @@ class GridWorldEnv(Env):
         self.states = np.arange(n_states)
         self.end_state = end_state
 
+        # attributes for gym.Env
+        # See: https://gymnasium.farama.org/api/env/
+        self.action_space = None
+        self.observation_space = None
+        self.metadata = None
+        self.render_mode = None
+        self.reward_range = self.reward_model.get_rew_range()
+        self.spec = None
+
     def _check_terminate(self, state: int) -> bool:
         if self.end_state == None:
             return False
@@ -381,15 +401,16 @@ class GridWorldEnv(Env):
     def _generate_observation(self, state: int) -> torch.Tensor:
         return self.observation_model(state)
 
-    def reset(self) -> torch.Tensor:
-        self.current_state = self._get_initial_state()
-        return self._generate_observation(self.current_state)
-
     def get_obseservation(self) -> torch.Tensor:
         return self.observation
 
     def get_state(self) -> torch.Tensor:
         return self.current_state
+
+    # Key methods from Gymnasium:
+    def reset(self) -> torch.Tensor:
+        self.current_state = self._get_initial_state()
+        return self._generate_observation(self.current_state)
 
     def step(
         self, action: ActType
@@ -415,6 +436,12 @@ class GridWorldEnv(Env):
         self.observation = sucessor_observation
 
         return output
+
+    def render(self) -> None:
+        raise NotImplementedError
+
+    def close(self):
+        pass
 
 
 class ThreadTheNeedleEnv(GridWorldEnv):

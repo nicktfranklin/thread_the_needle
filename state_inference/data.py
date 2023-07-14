@@ -5,6 +5,7 @@ from torch.utils.data import Dataset
 
 from state_inference.gridworld_env import ObservationModel, TransitionModel
 from state_inference.sampling_functions import sample_random_walk
+from state_inference.utils.pytorch_utils import convert_8bit_to_float
 
 
 class ObservationDataset(Dataset):
@@ -27,6 +28,8 @@ class ObservationDataset(Dataset):
                     for s in range(transition_model.n_states)
                 ]
             )
+
+        self.observations = convert_8bit_to_float(self.observations)
         self.n = self.observations.shape[0]
 
     def __getitem__(self, idx):

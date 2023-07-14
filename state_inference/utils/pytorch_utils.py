@@ -1,5 +1,6 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
+import numpy as np
 import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader
@@ -157,3 +158,32 @@ def make_tensor(func: callable):
         return torch.tensor(func(*args, **kwargs))
 
     return wrapper
+
+
+def normalize(
+    x: Union[np.ndarray, torch.Tensor], min_val: int = 0, max_val: int = 1
+) -> Union[np.ndarray, torch.Tensor]:
+    return (x - x.min()) / (x.max() - x.min()) * (max_val - min_val) + min_val
+
+
+def convert_float_to_8bit(
+    x: Union[List[torch.tensor], torch.Tensor]
+) -> torch.IntTensor:
+    if isinstance(x, List):
+        return [convert_float_to_8bit(x0) for x0 in x]
+    assert x.max() <= 1.0
+    assert x.min() >= 0.0
+
+    return (x * 255).type(torch.int)
+
+
+def convert_8bit_to_float(
+    x: Union[List[torch.tensor], torch.tensor]
+) -> torch.FloatTensor:
+    if isinstance(x, List):
+        return [convert_8bit_to_float(x0) for x0 in x]
+
+    assert x.max() <= 255
+    assert x.min() >= 0
+
+    return (x / 255).type(torch.float)

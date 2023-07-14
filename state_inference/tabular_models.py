@@ -18,7 +18,7 @@ from state_inference.gridworld_env import (
     ObsType,
 )
 from state_inference.model import StateVae
-from state_inference.utils.pytorch_utils import DEVICE
+from state_inference.utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
 
 class BaseAgent(ABC):
@@ -276,10 +276,23 @@ class Simulator:
     def initialize_observation(self, o: ObsType) -> None:
         self.obs_prev = o
 
-    def simulate_trial(self) -> TrialResults:
-        self.obs_prev = self.task.reset()
+    def preprocess_obs(self, o: ObsType) -> torch.FloatTensor:
+        return convert_8bit_to_float(o)
 
-        o_prev = self.task.get_obseservation()
+    def task_reset(self):
+        return self.preprocess_obs(self.task.reset())
+
+    def task_step(self, a: ActType):
+        o, r, is_terminated, _, _ = self.task.step(a)
+        return self.preprocess_obs(o), r, is_terminated, _, _
+
+    def task_observation(self):
+        return self.preprocess_obs(self.task.reset())
+
+    def simulate_trial(self) -> TrialResults:
+        self.obs_prev = self.task_reset()
+
+        o_prev = self.task_observation()
         s = self.task.get_state()
         t = 0
         trial_history = []
@@ -287,7 +300,7 @@ class Simulator:
 
         while self._check_end(t, is_terminated):
             a = self.agent.sample_policy(o_prev)
-            o, r, is_terminated, _, _ = self.task.step(a)
+            o, r, is_terminated, _, _ = self.task_step(a)
 
             self.agent.update(o_prev, o, a, r)
 
@@ -308,7 +321,9 @@ class StateReconstruction:
         train_states: List[int],
     ):
         n = len(train_states)
-        train_observations = torch.stack(observation_model(train_states)).view(n, -1)
+        train_observations = convert_8bit_to_float(
+            torch.stack(observation_model(train_states)).view(n, -1)
+        )
 
         # encodes the states
         z_train = vae_model.get_state(train_observations.to(DEVICE))
@@ -322,7 +337,9 @@ class StateReconstruction:
 
     def _embed(self, states: List[int]):
         n = len(states)
-        obs_test = torch.stack(self.observation_model(states)).view(n, -1)
+        obs_test = convert_8bit_to_float(
+            torch.stack(self.observation_model(states)).view(n, -1)
+        )
         embed_state_vars = self.vae_model.get_state(obs_test.to(DEVICE))
         return embed_state_vars
 
