@@ -12,6 +12,7 @@ from value_iteration.environments.thread_the_needle import (
     GridWorld,
     make_thread_the_needle_walls,
 )
+from value_iteration.models.value_iteration_network import ValueIterationNetwork
 
 ObsType = TypeVar("ObsType")
 ActType = TypeVar("ActType")
@@ -187,6 +188,8 @@ class ObservationModel:
 class TransitionModel:
     # Generative model. Assumes connectivity between neighboring states in a 2d gridworld
 
+    action_keys = ["up", "down", "left", "right"]
+
     def __init__(
         self,
         h: int,
@@ -208,15 +211,15 @@ class TransitionModel:
         h: int,
         w: int,
         walls: Optional[list[tuple[int, int]]] = None,
-    ) -> Dict[str, np.ndarray]:
+    ) -> np.ndarray:
         states = np.arange(h * w).reshape(h, w)
-        transitions = {
-            "up": np.vstack([states[0, :], states[:-1, :]]),
-            "down": np.vstack([states[1:, :], states[-1, :]]),
-            "left": np.hstack([states[:, :1], states[:, :-1]]),
-            "right": np.hstack([states[:, 1:], states[:, -1:]]),
-        }
-        transitions = {k: one_hot(v.reshape(-1), h * w) for k, v in transitions.items()}
+        transitions = [
+            np.vstack([states[0, :], states[:-1, :]]),
+            np.vstack([states[1:, :], states[-1, :]]),
+            np.hstack([states[:, :1], states[:, :-1]]),
+            np.hstack([states[:, 1:], states[:, -1:]]),
+        ]
+        transitions = [one_hot(t.reshape(-1), h * w) for t in transitions]
 
         if walls is not None:
 
@@ -229,11 +232,9 @@ class TransitionModel:
                     _filter_wall(b1, b2)
                 return t
 
-            transitions = {
-                k: filter_transition_function(t) for k, t in transitions.items()
-            }
+            transitions = [filter_transition_function(t) for t in transitions]
 
-        return transitions
+        return np.array(transitions)
 
     @staticmethod
     def _make_random_transitions(
@@ -287,8 +288,8 @@ class TransitionModel:
         self, state: StateType, action: ActType
     ) -> np.ndarray:
         assert state in self.adjecency_list
-        assert action in self.state_action_transitions.keys()
-        return self.state_action_transitions[action][state]
+        assert action < self.state_action_transitions.shape[0], f"action {action}"
+        return self.state_action_transitions[action, state, :]
 
     def display_gridworld(
         self, ax: Optional[matplotlib.axes.Axes] = None, wall_color="k"
@@ -305,6 +306,8 @@ class TransitionModel:
         for c in range(self.w):
             ax.plot([c - 0.5, c - 0.5], [-0.5, self.h - 0.5], c="grey", lw=0.5)
 
+        if self.walls is None:
+            return ax
         for s0, s1 in self.walls:
             r0, c0 = GridWorld.get_position_from_state(s0, self.w)
             r1, c1 = GridWorld.get_position_from_state(s1, self.w)
@@ -324,27 +327,27 @@ class TransitionModel:
 class RewardModel:
     def __init__(
         self,
-        state_rewards: Optional[Dict[StateType, RewType]] = None,
-        state_action_rewards: Optional[Dict[tuple[StateType, ActType], RewType]] = None,
+        successor_state_rew: Dict[StateType, RewType],
     ) -> None:
-        # only one of the reward functions should be specified.
-        assert (state_rewards is not None) ^ (state_action_rewards is not None)
+        self.successor_state_rew = successor_state_rew
 
-        self.state_rewards = state_rewards
-        self.state_action_rewards = state_action_rewards
-
-    def get_reward(self, state: StateType, action: Optional[ActType] = None):
-        if self.state_rewards is not None:
-            return self.state_rewards.get(state, 0)
-
-        return self.state_action_rewards.get((state, action), 0)
+    def get_reward(self, state: StateType):
+        return self.successor_state_rew.get(state, 0)
 
     def get_rew_range(self) -> tuple[RewType, RewType]:
-        if self.state_rewards is not None:
-            rews = self.state_rewards.values()
-        else:
-            rews = self.state_action_rewards.values()
+        rews = self.successor_state_rew.values()
         return tuple([min(rews), max(rews)])
+
+    def construct_rew_func(self, transition_function: np.ndarray) -> np.ndarray:
+        """
+        transition_function -> [n_actions, n_states, n_states]
+        returns: a reward function with dimensions [n_states, n_actions]
+        """
+        _, n_s, _ = transition_function.shape
+        reward_function = np.zeros(n_s)
+        for s, r in self.successor_state_rew.items():
+            reward_function[s] = r
+        return np.matmul(transition_function, reward_function)
 
 
 class GridWorldEnv(gym.Env):
@@ -356,7 +359,8 @@ class GridWorldEnv(gym.Env):
         initial_state: Optional[int] = None,
         n_states: Optional[int] = None,
         end_state: Optional[list[int]] = None,
-        random_initial_state: bool = False,
+        random_initial_state: bool = True,
+        max_steps: int = 1000,
     ) -> None:
         self.transition_model = transition_model
         self.reward_model = reward_model
@@ -370,13 +374,15 @@ class GridWorldEnv(gym.Env):
         ), "must specify either the inital location or random initialization"
         self.current_state = self._get_initial_state()
 
-        self.observation = self._generate_observation(self.current_state)
+        self.observation = self.generate_observation(self.current_state)
         self.states = np.arange(n_states)
         self.end_state = end_state
+        self.step_counter = 0
+        self.max_steps = max_steps
 
         # attributes for gym.Env
         # See: https://gymnasium.farama.org/api/env/
-        self.action_space = None
+        self.action_space = gym.spaces.Discrete(4)
         self.observation_space = gym.spaces.Box(
             low=0,
             high=255,
@@ -392,6 +398,8 @@ class GridWorldEnv(gym.Env):
         self.spec = None
 
     def _check_terminate(self, state: int) -> bool:
+        if self.step_counter >= self.max_steps:
+            return True
         if self.end_state == None:
             return False
         return state in self.end_state
@@ -401,7 +409,7 @@ class GridWorldEnv(gym.Env):
             return self.initial_state
         return np.random.randint(self.n_states)
 
-    def _generate_observation(self, state: int) -> np.ndarray:
+    def generate_observation(self, state: int) -> np.ndarray:
         return self.observation_model(state)
 
     def get_obseservation(self) -> np.ndarray:
@@ -410,14 +418,36 @@ class GridWorldEnv(gym.Env):
     def get_state(self) -> np.ndarray:
         return self.current_state
 
+    def set_initial_state(self, initial_state):
+        self.initial_state = initial_state
+
+    def get_optimal_policy(self) -> np.ndarray:
+        t = self.transition_model.state_action_transitions
+        r = self.reward_model.construct_rew_func(t)
+        sa_values, values = ValueIterationNetwork.value_iteration(
+            t,
+            r,
+            self.observation_model.h,
+            self.observation_model.w,
+            gamma=0.8,
+            iterations=1000,
+        )
+        return (
+            np.array([np.isclose(v, v.max()) for v in sa_values], dtype=float),
+            values,
+        )
+
     # Key methods from Gymnasium:
-    def reset(self) -> np.ndarray:
+    def reset(self, seed=None, options=None) -> tuple[np.ndarray, Dict[str, Any]]:
         self.current_state = self._get_initial_state()
-        return self._generate_observation(self.current_state)
+        self.step_counter = 0
+        return self.generate_observation(self.current_state), dict()
 
     def step(
         self, action: ActType
     ) -> tuple[ObsType, float, bool, bool, Dict[str, Any]]:
+        self.step_counter += 1
+
         pdf_s = self.transition_model.get_sucessor_distribution(
             self.current_state, action
         )
@@ -425,17 +455,17 @@ class GridWorldEnv(gym.Env):
         assert np.sum(pdf_s) == 1, (action, self.current_state, pdf_s)
         assert np.all(pdf_s >= 0), print(pdf_s)
 
-        sucessor_state = np.random.choice(self.states, p=pdf_s)
-        sucessor_observation = self._generate_observation(sucessor_state)
+        successor_state = np.random.choice(self.states, p=pdf_s)
+        sucessor_observation = self.generate_observation(successor_state)
 
-        reward = self.reward_model.get_reward(sucessor_state)
-        terminated = self._check_terminate(sucessor_state)
+        reward = self.reward_model.get_reward(successor_state)
+        terminated = self._check_terminate(successor_state)
         truncated = False
-        info = dict()
+        info = dict(start_state=self.current_state, successor_state=successor_state)
 
         output = tuple([sucessor_observation, reward, terminated, truncated, info])
 
-        self.current_state = sucessor_state
+        self.current_state = successor_state
         self.observation = sucessor_observation
 
         return output
@@ -468,4 +498,50 @@ class ThreadTheNeedleEnv(GridWorldEnv):
 
         return cls(
             transition_model, reward_model, observation_model, **gridworld_env_kwargs
+        )
+
+
+class OpenEnv(ThreadTheNeedleEnv):
+    @classmethod
+    def create_env(
+        cls,
+        h: int,
+        w: int,
+        map_height: int,
+        rewards: dict[StateType, RewType],
+        observation_kwargs: dict[str, Any],
+        **gridworld_env_kwargs,
+    ):
+        # Define the transitions for the thread the needle task
+        transition_model = TransitionModel(h, w, None)
+
+        observation_model = ObservationModel(h, w, map_height, **observation_kwargs)
+
+        reward_model = RewardModel(rewards)
+
+        return cls(
+            transition_model, reward_model, observation_model, **gridworld_env_kwargs
+        )
+
+
+class CnnWrapper(ThreadTheNeedleEnv):
+    def __init__(self, env):
+        self.parent = env
+        self.parent.observation_space = gym.spaces.Box(
+            low=0,
+            high=255,
+            shape=(
+                self.observation_model.map_height,
+                self.observation_model.map_height,
+                1,
+            ),
+            dtype=np.uint8,
+        )
+
+    def __getattr__(self, attr):
+        return getattr(self.parent, attr)
+
+    def generate_observation(self, state: int) -> np.ndarray:
+        return self.parent.generate_observation(state).reshape(
+            self.observation_model.map_height, self.observation_model.map_height, 1
         )
