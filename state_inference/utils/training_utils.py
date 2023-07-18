@@ -49,6 +49,21 @@ def score_policy(
     return np.array(score).mean(axis=0)
 
 
+def sample_policy(model, n_states=400, map_height=60, cnn=True):
+    env = model.get_env()
+    # print(type(env.reset()))
+    shape = [map_height, map_height]
+    if cnn:
+        shape = [1, map_height, map_height]
+
+    obs = [
+        np.array(env.env_method("generate_observation", s)[0]).reshape(*shape)
+        for s in range(n_states)
+    ]
+    # print(obs.shape)
+    return model.predict(np.stack(obs), deterministic=True)
+
+
 def train_model(
     model,
     optimal_policy,
@@ -63,7 +78,7 @@ def train_model(
     model_reward, score = [], []
     for e in range(n_epochs):
         rew, _, state_trajectory = eval_model(model, n_eval_steps, test_start_state)
-        score.append(score_policy(model, optimal_policy, n_obs, n_states))
+        score.append(score_policy(model, optimal_policy, n_obs, n_states, map_height))
         model_reward.append(rew.sum())
 
         s = e * n_train_steps

@@ -328,11 +328,13 @@ class RewardModel:
     def __init__(
         self,
         successor_state_rew: Dict[StateType, RewType],
+        movement_penalty: float = 0.0,
     ) -> None:
         self.successor_state_rew = successor_state_rew
+        self.movement_penalty = movement_penalty
 
     def get_reward(self, state: StateType):
-        return self.successor_state_rew.get(state, 0)
+        return self.successor_state_rew.get(state, self.movement_penalty)
 
     def get_rew_range(self) -> tuple[RewType, RewType]:
         rews = self.successor_state_rew.values()
@@ -486,6 +488,7 @@ class ThreadTheNeedleEnv(GridWorldEnv):
         map_height: int,
         rewards: dict[StateType, RewType],
         observation_kwargs: dict[str, Any],
+        movement_penalty: float = 0.0,
         **gridworld_env_kwargs,
     ):
         # Define the transitions for the thread the needle task
@@ -494,7 +497,7 @@ class ThreadTheNeedleEnv(GridWorldEnv):
 
         observation_model = ObservationModel(h, w, map_height, **observation_kwargs)
 
-        reward_model = RewardModel(rewards)
+        reward_model = RewardModel(rewards, movement_penalty)
 
         return cls(
             transition_model, reward_model, observation_model, **gridworld_env_kwargs
@@ -510,6 +513,7 @@ class OpenEnv(ThreadTheNeedleEnv):
         map_height: int,
         rewards: dict[StateType, RewType],
         observation_kwargs: dict[str, Any],
+        movement_penalty: float = 0.0,
         **gridworld_env_kwargs,
     ):
         # Define the transitions for the thread the needle task
@@ -517,7 +521,7 @@ class OpenEnv(ThreadTheNeedleEnv):
 
         observation_model = ObservationModel(h, w, map_height, **observation_kwargs)
 
-        reward_model = RewardModel(rewards)
+        reward_model = RewardModel(rewards, movement_penalty)
 
         return cls(
             transition_model, reward_model, observation_model, **gridworld_env_kwargs

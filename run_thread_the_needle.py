@@ -8,7 +8,7 @@ from state_inference.utils.training_utils import train_model
 # Discritized states: a 20x20 grid of states, which we embed by spacing
 # evenly in a nXn space
 HEIGHT, WIDTH = 20, 20
-MAP_HEIGHT = 60
+MAP_HEIGHT = 40
 
 TEST_START_STATE = WIDTH - 1  # Top right corner
 # TEST_START_STATE = (WIDTH * HEIGHT - 1) // 2 + WIDTH // 2  # center
@@ -23,12 +23,12 @@ END_STATE = {0}
 #### end for open env
 
 OBS_KWARGS = dict(
-    rbf_kernel_size=51,  # must be odd
-    rbf_kernel_scale=0.2,
-    location_noise_scale=0.1,
+    rbf_kernel_size=31,  # must be odd
+    rbf_kernel_scale=0.35,
+    location_noise_scale=0.25,
     noise_log_mean=-3,
     noise_log_scale=0.05,
-    noise_corruption_prob=0.001,
+    noise_corruption_prob=0.005,
 )
 
 
