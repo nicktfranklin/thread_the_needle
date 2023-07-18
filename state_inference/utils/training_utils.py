@@ -9,8 +9,8 @@ def eval_model(model, n, start_state=None):
     rewards = []
     obs_all = []
     state_trajectory = []
-    for i in range(n):
-        action, _ = model.predict(obs, deterministic=True)
+    for _ in range(n):
+        action, _ = model.predict(obs, deterministic=start_state is not None)
         obs, rew, done, info = env.step(action)
         state_trajectory.append(
             (info[0]["start_state"], action[0], info[0]["successor_state"], rew[0])
