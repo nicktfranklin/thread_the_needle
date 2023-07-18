@@ -17,7 +17,7 @@ from state_inference.gridworld_env import (
     ObservationModel,
     ObsType,
 )
-from state_inference.model import StateVae
+from state_inference.model.model import StateVae
 from state_inference.utils.pytorch_utils import (
     DEVICE,
     convert_8bit_array_to_float_tensor,

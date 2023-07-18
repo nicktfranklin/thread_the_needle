@@ -60,16 +60,16 @@ def train_model(
     n_eval_steps=100,
     test_start_state=None,
 ):
-    model_reward = [eval_model(model, n_eval_steps, test_start_state)[0].sum()]
-    score = [score_policy(model, optimal_policy, n_obs, n_states, map_height)]
-    print(f"Initial Reward {model_reward[-1]}, score {np.mean(score[-1])}")
+    model_reward, score = [], []
     for e in range(n_epochs):
-        model.learn(total_timesteps=n_train_steps, progress_bar=False)
         rew, _, state_trajectory = eval_model(model, n_eval_steps, test_start_state)
         score.append(score_policy(model, optimal_policy, n_obs, n_states))
         model_reward.append(rew.sum())
-        if e % 10 == 0:
-            print(f"Epoch {e}, reward {model_reward[-1]}, score {np.mean(score[-1])}")
-            # print(state_trajectory)
+
+        s = e * n_train_steps
+        print(
+            f"Training_steps {s}, reward {model_reward[-1]}, score {np.mean(score[-1])}"
+        )
+        model.learn(total_timesteps=n_train_steps, progress_bar=False)
 
     return model_reward, score

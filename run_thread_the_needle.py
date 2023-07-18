@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from stable_baselines3 import A2C, DQN, PPO
 
-from state_inference.gridworld_env import CnnWrapper, OpenEnv
+from state_inference.gridworld_env import CnnWrapper, ThreadTheNeedleEnv
 from state_inference.utils.training_utils import train_model
 
 # Discritized states: a 20x20 grid of states, which we embed by spacing
@@ -11,15 +11,15 @@ HEIGHT, WIDTH = 20, 20
 MAP_HEIGHT = 60
 
 TEST_START_STATE = WIDTH - 1  # Top right corner
-TEST_START_STATE = (WIDTH * HEIGHT - 1) // 2 + WIDTH // 2  # center
+# TEST_START_STATE = (WIDTH * HEIGHT - 1) // 2 + WIDTH // 2  # center
 
 N_EPOCHS = 100
 N_STEPS = 10000
 N_EVAL_STEPS = 100
 
 #### for open env
-STATE_REWARDS = {0: 10, 399: 10, 19: -1, 380: -1}
-END_STATE = {0, 399, 19, 380}
+STATE_REWARDS = {0: 10}
+END_STATE = {0}
 #### end for open env
 
 OBS_KWARGS = dict(
@@ -37,7 +37,7 @@ def train():
     args = [HEIGHT, WIDTH, MAP_HEIGHT, STATE_REWARDS, OBS_KWARGS]
     kwargs = dict(n_states=HEIGHT * WIDTH, end_state=END_STATE)
 
-    task = CnnWrapper(OpenEnv.create_env(*args, **kwargs))
+    task = CnnWrapper(ThreadTheNeedleEnv.create_env(*args, **kwargs))
 
     pi, _ = task.get_optimal_policy()
 
@@ -71,7 +71,7 @@ def train():
             + [ii for ii in range(N_EPOCHS + 1)]
             + [ii for ii in range(N_EPOCHS + 1)],
         },
-    ).set_index("Epoch").to_csv("OpenEnvSims.csv")
+    ).set_index("Epoch").to_csv("ThreadTheNeedleSims.csv")
 
 
 if __name__ == "__main__":
