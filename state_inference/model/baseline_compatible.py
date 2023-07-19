@@ -30,6 +30,7 @@ GRAD_CLIP = True
 GAMMA = 0.8
 N_ITER_VALUE_ITERATION = 1000
 SOFTMAX_GAIN = 1.0
+EPSILON = 0.05
 
 
 @dataclass
@@ -50,7 +51,7 @@ class RandomAgent:
         self.cached_oaro_tuples = list()
         self.cached_obs = list()
 
-    def predict(self, obs: ObsType) -> ActType:
+    def predict(self, obs: ObsType) -> tuple[ActType, None]:
         return choice(list(self.set_action)), None
 
     def update_model(self) -> None:
@@ -97,6 +98,7 @@ class ValueIterationAgent(RandomAgent):
         gamma: float = GAMMA,
         n_iter: int = N_ITER_VALUE_ITERATION,
         softmax_gain: float = SOFTMAX_GAIN,
+        epsilon: float = EPSILON,
     ) -> None:
         super().__init__(task, state_inference_model, set_action)
 
@@ -119,27 +121,31 @@ class ValueIterationAgent(RandomAgent):
                 for ii in range(self.state_inference_model.z_layers)
             ]
         )
+        assert epsilon >= 0 and epsilon < 1.0
+        self.epsilon = epsilon
 
     def _precompute_states(self):
         obs_tensors = self._precomput_all_obs()
         states = self.state_inference_model.get_state(obs_tensors)
         self.list_states = states.dot(self.hash_vector)
 
-    def get_hashed_state(self, obs: int) -> tuple[int]:
-        obs = self.preprocess_obs(self.cached_obs[obs])
+    def get_hashed_state(self, obs: ObsType) -> tuple[int]:
+        obs = self.preprocess_obs(obs)
         z = self.state_inference_model.get_state(obs.to(DEVICE))
         return z.dot(self.hash_vector)[0]
 
-    # def predict(self, obs: ObsType) -> tuple[ActType, None]:
-    #     s = self.get_hashed_state(obs)
-    #     q_values = self.q_values.get(s, None)
-    #     if q_values:
-    #         pmf = softmax(list(q_values.values()), self.beta)
-    #         a0 = inverse_cmf_sampler(pmf)
-    #         print(pmf, a0, q_values.keys())
-    #         print(list(q_values.keys())[a0])
-    #         return inverse_cmf_sampler(q_values), None
-    #     return super().predict(obs)
+    def predict(self, obs: ObsType) -> tuple[ActType, None]:
+        s = self.get_hashed_state(obs)
+
+        q_values = self.q_values.get(s, None)
+        if q_values:
+            pmf = softmax(np.array(list(q_values.values())), self.beta)
+            pmf = pmf * (1 - self.epsilon) + (
+                self.epsilon / self.transition_estimator.n_actions
+            )
+            a0 = inverse_cmf_sampler(pmf)
+            return inverse_cmf_sampler(pmf), None
+        return super().predict(obs)
 
     def preprocess_obs(self, obs: Union[ObsType, List[ObsType]]) -> torch.FloatTensor:
         return convert_8bit_array_to_float_tensor(obs)
