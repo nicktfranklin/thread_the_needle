@@ -8,7 +8,7 @@ from torch.optim import AdamW
 from torch.utils.data import DataLoader
 
 from models.utils import softmax
-from state_inference.gridworld_env import ActType, ObsType, RewType
+from state_inference.gridworld_env import ActType, GridWorldEnv, ObsType, RewType
 from state_inference.model.tabular_models import (
     TabularRewardEstimator,
     TabularStateActionTransitionEstimator,
@@ -41,17 +41,38 @@ class OaroTuple:
     obsp: int
 
 
-class RandomAgent:
+class EnvWrapper:
+    ### for compatibility with the stable baseline codebase
+
+    def __init__(self, task: GridWorldEnv) -> None:
+        self.task = task
+
+    def __getattr__(self, attr):
+        return getattr(self.task, attr)
+
+    def env_method(self, method_name: str, method_args):
+        f = getattr(self.task, method_name)
+        return f(method_args)
+
+
+class BaselineCompatibleAgent:
     def __init__(
         self, task, state_inference_model: StateVae, set_action: Set[ActType]
     ) -> None:
-        self.task = task
+        self.task: GridWorldEnv = task
         self.state_inference_model = state_inference_model.to(DEVICE)
         self.set_action = set_action
         self.cached_oaro_tuples = list()
         self.cached_obs = list()
 
-    def predict(self, obs: ObsType) -> tuple[ActType, None]:
+    def get_env(self):
+        return EnvWrapper(self.task)
+
+    def predict(
+        self, obs: ObsType, deterministic: bool = False
+    ) -> tuple[ActType, None]:
+        if deterministic:
+            return list(self.set_action)[0]
         return choice(list(self.set_action)), None
 
     def update_model(self) -> None:
@@ -83,7 +104,7 @@ class RandomAgent:
         self.update_model()
 
 
-class ValueIterationAgent(RandomAgent):
+class ValueIterationAgent(BaselineCompatibleAgent):
     TRANSITION_MODEL_CLASS = TabularStateActionTransitionEstimator
     REWARD_MODEL_CLASS = TabularRewardEstimator
 
@@ -134,7 +155,9 @@ class ValueIterationAgent(RandomAgent):
         z = self.state_inference_model.get_state(obs.to(DEVICE))
         return z.dot(self.hash_vector)[0]
 
-    def predict(self, obs: ObsType) -> tuple[ActType, None]:
+    def predict(
+        self, obs: ObsType, deterministic: bool = False
+    ) -> tuple[ActType, None]:
         s = self.get_hashed_state(obs)
 
         q_values = self.q_values.get(s, None)
@@ -143,9 +166,11 @@ class ValueIterationAgent(RandomAgent):
             pmf = pmf * (1 - self.epsilon) + (
                 self.epsilon / self.transition_estimator.n_actions
             )
+            if deterministic:
+                return np.argmax(pmf), None
             a0 = inverse_cmf_sampler(pmf)
             return inverse_cmf_sampler(pmf), None
-        return super().predict(obs)
+        return super().predict(obs, deterministic)
 
     def preprocess_obs(self, obs: Union[ObsType, List[ObsType]]) -> torch.FloatTensor:
         return convert_8bit_array_to_float_tensor(obs)
