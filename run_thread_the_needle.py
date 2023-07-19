@@ -20,6 +20,7 @@ N_EVAL_STEPS = 100
 #### for open env
 STATE_REWARDS = {0: 10}
 END_STATE = {0}
+MOVEMENT_PENALTY = -0.1
 #### end for open env
 
 OBS_KWARGS = dict(
@@ -35,7 +36,9 @@ OBS_KWARGS = dict(
 def train():
     ## Wrap these in a world model
     args = [HEIGHT, WIDTH, MAP_HEIGHT, STATE_REWARDS, OBS_KWARGS]
-    kwargs = dict(n_states=HEIGHT * WIDTH, end_state=END_STATE)
+    kwargs = dict(
+        movement_penalty=MOVEMENT_PENALTY, n_states=HEIGHT * WIDTH, end_state=END_STATE
+    )
 
     task = CnnWrapper(ThreadTheNeedleEnv.create_env(*args, **kwargs))
 

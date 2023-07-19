@@ -20,7 +20,7 @@ N_EVAL_STEPS = 100
 #### for open env
 STATE_REWARDS = {0: 10, 399: 10, 19: -1, 380: -1}
 END_STATE = {0, 399, 19, 380}
-MOVEMENT_PENALTY = 0.1
+MOVEMENT_PENALTY = -0.1
 #### end for open env
 
 OBS_KWARGS = dict(
