@@ -1,4 +1,3 @@
-from abc import ABC, abstractmethod
 from collections import Counter, namedtuple
 from dataclasses import dataclass
 from random import choice, choices
@@ -17,14 +16,14 @@ from state_inference.gridworld_env import (
     ObservationModel,
     ObsType,
 )
-from state_inference.model.model import StateVae
+from state_inference.model.vae import StateVae
 from state_inference.utils.pytorch_utils import (
     DEVICE,
     convert_8bit_array_to_float_tensor,
 )
 
 
-class BaseAgent(ABC):
+class RandomAgent:
     def __init__(
         self, state_inference_model: StateVae, set_action: Set[Union[int, str]]
     ) -> None:
@@ -34,16 +33,14 @@ class BaseAgent(ABC):
     def get_hashed_state(self, obs: int) -> tuple[int]:
         return tuple(*self.state_inference_model.get_state(obs))
 
-    @abstractmethod
-    def sample_policy(self, observation: ObsType) -> Union[str, int]:
-        ...
+    def predict(self, observation: ObsType) -> ActType:
+        return choice(list(self.set_action))
 
-    @abstractmethod
     def update(self, o_prev: ObsType, o: ObsType, a: ActType, r: float) -> None:
-        ...
+        pass
 
 
-class OnPolicyCritic(BaseAgent):
+class OnPolicyCritic(RandomAgent):
     def __init__(
         self,
         state_inference_model: StateVae,
@@ -57,10 +54,6 @@ class OnPolicyCritic(BaseAgent):
         self.gamma = gamma
         self.n_iter = n_iter
         self.values = None
-
-    def sample_policy(self, observation: ObsType) -> Union[str, int]:
-        """For debugging, has a random policy"""
-        return choice(list(self.set_action))
 
     def update(self, o_prev: ObsType, o: ObsType, a: ActType, r: float) -> None:
         s_prev, s = self.get_hashed_state(o_prev), self.get_hashed_state(o)
@@ -77,7 +70,7 @@ class OnPolicyCritic(BaseAgent):
         )
 
 
-class Sarsa(BaseAgent):
+class Sarsa(RandomAgent):
     default_q_value = 0.001  # optimistic
 
     def __init__(
@@ -118,7 +111,7 @@ class Sarsa(BaseAgent):
         p = {action: np.exp(v - z) for action, v in q.items()}
         return choices(list(p.keys()), weights=list(p.values()))
 
-    def sample_policy(self, observation: Hashable) -> Union[str, int]:
+    def predict(self, observation: Hashable) -> Union[str, int]:
         return self.a_next
 
 
