@@ -3,9 +3,12 @@ from typing import Tuple
 import torch
 from torch.utils.data import Dataset
 
-from state_inference.gridworld_env import ObservationModel, TransitionModel
+from state_inference.gridworld_env import (
+    ObservationModel,
+    TransitionModel,
+    sample_random_walk,
+)
 from state_inference.utils.pytorch_utils import convert_8bit_to_float, make_tensor
-from state_inference.utils.sampling_functions import sample_random_walk
 
 
 class ObservationDataset(Dataset):

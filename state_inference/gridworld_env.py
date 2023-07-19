@@ -1,12 +1,14 @@
+from random import choices
 from typing import Any, Dict, List, Optional, TypeVar, Union
 
 import gymnasium as gym
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 from scipy.signal import fftconvolve
 
-from state_inference.utils.pytorch_utils import normalize
+from state_inference.utils.pytorch_utils import make_tensor, normalize
 from state_inference.utils.utils import one_hot
 from value_iteration.environments.thread_the_needle import (
     GridWorld,
@@ -549,3 +551,42 @@ class CnnWrapper(ThreadTheNeedleEnv):
         return self.parent.generate_observation(state).reshape(
             self.observation_model.map_height, self.observation_model.map_height, 1
         )
+
+
+def sample_random_walk_states(
+    transition_model: TransitionModel,
+    walk_length: int,
+    initial_state: Optional[int] = None,
+) -> list[StateType]:
+    random_walk = []
+    if initial_state is not None:
+        s = initial_state
+    else:
+        s = choices(list(transition_model.adjecency_list.keys()))[0]
+
+    random_walk.append(s)
+    for _ in range(walk_length):
+        s = choices(transition_model.adjecency_list[s])[0]
+        random_walk.append(s)
+
+    return random_walk
+
+
+def sample_random_walk(
+    length: int,
+    transition_model: TransitionModel,
+    observation_model: ObservationModel,
+    initial_state: Optional[int] = None,
+) -> torch.tensor:
+    states = sample_random_walk_states(
+        transition_model, length, initial_state=initial_state
+    )
+    obs = torch.stack([make_tensor(observation_model(s)) for s in states])
+    return obs
+
+
+def sample_states(
+    transition_model: TransitionModel,
+    n: int,
+) -> np.ndarray:
+    return np.random.choice(len(transition_model.adjecency_list), n).tolist()

@@ -118,7 +118,11 @@ class Sarsa(RandomAgent):
 class TabularTransitionEstimator:
     ## Note: does not take in actions
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
+        self.transitions = dict()
+        self.pmf = dict()
+
+    def reset(self):
         self.transitions = dict()
         self.pmf = dict()
 
@@ -145,8 +149,31 @@ class TabularTransitionEstimator:
         return self.pmf[s]
 
 
+class TabularStateActionTransitionEstimator:
+    def __init__(self, n_actions: int = 4):
+        self.n_actions = n_actions
+        self.models = {a: TabularTransitionEstimator() for a in range(n_actions)}
+        self.set_states = set()
+
+    def reset(self):
+        for m in self.models.values():
+            m.reset()
+        self.set_states = set()
+
+    def update(self, s: Hashable, a: ActType, sp: Hashable) -> None:
+        self.models[a].update(s, sp)
+        self.set_states.add(s)
+
+    def get_transition_functions(self):
+        return self.models
+
+
 class TabularRewardEstimator:
     def __init__(self):
+        self.counts = dict()
+        self.state_reward_function = dict()
+
+    def reset(self):
         self.counts = dict()
         self.state_reward_function = dict()
 
@@ -170,7 +197,7 @@ class TabularRewardEstimator:
 
 
 def value_iteration(
-    t: Dict[Union[str, int], TabularTransitionEstimator],
+    t: Dict[ActType, TabularTransitionEstimator],
     r: TabularRewardEstimator,
     gamma: float,
     iterations: int,
@@ -257,7 +284,7 @@ class TrialResults:
 
 class Simulator:
     def __init__(
-        self, task: GridWorldEnv, agent: BaseAgent, max_trial_length: int = 100
+        self, task: GridWorldEnv, agent: RandomAgent, max_trial_length: int = 100
     ) -> None:
         self.task = task
         self.agent = agent

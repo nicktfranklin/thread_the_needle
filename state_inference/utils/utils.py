@@ -1,4 +1,7 @@
+from typing import Union
+
 import numpy as np
+import scipy.sparse
 from scipy.special import logsumexp
 
 
@@ -71,3 +74,10 @@ def BayesianFilter(log_observation: np.ndarray, log_transitions: np.ndarray):
 def one_hot(a, num_classes):
     ### define simple deterministic transition functions using cardinal movements
     return np.squeeze(np.eye(num_classes)[a.reshape(-1)])
+
+
+def inverse_cmf_sampler(pmf: Union[np.ndarray, scipy.sparse.csr_matrix]) -> int:
+    if type(pmf) == scipy.sparse.csr_matrix:
+        pmf = pmf.toarray()
+
+    return np.array(np.cumsum(np.array(pmf)) < np.random.rand(), dtype=int).sum()
