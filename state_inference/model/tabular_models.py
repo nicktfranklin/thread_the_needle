@@ -179,9 +179,9 @@ class TabularRewardEstimator:
 
     def update(self, s: Hashable, r: float):
         if s in self.counts.keys():  # pylint: disable=consider-iterating-dictionary
-            self.counts[s] += np.array([r, 1])
+            self.counts[s] += np.array([float(r), 1.0])
         else:
-            self.counts[s] = np.array([r, 1])
+            self.counts[s] = np.array([float(r), 1.0])
 
         self.state_reward_function[s] = self.counts[s][0] / self.counts[s][1]
 
@@ -207,7 +207,7 @@ def value_iteration(
     q_values = {s: {a: 0 for a in list_actions} for s in list_states}
     v = {s: 0 for s in list_states}
 
-    def _inner_sum(s, a):
+    def _successor_value(s, a):
         _sum = 0
         for sp, p in t[a].get_transition_probs(s).items():
             _sum += p * v[sp]
@@ -222,7 +222,7 @@ def value_iteration(
     for _ in range(iterations):
         for s in list_states:
             for a in list_actions:
-                q_values[s][a] = _expected_reward(s, a) + gamma * _inner_sum(s, a)
+                q_values[s][a] = _expected_reward(s, a) + gamma * _successor_value(s, a)
         # update value function
         for s, qs in q_values.items():
             v[s] = max(qs.values())

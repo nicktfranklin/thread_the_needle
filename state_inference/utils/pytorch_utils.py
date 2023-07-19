@@ -98,7 +98,7 @@ def train(
         loss.backward()
 
         if clip_grad:
-            torch.nn.utils.clip_grad_norm(model.parameters(), clip_grad)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad)
 
         optimizer.step()
         train_losses.append(loss.item())
@@ -188,8 +188,8 @@ def convert_8bit_to_float(
 
 def convert_8bit_array_to_float_tensor(
     x: Union[List[np.ndarray], np.ndarray]
-) -> Union[torch.tensor, List[torch.tensor]]:
+) -> torch.FloatTensor:
     if isinstance(x, list):
-        return [convert_8bit_array_to_float_tensor(x0) for x0 in x]
+        return torch.stack([convert_8bit_array_to_float_tensor(x0) for x0 in x])
 
     return convert_8bit_to_float(make_tensor(x))
