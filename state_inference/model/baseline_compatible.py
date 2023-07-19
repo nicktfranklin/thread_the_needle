@@ -18,6 +18,7 @@ from state_inference.model.vae import StateVae
 from state_inference.utils.pytorch_utils import (
     DEVICE,
     convert_8bit_array_to_float_tensor,
+    convert_8bit_to_float,
     train,
 )
 from state_inference.utils.utils import inverse_cmf_sampler
@@ -33,10 +34,10 @@ SOFTMAX_GAIN = 1.0
 
 @dataclass
 class OaroTuple:
-    obs: ObsType
+    obs: int
     a: ActType
     r: RewType
-    obsp: ObsType
+    obsp: int
 
 
 class RandomAgent:
@@ -47,7 +48,7 @@ class RandomAgent:
         self.state_inference_model = state_inference_model.to(DEVICE)
         self.set_action = set_action
         self.cached_oaro_tuples = list()
-        # self.cached_obs = list()
+        self.cached_obs = list()
 
     def predict(self, obs: ObsType) -> ActType:
         return choice(list(self.set_action)), None
@@ -59,14 +60,14 @@ class RandomAgent:
         # Use the current policy to explore
         obs_prev = self.task.reset()[0]
 
-        for _ in range(total_timesteps):
-            # self.cached_obs.append(obs_prev)
+        for t in range(total_timesteps):
+            self.cached_obs.append(torch.tensor(obs_prev))
 
             action, _ = self.predict(obs_prev)
             obs, rew, terminated, _, _ = self.task.step(action)
 
             self.cached_oaro_tuples.append(
-                OaroTuple(obs=obs_prev, a=action, r=rew, obsp=obs)
+                OaroTuple(obs=t, a=action, r=rew, obsp=t + 1)
             )
             assert obs.shape
 
@@ -75,7 +76,8 @@ class RandomAgent:
                 obs_prev = self.task.reset()[0]
             assert obs_prev.shape
             assert not isinstance(obs_prev, tuple)
-        # self.cached_obs.append
+
+        self.cached_obs.append(torch.tensor(obs))
 
         self.update_model()
 
@@ -109,10 +111,24 @@ class ValueIterationAgent(RandomAgent):
         self.transition_estimator = self.TRANSITION_MODEL_CLASS()
         self.reward_estimator = self.REWARD_MODEL_CLASS()
         self.q_values = dict()
+        self.list_states = list()
+
+        self.hash_vector = np.array(
+            [
+                self.state_inference_model.z_dim**ii
+                for ii in range(self.state_inference_model.z_layers)
+            ]
+        )
+
+    def _precompute_states(self):
+        obs_tensors = self._precomput_all_obs()
+        states = self.state_inference_model.get_state(obs_tensors)
+        self.list_states = states.dot(self.hash_vector)
 
     def get_hashed_state(self, obs: int) -> tuple[int]:
-        obs = self.preprocess_obs(obs)
-        return tuple(*self.state_inference_model.get_state(obs.to(DEVICE)))
+        obs = self.preprocess_obs(self.cached_obs[obs])
+        z = self.state_inference_model.get_state(obs.to(DEVICE))
+        return z.dot(self.hash_vector)[0]
 
     # def predict(self, obs: ObsType) -> tuple[ActType, None]:
     #     s = self.get_hashed_state(obs)
@@ -128,11 +144,12 @@ class ValueIterationAgent(RandomAgent):
     def preprocess_obs(self, obs: Union[ObsType, List[ObsType]]) -> torch.FloatTensor:
         return convert_8bit_array_to_float_tensor(obs)
 
-    def _prep_vae_dataloader(self, batch_size: int = BATCH_SIZE):
-        obs = [o.obs for o in self.cached_oaro_tuples]
+    def _precomput_all_obs(self):
+        return convert_8bit_to_float(torch.stack(self.cached_obs)).to(DEVICE)
 
+    def _prep_vae_dataloader(self, batch_size: int = BATCH_SIZE):
         return DataLoader(
-            self.preprocess_obs(obs).to(DEVICE),
+            self._precomput_all_obs(),
             batch_size=batch_size,
             shuffle=True,
         )
@@ -142,8 +159,8 @@ class ValueIterationAgent(RandomAgent):
         _ = train(self.state_inference_model, dataloader, self.optim, self.grad_clip)
 
     def _get_sars_tuples(self, obs: OaroTuple):
-        s = self.get_hashed_state(obs.obs)
-        sp = self.get_hashed_state(obs.obsp)
+        s = self.list_states[obs.obs]
+        sp = self.list_states[obs.obsp]
         return s, obs.a, obs.r, sp
 
     def update_model(self) -> None:
@@ -151,14 +168,15 @@ class ValueIterationAgent(RandomAgent):
         self._train_vae_batch()
 
         # construct a devono model-based learner from the new states
-        print("Update Estimates")
         self.transition_estimator.reset()
         self.reward_estimator.reset()
+        self._precompute_states()  # for speed
+
         for obs in self.cached_oaro_tuples:
             s, a, r, sp = self._get_sars_tuples(obs)
             self.transition_estimator.update(s, a, sp)
             self.reward_estimator.update(sp, r)
-        print("Run Value Iteration")
+
         # use value iteration to estimate the rewards
         self.q_values, _ = value_iteration(
             t=self.transition_estimator.get_transition_functions(),
