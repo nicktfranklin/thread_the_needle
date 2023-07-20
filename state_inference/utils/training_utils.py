@@ -42,7 +42,7 @@ def score_policy(
         with torch.no_grad():
             pmf = (
                 model.policy.get_distribution(torch.tensor(obs))
-                .distribution.probs.detach()
+                .distribution.probs.clone().detach()
                 .numpy()
             )
         score.append(np.sum(optimal_policy * pmf, axis=1))

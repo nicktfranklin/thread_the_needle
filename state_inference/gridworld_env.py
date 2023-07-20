@@ -445,6 +445,7 @@ class GridWorldEnv(gym.Env):
     def reset(self, seed=None, options=None) -> tuple[np.ndarray, Dict[str, Any]]:
         self.current_state = self._get_initial_state()
         self.step_counter = 0
+
         return self.generate_observation(self.current_state), dict()
 
     def step(
@@ -467,10 +468,10 @@ class GridWorldEnv(gym.Env):
         truncated = False
         info = dict(start_state=self.current_state, successor_state=successor_state)
 
-        output = tuple([sucessor_observation, reward, terminated, truncated, info])
-
         self.current_state = successor_state
         self.observation = sucessor_observation
+
+        output = tuple([sucessor_observation, reward, terminated, truncated, info])
 
         return output
 
