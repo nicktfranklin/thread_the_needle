@@ -1,58 +1,42 @@
 import numpy as np
 import pandas as pd
+import yaml
 from stable_baselines3 import A2C, DQN, PPO
 
 from state_inference.gridworld_env import CnnWrapper, ThreadTheNeedleEnv
 from state_inference.utils.training_utils import train_model
 
-# Discritized states: a 20x20 grid of states, which we embed by spacing
-# evenly in a nXn space
-HEIGHT, WIDTH = 20, 20
-MAP_HEIGHT = 40
-
-TEST_START_STATE = WIDTH * (HEIGHT // 2) + (WIDTH // 4 * 3) 
-
-N_EPOCHS = 100
-N_STEPS = 10000
-N_EVAL_STEPS = 100
-
-#### for open env
-STATE_REWARDS = {0: 10, 399: -10, 19: -10, 380: -10}
-END_STATE = {0, 399, 19, 380}
-MOVEMENT_PENALTY = -0.1
-#### end for open env
-
-OBS_KWARGS = dict(
-    rbf_kernel_size=31,  # must be odd
-    rbf_kernel_scale=0.35,
-    location_noise_scale=0.25,
-    noise_log_mean=-3,
-    noise_log_scale=0.05,
-    noise_corruption_prob=0.005,
-)
+CONFIG_FILE = 'state_inference/env_config.yml'
+TASK_NAME = 'thread_the_needle'
+TASK_CLASS = ThreadTheNeedleEnv
 
 
 def train():
-    ## Wrap these in a world model
-    args = [HEIGHT, WIDTH, MAP_HEIGHT, STATE_REWARDS, OBS_KWARGS]
-    kwargs = dict(
-        movement_penalty=MOVEMENT_PENALTY, n_states=HEIGHT * WIDTH, end_state=END_STATE
-    )
+    # parse the config file
+    with open(CONFIG_FILE) as file:
+        config = yaml.load(file, Loader=yaml.FullLoader)
+    env_kwargs = config[TASK_NAME]['env_kwargs']
+    obs_kwargs = config['obs_kwargs']
+    test_start_state = config[TASK_NAME]['test_start_state']
+    training_kwargs = config['training_kwargs']
 
-    task = CnnWrapper(ThreadTheNeedleEnv.create_env(*args, **kwargs))
+    # create the task
+    task = CnnWrapper(TASK_CLASS.create_env(**env_kwargs, observation_kwargs=obs_kwargs))
 
     pi, _ = task.get_optimal_policy()
 
     train_kwargs = dict(
         optimal_policy=pi,
-        n_epochs=N_EPOCHS,
-        n_train_steps=N_STEPS,
+        n_epochs=training_kwargs['n_epochs'],
+        n_train_steps=training_kwargs['n_steps'],
         n_obs=5,
-        n_states=400,
-        map_height=MAP_HEIGHT,
-        n_eval_steps=N_EVAL_STEPS,
-        test_start_state=TEST_START_STATE,
+        n_states=env_kwargs['n_states'],
+        map_height=env_kwargs['map_height'],
+        n_eval_steps=training_kwargs['n_eval_steps'],
+        test_start_state=test_start_state,
     )
+
+
 
     ppo = PPO("CnnPolicy", task, verbose=0)
     ppo_rewards = train_model(ppo, **train_kwargs)
@@ -63,17 +47,19 @@ def train():
     dqn = DQN("CnnPolicy", task, verbose=0)
     dqn_rewards = train_model(dqn, **train_kwargs)
 
+
+
     pd.DataFrame(
         {
             "Rewards": np.concatenate([dqn_rewards, a2c_rewards, ppo_rewards]),
-            "Model": ["DQN"] * (N_EPOCHS + 1)
-            + ["A2C"] * (N_EPOCHS + 1)
-            + ["PPO"] * (N_EPOCHS + 1),
-            "Epoch": [ii for ii in range(N_EPOCHS + 1)]
-            + [ii for ii in range(N_EPOCHS + 1)]
-            + [ii for ii in range(N_EPOCHS + 1)],
+            "Model": ["DQN"] * (config['training_kwargs']['n_epochs'] + 1)
+            + ["A2C"] * (config['training_kwargs']['n_epochs'] + 1)
+            + ["PPO"] * (config['training_kwargs']['n_epochs'] + 1),
+            "Epoch": [ii for ii in range(config['training_kwargs']['n_epochs'] + 1)]
+            + [ii for ii in range(config['training_kwargs']['n_epochs'] + 1)]
+            + [ii for ii in range(config['training_kwargs']['n_epochs'] + 1)],
         },
-    ).set_index("Epoch").to_csv("ThreadTheNeedleSims.csv")
+    ).set_index("Epoch").to_csv("OpenEnvSims.csv")
 
 
 if __name__ == "__main__":

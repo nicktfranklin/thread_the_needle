@@ -365,6 +365,7 @@ class GridWorldEnv(gym.Env):
         end_state: Optional[list[int]] = None,
         random_initial_state: bool = True,
         max_steps: Optional[int] = None,
+        **kwargs
     ) -> None:
         self.transition_model = transition_model
         self.reward_model = reward_model
@@ -486,21 +487,21 @@ class ThreadTheNeedleEnv(GridWorldEnv):
     @classmethod
     def create_env(
         cls,
-        h: int,
-        w: int,
+        height: int,
+        width: int,
         map_height: int,
-        rewards: dict[StateType, RewType],
+        state_rewards: dict[StateType, RewType],
         observation_kwargs: dict[str, Any],
         movement_penalty: float = 0.0,
         **gridworld_env_kwargs,
     ):
         # Define the transitions for the thread the needle task
         walls = make_thread_the_needle_walls(20)
-        transition_model = TransitionModel(h, w, walls)
+        transition_model = TransitionModel(height, width, walls)
 
-        observation_model = ObservationModel(h, w, map_height, **observation_kwargs)
+        observation_model = ObservationModel(height, width, map_height, **observation_kwargs)
 
-        reward_model = RewardModel(rewards, movement_penalty)
+        reward_model = RewardModel(state_rewards, movement_penalty)
 
         return cls(
             transition_model, reward_model, observation_model, **gridworld_env_kwargs
@@ -511,20 +512,20 @@ class OpenEnv(ThreadTheNeedleEnv):
     @classmethod
     def create_env(
         cls,
-        h: int,
-        w: int,
+        height: int,
+        width: int,
         map_height: int,
-        rewards: dict[StateType, RewType],
+        state_rewards: dict[StateType, RewType],
         observation_kwargs: dict[str, Any],
         movement_penalty: float = 0.0,
         **gridworld_env_kwargs,
     ):
         # Define the transitions for the thread the needle task
-        transition_model = TransitionModel(h, w, None)
+        transition_model = TransitionModel(height, width, None)
 
-        observation_model = ObservationModel(h, w, map_height, **observation_kwargs)
+        observation_model = ObservationModel(height, width, map_height, **observation_kwargs)
 
-        reward_model = RewardModel(rewards, movement_penalty)
+        reward_model = RewardModel(state_rewards, movement_penalty)
 
         return cls(
             transition_model, reward_model, observation_model, **gridworld_env_kwargs
