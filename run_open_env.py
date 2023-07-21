@@ -9,6 +9,7 @@ from state_inference.utils.training_utils import train_model
 CONFIG_FILE = 'state_inference/env_config.yml'
 TASK_NAME = 'open_env'
 TASK_CLASS = OpenEnv
+OUTPUT_FILE_NAME = 'OpenEnvSims.csv'
 
 
 def train():
@@ -37,29 +38,28 @@ def train():
     )
 
 
+    results = []
+    def append_res(results, rewards, model_name):
+        results.append(
+            {"Rewards": rewards,
+             'Model': [model_name] * (config['training_kwargs']['n_epochs'] + 1),
+             "Epoch": [ii for ii in range(config['training_kwargs']['n_epochs'] + 1)],
+             }
+        )
+
 
     ppo = PPO("CnnPolicy", task, verbose=0)
     ppo_rewards = train_model(ppo, **train_kwargs)
+    append_res(results, ppo_rewards, 'PPO')
 
-    a2c = A2C("CnnPolicy", task, verbose=0)
-    a2c_rewards = train_model(a2c, **train_kwargs)
+    # a2c = A2C("CnnPolicy", task, verbose=0)
+    # a2c_rewards = train_model(a2c, **train_kwargs)
 
-    dqn = DQN("CnnPolicy", task, verbose=0)
-    dqn_rewards = train_model(dqn, **train_kwargs)
+    # dqn = DQN("CnnPolicy", task, verbose=0)
+    # dqn_rewards = train_model(dqn, **train_kwargs)
 
-
-
-    pd.DataFrame(
-        {
-            "Rewards": np.concatenate([dqn_rewards, a2c_rewards, ppo_rewards]),
-            "Model": ["DQN"] * (config['training_kwargs']['n_epochs'] + 1)
-            + ["A2C"] * (config['training_kwargs']['n_epochs'] + 1)
-            + ["PPO"] * (config['training_kwargs']['n_epochs'] + 1),
-            "Epoch": [ii for ii in range(config['training_kwargs']['n_epochs'] + 1)]
-            + [ii for ii in range(config['training_kwargs']['n_epochs'] + 1)]
-            + [ii for ii in range(config['training_kwargs']['n_epochs'] + 1)],
-        },
-    ).set_index("Epoch").to_csv("OpenEnvSims.csv")
+    results = pd.concat([pd.DataFrame(res) for res in results])
+    results.set_index("Epoch").to_csv(OUTPUT_FILE_NAME)
 
 
 if __name__ == "__main__":
