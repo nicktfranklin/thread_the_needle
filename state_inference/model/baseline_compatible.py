@@ -25,7 +25,7 @@ from state_inference.utils.pytorch_utils import (
 )
 
 BATCH_SIZE = 64
-N_EPOCHS = 10000
+N_EPOCHS = 20
 OPTIM_KWARGS = dict(lr=3e-4)
 GRAD_CLIP = True
 GAMMA = 0.8
@@ -198,7 +198,10 @@ class ValueIterationAgent(BaselineCompatibleAgent):
 
     def _train_vae_batch(self):
         dataloader = self._prep_vae_dataloader(self.batch_size)
-        _ = train(self.state_inference_model, dataloader, self.optim, self.grad_clip)
+        for _ in range(N_EPOCHS):
+            self.state_inference_model.train()
+            _ = train(self.state_inference_model, dataloader, self.optim, self.grad_clip)
+            self.state_inference_model.prep_next_batch()
 
     def _get_sars_tuples(self, obs: OaroTuple):
         s = self.list_states[obs.obs]
@@ -220,9 +223,10 @@ class ValueIterationAgent(BaselineCompatibleAgent):
             self.reward_estimator.update(sp, r)
 
         # use value iteration to estimate the rewards
-        self.policy.q_values, _ = value_iteration(
+        self.policy.q_values, value_function = value_iteration(
             t=self.transition_estimator.get_transition_functions(),
             r=self.reward_estimator,
             gamma=self.gamma,
             iterations=self.n_iter,
         )
+        self.value_function = value_function

@@ -364,7 +364,7 @@ class GridWorldEnv(gym.Env):
         n_states: Optional[int] = None,
         end_state: Optional[list[int]] = None,
         random_initial_state: bool = True,
-        max_steps: int = 1000,
+        max_steps: Optional[int] = None,
     ) -> None:
         self.transition_model = transition_model
         self.reward_model = reward_model
@@ -402,7 +402,7 @@ class GridWorldEnv(gym.Env):
         self.spec = None
 
     def _check_terminate(self, state: int) -> bool:
-        if self.step_counter >= self.max_steps:
+        if self.max_steps is not None and self.step_counter >= self.max_steps:
             return True
         if self.end_state == None:
             return False

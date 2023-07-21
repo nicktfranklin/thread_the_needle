@@ -10,16 +10,16 @@ from state_inference.utils.training_utils import train_model
 HEIGHT, WIDTH = 20, 20
 MAP_HEIGHT = 40
 
-TEST_START_STATE = WIDTH - 1  # Top right corner
-TEST_START_STATE = (WIDTH * HEIGHT - 1) // 2 + WIDTH // 2  # center
+TEST_START_STATE = WIDTH // 2  # Top middle
 
 N_EPOCHS = 100
 N_STEPS = 10000
 N_EVAL_STEPS = 100
 
 #### for open env
-STATE_REWARDS = {0: 10, 399: 10, 19: -1, 380: -1}
-END_STATE = {0, 399, 19, 380}
+goal_loc = (WIDTH * HEIGHT - 1) // 2 + WIDTH // 2
+STATE_REWARDS = {goal_loc: 10, 0: -1, 399: -1, 19: -1, 380: -1}
+END_STATE = {goal_loc, 0, 399, 19, 380}
 MOVEMENT_PENALTY = -0.1
 #### end for open env
 
@@ -55,6 +55,8 @@ def train():
         test_start_state=TEST_START_STATE,
     )
 
+
+
     ppo = PPO("CnnPolicy", task, verbose=0)
     ppo_rewards = train_model(ppo, **train_kwargs)
 
@@ -63,6 +65,8 @@ def train():
 
     dqn = DQN("CnnPolicy", task, verbose=0)
     dqn_rewards = train_model(dqn, **train_kwargs)
+
+
 
     pd.DataFrame(
         {

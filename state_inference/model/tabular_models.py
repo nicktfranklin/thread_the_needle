@@ -61,6 +61,10 @@ class OnPolicyCritic(RandomAgent):
         self.rewards.update(s_prev, r)
         self.transitions.update(s_prev, s)
 
+    def sample_policy(self, observation: ObsType) -> Union[str, int]:
+        """For debugging, has a random policy"""
+        return choice(list(self.set_action))
+
     def update_values(self):
         _, self.values = value_iteration(
             {"N": self.transitions},
@@ -113,6 +117,10 @@ class Sarsa(RandomAgent):
 
     def predict(self, observation: Hashable) -> Union[str, int]:
         return self.a_next
+    
+    def sample_policy(self, observation: ObsType) -> Union[str, int]:
+        """For debugging, has a random policy"""
+        return choice(list(self.set_action))
 
 
 class TabularTransitionEstimator:
@@ -304,14 +312,14 @@ class Simulator:
         return convert_8bit_array_to_float_tensor(o)
 
     def task_reset(self):
-        return self.preprocess_obs(self.task.reset())
+        return self.preprocess_obs(self.task.reset()[0])
 
     def task_step(self, a: ActType):
         o, r, is_terminated, _, _ = self.task.step(a)
         return self.preprocess_obs(o), r, is_terminated, _, _
 
     def task_observation(self):
-        return self.preprocess_obs(self.task.reset())
+        return self.preprocess_obs(self.task.reset()[0])
 
     def simulate_trial(self) -> TrialResults:
         self.obs_prev = self.task_reset()

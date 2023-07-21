@@ -10,16 +10,15 @@ from state_inference.utils.training_utils import train_model
 HEIGHT, WIDTH = 20, 20
 MAP_HEIGHT = 40
 
-TEST_START_STATE = WIDTH - 1  # Top right corner
-# TEST_START_STATE = (WIDTH * HEIGHT - 1) // 2 + WIDTH // 2  # center
+TEST_START_STATE = WIDTH * (HEIGHT // 2) + (WIDTH // 4 * 3) 
 
 N_EPOCHS = 100
 N_STEPS = 10000
 N_EVAL_STEPS = 100
 
 #### for open env
-STATE_REWARDS = {0: 10}
-END_STATE = {0}
+STATE_REWARDS = {0: 10, 399: -10, 19: -10, 380: -10}
+END_STATE = {0, 399, 19, 380}
 MOVEMENT_PENALTY = -0.1
 #### end for open env
 
