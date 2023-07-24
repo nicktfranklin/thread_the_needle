@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import yaml
 
 
 def eval_model(model, n, start_state=None):
@@ -42,7 +43,8 @@ def score_policy(
         with torch.no_grad():
             pmf = (
                 model.policy.get_distribution(torch.tensor(obs))
-                .distribution.probs.clone().detach()
+                .distribution.probs.clone()
+                .detach()
                 .numpy()
             )
         score.append(np.sum(optimal_policy * pmf, axis=1))
@@ -88,3 +90,22 @@ def train_model(
         model.learn(total_timesteps=n_train_steps, progress_bar=False)
 
     return model_reward, score
+
+
+def parse_config(task, config_file):
+    with open(config_file) as file:
+        config = yaml.load(file, Loader=yaml.FullLoader)
+
+    env_kwargs = config[task]["env_kwargs"]
+    env_kwargs["observation_kwargs"] = config["obs_kwargs"]
+
+    training_kwargs = config["training_kwargs"]
+    training_kwargs.update(
+        dict(
+            n_states=env_kwargs["n_states"],
+            map_height=env_kwargs["map_height"],
+            test_start_state=config[task]["test_start_state"],
+        )
+    )
+
+    return env_kwargs, training_kwargs

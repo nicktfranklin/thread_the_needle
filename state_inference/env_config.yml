@@ -1,7 +1,8 @@
 training_kwargs:
   n_epochs: 100
-  n_steps: 10000
+  n_train_steps: 10000
   n_eval_steps: 100
+  n_obs: 5
 
 obs_kwargs:
     rbf_kernel_size: 31  # must be odd
