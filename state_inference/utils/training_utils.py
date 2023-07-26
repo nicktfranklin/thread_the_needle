@@ -23,32 +23,37 @@ def eval_model(model, n, start_state=None):
     return np.array(rewards), obs_all, state_trajectory
 
 
+def get_policy_prob(model, n_states=400, map_height=60, cnn=True):
+    env = model.get_env()
+    # print(type(env.reset()))
+    shape = [map_height, map_height]
+    if cnn:
+        shape = [1, map_height, map_height]
+
+    obs = [
+        torch.tensor(env.env_method("generate_observation", s)[0]).view(*shape)
+        for s in range(n_states)
+    ]
+    obs = torch.stack(obs)
+    with torch.no_grad():
+        pmf = (
+            model.policy.get_distribution(obs)
+            .distribution.probs.clone()
+            .detach()
+            .numpy()
+        )
+    return pmf
+
+
 def score_policy(
     model,
     optimal_policy,
-    n_obs=10,
     n_states=400,
     map_height=60,
+    cnn=True,
 ):
-    env = model.get_env()
-    score = []
-    for _ in range(n_obs):
-        obs = [
-            torch.tensor(env.env_method("generate_observation", s)[0]).view(
-                1, map_height, map_height
-            )
-            for s in range(n_states)
-        ]
-        obs = torch.stack(obs)
-        with torch.no_grad():
-            pmf = (
-                model.policy.get_distribution(torch.tensor(obs))
-                .distribution.probs.clone()
-                .detach()
-                .numpy()
-            )
-        score.append(np.sum(optimal_policy * pmf, axis=1))
-    return np.array(score).mean(axis=0)
+    pmf = get_policy_prob(model, n_states, map_height, cnn)
+    return np.sum(optimal_policy * pmf, axis=1).mean()
 
 
 def sample_policy(model, n_states=400, map_height=60, cnn=True):
@@ -71,7 +76,6 @@ def train_model(
     optimal_policy,
     n_epochs,
     n_train_steps,
-    n_obs=5,
     n_states=400,
     map_height=60,
     n_eval_steps=100,
@@ -80,7 +84,7 @@ def train_model(
     model_reward, score = [], []
     for e in range(n_epochs):
         rew, _, state_trajectory = eval_model(model, n_eval_steps, test_start_state)
-        score.append(score_policy(model, optimal_policy, n_obs, n_states, map_height))
+        score.append(score_policy(model, optimal_policy, n_states, map_height))
         model_reward.append(rew.sum())
 
         s = e * n_train_steps
