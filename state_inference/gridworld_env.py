@@ -365,7 +365,7 @@ class GridWorldEnv(gym.Env):
         end_state: Optional[list[int]] = None,
         random_initial_state: bool = True,
         max_steps: Optional[int] = None,
-        **kwargs
+        **kwargs,
     ) -> None:
         self.transition_model = transition_model
         self.reward_model = reward_model
@@ -413,6 +413,21 @@ class GridWorldEnv(gym.Env):
         if self.initial_state:
             return self.initial_state
         return np.random.randint(self.n_states)
+
+    def display_gridworld(
+        self, ax: Optional[matplotlib.axes.Axes] = None, wall_color="k"
+    ) -> matplotlib.axes.Axes:
+        if not ax:
+            _, ax = plt.subplots(figsize=(5, 5))
+            ax.invert_yaxis()
+        self.transition_model.display_gridworld(ax, wall_color)
+
+        for s, rew in self.reward_model.successor_state_rew.items():
+            loc = self.observation_model.get_grid_coords(s)
+            c = "b" if rew > 0 else "r"
+            ax.annotate(f"{rew}", loc, ha="center", va="center", c=c)
+        ax.set_title("Thread-the-needle states")
+        return ax
 
     def generate_observation(self, state: int) -> np.ndarray:
         return self.observation_model(state)
@@ -499,7 +514,9 @@ class ThreadTheNeedleEnv(GridWorldEnv):
         walls = make_thread_the_needle_walls(20)
         transition_model = TransitionModel(height, width, walls)
 
-        observation_model = ObservationModel(height, width, map_height, **observation_kwargs)
+        observation_model = ObservationModel(
+            height, width, map_height, **observation_kwargs
+        )
 
         reward_model = RewardModel(state_rewards, movement_penalty)
 
@@ -523,7 +540,9 @@ class OpenEnv(ThreadTheNeedleEnv):
         # Define the transitions for the thread the needle task
         transition_model = TransitionModel(height, width, None)
 
-        observation_model = ObservationModel(height, width, map_height, **observation_kwargs)
+        observation_model = ObservationModel(
+            height, width, map_height, **observation_kwargs
+        )
 
         reward_model = RewardModel(state_rewards, movement_penalty)
 
