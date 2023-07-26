@@ -2,14 +2,15 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from state_inference.gridworld_env import OpenEnv
+from state_inference.gridworld_env import ThreadTheNeedleEnv
 from state_inference.model.baseline_compatible import ValueIterationAgent
-from state_inference.utils.training_utils import train_model
 from state_inference.model.vae import DEVICE, Decoder, Encoder, StateVae
+from state_inference.utils.training_utils import parse_config, train_model
 
-CONFIG_FILE = 'state_inference/env_config.yml'
-TASK_NAME = 'open_env'
-TASK_CLASS = OpenEnv
+CONFIG_FILE = "state_inference/env_config.yml"
+TASK_NAME = "thread_the_needle"
+TASK_CLASS = ThreadTheNeedleEnv
+OUTPUT_FILE_NAME = "ThreadTheNeedleSims.csv"
 
 
 ##### Model Kwargs
@@ -56,40 +57,32 @@ def make_vi(task):
 
 
 def train():
-    # parse the config file
-    with open(CONFIG_FILE) as file:
-        config = yaml.load(file, Loader=yaml.FullLoader)
-    env_kwargs = config[TASK_NAME]['env_kwargs']
-    obs_kwargs = config['obs_kwargs']
-    test_start_state = config[TASK_NAME]['test_start_state']
-    training_kwargs = config['training_kwargs']
+    env_kwargs, training_kwargs = parse_config(TASK_NAME, CONFIG_FILE)
 
     # create the task
-    task = TASK_CLASS.create_env(**env_kwargs, observation_kwargs=obs_kwargs)
+    task = TASK_CLASS.create_env(**env_kwargs)
 
     pi, _ = task.get_optimal_policy()
+    training_kwargs["optimal_policy"] = pi
 
-    train_kwargs = dict(
-        optimal_policy=pi,
-        n_epochs=training_kwargs['n_epochs'],
-        n_train_steps=training_kwargs['n_steps'],
-        n_obs=5,
-        n_states=env_kwargs['n_states'],
-        map_height=env_kwargs['map_height'],
-        n_eval_steps=training_kwargs['n_eval_steps'],
-        test_start_state=test_start_state,
-    )
+    results = []
 
-    ppo = make_vi(task)
-    vi_rewards = train_model(ppo, **train_kwargs)
+    def append_res(results, rewards, model_name):
+        results.append(
+            {
+                "Rewards": rewards,
+                "Model": [model_name] * (training_kwargs["n_epochs"] + 1),
+                "Epoch": [ii for ii in range(training_kwargs["n_epochs"] + 1)],
+            }
+        )
 
-    pd.DataFrame(
-        {
-            "Rewards": np.concatenate([vi_rewards]),
-            "Model": ["VI"] * (config['training_kwargs']['n_epochs'] + 1),
-            "Epoch": [ii for ii in range(config['training_kwargs']['n_epochs'] + 1)],
-        },
-    ).set_index("Epoch").to_csv("OpenEnvSims.csv")
+    agent = make_vi(task)
+    vi_rewards = train_model(agent, **training_kwargs)
+
+    append_res(results, vi_rewards, "Agent")
+
+    results = pd.concat([pd.DataFrame(res) for res in results])
+    results.set_index("Epoch").to_csv(OUTPUT_FILE_NAME)
 
 
 if __name__ == "__main__":

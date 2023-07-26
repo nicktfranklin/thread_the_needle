@@ -117,7 +117,7 @@ class Sarsa(RandomAgent):
 
     def predict(self, observation: Hashable) -> Union[str, int]:
         return self.a_next
-    
+
     def sample_policy(self, observation: ObsType) -> Union[str, int]:
         """For debugging, has a random policy"""
         return choice(list(self.set_action))
@@ -201,7 +201,7 @@ class TabularRewardEstimator:
         return list(self.state_reward_function.keys())
 
     def get_reward(self, state):
-        return self.state_reward_function[state]
+        return self.state_reward_function.get(state, np.nan)
 
 
 def value_iteration(

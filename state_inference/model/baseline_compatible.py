@@ -36,10 +36,10 @@ EPSILON = 0.05
 
 @dataclass
 class OaroTuple:
-    obs: int
+    obs: th.tensor
     a: ActType
     r: RewType
-    obsp: int
+    obsp: th.tensor
 
 
 class BaselineCompatibleAgent:
@@ -70,7 +70,9 @@ class BaselineCompatibleAgent:
         # Use the current policy to explore
         obs_prev = self.task.reset()[0]
 
-        for t in range(total_timesteps):
+        start_counter = len(self.cached_obs)
+
+        for t in range(start_counter, total_timesteps + start_counter):
             self.cached_obs.append(th.tensor(obs_prev))
 
             action = self.predict(obs_prev)[0][0].item()
@@ -78,7 +80,7 @@ class BaselineCompatibleAgent:
             obs, rew, terminated, _, _ = self.task.step(action)
 
             self.cached_oaro_tuples.append(
-                OaroTuple(obs=t, a=action, r=rew, obsp=t + 1)
+                OaroTuple(obs=th.tensor(obs_prev), a=action, r=rew, obsp=th.tensor(obs))
             )
             assert obs.shape
 
@@ -174,6 +176,9 @@ class ValueIterationAgent(BaselineCompatibleAgent):
 
         assert epsilon >= 0 and epsilon < 1.0
 
+    def _precomput_all_obs(self):
+        return convert_8bit_to_float(th.stack(self.cached_obs)).to(DEVICE)
+
     def _precompute_states(self):
         obs_tensors = self._precomput_all_obs()
         states = self.state_inference_model.get_state(obs_tensors)
@@ -186,9 +191,6 @@ class ValueIterationAgent(BaselineCompatibleAgent):
             return np.array([np.random.randint(self.policy.n_actions)]), None
         p = self.policy.get_distribution(obs)
         return p.get_actions(deterministic=deterministic), None
-
-    def _precomput_all_obs(self):
-        return convert_8bit_to_float(th.stack(self.cached_obs)).to(DEVICE)
 
     def _prep_vae_dataloader(self, batch_size: int = BATCH_SIZE):
         return DataLoader(
@@ -206,10 +208,22 @@ class ValueIterationAgent(BaselineCompatibleAgent):
             )
             self.state_inference_model.prep_next_batch()
 
+    def _get_hashed_state(self, obs: th.tensor):
+        return self.state_inference_model.get_state(convert_8bit_to_float(obs)).dot(
+            self.policy.hash_vector
+        )
+
     def _get_sars_tuples(self, obs: OaroTuple):
-        s = self.list_states[obs.obs]
-        sp = self.list_states[obs.obsp]
+        s = self._get_hashed_state(obs.obs)[0]
+        sp = self._get_hashed_state(obs.obsp)[0]
         return s, obs.a, obs.r, sp
+
+    def _estimate_reward_model(self) -> None:
+        self.reward_estimator.reset()
+        for obs in self.cached_oaro_tuples:
+            s, a, r, sp = self._get_sars_tuples(obs)
+            self.transition_estimator.update(s, a, sp)
+            self.reward_estimator.update(sp, r)
 
     def _update_model(self) -> None:
         # update the state model
@@ -218,12 +232,9 @@ class ValueIterationAgent(BaselineCompatibleAgent):
         # construct a devono model-based learner from the new states
         self.transition_estimator.reset()
         self.reward_estimator.reset()
-        self._precompute_states()  # for speed
+        # self._precompute_states()  # for speed
 
-        for obs in self.cached_oaro_tuples:
-            s, a, r, sp = self._get_sars_tuples(obs)
-            self.transition_estimator.update(s, a, sp)
-            self.reward_estimator.update(sp, r)
+        self._estimate_reward_model()
 
         # use value iteration to estimate the rewards
         self.policy.q_values, value_function = value_iteration(
