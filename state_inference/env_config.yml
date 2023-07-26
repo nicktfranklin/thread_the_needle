@@ -2,7 +2,6 @@ training_kwargs:
   n_epochs: 100
   n_train_steps: 10000
   n_eval_steps: 100
-  n_obs: 5
 
 obs_kwargs:
     rbf_kernel_size: 31  # must be odd
@@ -39,12 +38,12 @@ thread_the_needle:
     width: 20
     map_height: 40
     state_rewards:
-      0: 100
+      84: 100
       399: -1
       19: -1
       380: -1
     end_state:    
-      - 0
+      - 84
       - 399
       - 19
       - 380
