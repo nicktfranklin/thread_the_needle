@@ -4,8 +4,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 import torch as th
-from stable_baselines3.common.distributions import CategoricalDistribution
 from stable_baselines3.common.base_class import BaseAlgorithm
+from stable_baselines3.common.distributions import CategoricalDistribution
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 
@@ -53,8 +53,8 @@ class BaselineCompatibleAgent:
         self.cached_obs = list()
 
     def get_env(self):
-        ## used for compatibility with stablebaseline code, 
-        return  BaseAlgorithm._wrap_env(self.task, verbose=False, monitor_wrapper=True)
+        ## used for compatibility with stablebaseline code,
+        return BaseAlgorithm._wrap_env(self.task, verbose=False, monitor_wrapper=True)
 
     def predict(
         self, obs: ObsType, deterministic: bool = False
@@ -94,7 +94,6 @@ class BaselineCompatibleAgent:
 
 
 class SoftmaxPolicy:
-    
     def __init__(
         self,
         feature_extractor: StateVae,
@@ -122,16 +121,18 @@ class SoftmaxPolicy:
     def _get_hashed_state(self, obs: ObsType) -> tuple[int]:
         obs = self._preprocess_obs(obs)
         z = self.feature_extractor.get_state(obs.to(DEVICE))
-        return z.dot(self.hash_vector)[0]
+        return z.dot(self.hash_vector)
 
     def get_distribution(self, obs: th.Tensor) -> th.Tensor:
         s = self._get_hashed_state(obs)
 
-        q_values = self.q_values.get(s, None)
-        if q_values is not None:
-            return self.dist.proba_distribution(th.tensor(np.array(list(q_values)) * self.beta).view(1, -1))
+        def _get_q(s0):
+            q = self.q_values.get(s0, {a: 1 for a in range(self.n_actions)})
+            q = th.tensor(list(q.values()))
+            return q * self.beta
 
-        return self.dist.proba_distribution(th.tensor([1.0] * self.n_actions).view(1, -1))
+        q_values = th.stack([_get_q(s0) for s0 in s])
+        return self.dist.proba_distribution(q_values)
 
 
 class ValueIterationAgent(BaselineCompatibleAgent):
@@ -200,7 +201,9 @@ class ValueIterationAgent(BaselineCompatibleAgent):
         dataloader = self._prep_vae_dataloader(self.batch_size)
         for _ in range(N_EPOCHS):
             self.state_inference_model.train()
-            _ = train(self.state_inference_model, dataloader, self.optim, self.grad_clip)
+            _ = train(
+                self.state_inference_model, dataloader, self.optim, self.grad_clip
+            )
             self.state_inference_model.prep_next_batch()
 
     def _get_sars_tuples(self, obs: OaroTuple):
