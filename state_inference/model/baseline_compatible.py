@@ -182,7 +182,6 @@ class ValueIterationAgent(BaselineCompatibleAgent):
         assert epsilon >= 0 and epsilon < 1.0
 
     def _precomput_all_obs(self):
-        print(self.cached_obs)
         return convert_8bit_to_float(th.stack([obs.obs for obs in self.cached_obs])).to(
             DEVICE
         )
@@ -271,3 +270,7 @@ class ViAgentWithExploration(ValueIterationAgent):
 
         q_s_a = (1 - self.eta) * q_s_a + self.eta * (r + self.gamma * V_sp)
         self.policy.q_values[s][a] = q_s_a
+
+
+class ViControlableStateInf(ViAgentWithExploration):
+    pass
