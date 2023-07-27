@@ -3,7 +3,7 @@ import pandas as pd
 import yaml
 
 from state_inference.gridworld_env import ThreadTheNeedleEnv
-from state_inference.model.baseline_compatible import ValueIterationAgent
+from state_inference.model.baseline_compatible import ViAgentWithExploration
 from state_inference.model.vae import DEVICE, Decoder, Encoder, StateVae
 from state_inference.utils.training_utils import parse_config, train_model
 
@@ -53,7 +53,7 @@ def make_vi(task):
 
     vae_model = StateVae(encoder, decoder, **vae_kwargs).to(DEVICE)
 
-    return ValueIterationAgent(task, vae_model, set_action=set(range(N_ACTIONS)))
+    return ViAgentWithExploration(task, vae_model, set_action=set(range(N_ACTIONS)))
 
 
 def train():
