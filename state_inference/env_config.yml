@@ -4,9 +4,9 @@ training_kwargs:
   n_eval_steps: 100
 
 obs_kwargs:
-    rbf_kernel_size: 31  # must be odd
-    rbf_kernel_scale: 0.35
-    location_noise_scale: 0.25
+    rbf_kernel_size: 21  # must be odd
+    rbf_kernel_scale: 0.45
+    location_noise_scale: 0.12
     noise_log_mean: -3
     noise_log_scale: 0.05
     noise_corruption_prob: 0.005
@@ -50,3 +50,5 @@ thread_the_needle:
     movement_penalty: -0.1
     n_states: 400
   test_start_state: 215
+
+  

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from random import choice
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 import numpy as np
 import torch as th
@@ -9,8 +9,7 @@ from stable_baselines3.common.distributions import CategoricalDistribution
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 
-from models.utils import softmax
-from state_inference.gridworld_env import ActType, GridWorldEnv, ObsType, RewType
+from state_inference.gridworld_env import ActType, ObsType, RewType
 from state_inference.model.tabular_models import (
     TabularRewardEstimator,
     TabularStateActionTransitionEstimator,
@@ -28,7 +27,7 @@ BATCH_SIZE = 64
 N_EPOCHS = 20
 OPTIM_KWARGS = dict(lr=3e-4)
 GRAD_CLIP = True
-GAMMA = 0.8
+GAMMA = 0.99
 N_ITER_VALUE_ITERATION = 1000
 SOFTMAX_GAIN = 1.0
 EPSILON = 0.05
@@ -63,36 +62,41 @@ class BaselineCompatibleAgent:
             return np.array(list(self.set_action)[0]), None
         return choice(list(self.set_action)), None
 
-    def _update_model(self) -> None:
+    def _estimate_batch(self) -> None:
+        pass
+
+    def _within_batch_update(self, obs: OaroTuple) -> None:
         pass
 
     def learn(self, total_timesteps: int, **kwargs) -> None:
         # Use the current policy to explore
         obs_prev = self.task.reset()[0]
 
-        start_counter = len(self.cached_obs)
-
-        for t in range(start_counter, total_timesteps + start_counter):
+        for _ in range(total_timesteps):
             self.cached_obs.append(th.tensor(obs_prev))
 
             action = self.predict(obs_prev)[0][0].item()
 
             obs, rew, terminated, _, _ = self.task.step(action)
+            assert hasattr(obs, "shape")
 
-            self.cached_oaro_tuples.append(
-                OaroTuple(obs=th.tensor(obs_prev), a=action, r=rew, obsp=th.tensor(obs))
+            obs_tuple = OaroTuple(
+                obs=th.tensor(obs_prev), a=action, r=rew, obsp=th.tensor(obs)
             )
-            assert obs.shape
+
+            self._within_batch_update(obs_tuple)
+
+            self.cached_oaro_tuples.append(obs_tuple)
 
             obs_prev = obs
             if terminated:
                 obs_prev = self.task.reset()[0]
-            assert obs_prev.shape
-            assert not isinstance(obs_prev, tuple)
+                assert hasattr(obs, "shape")
+                assert not isinstance(obs_prev, tuple)
 
         self.cached_obs.append(th.tensor(obs))
 
-        self._update_model()
+        self._estimate_batch()
 
 
 class SoftmaxPolicy:
@@ -102,6 +106,7 @@ class SoftmaxPolicy:
         beta: float,
         epsilon: float,
         n_actions: int = 4,
+        q_init: float = 1,
     ):
         self.feature_extractor = feature_extractor
         self.n_actions = n_actions
@@ -116,6 +121,7 @@ class SoftmaxPolicy:
             ]
         )
         self.dist = CategoricalDistribution(action_dim=n_actions)
+        self.q_init = {a: q_init for a in range(self.n_actions)}
 
     def _preprocess_obs(self, obs: Union[ObsType, List[ObsType]]) -> th.Tensor:
         return convert_8bit_array_to_float_tensor(obs)
@@ -125,12 +131,16 @@ class SoftmaxPolicy:
         z = self.feature_extractor.get_state(obs.to(DEVICE))
         return z.dot(self.hash_vector)
 
+    def maybe_init_q_values(self, s: int) -> None:
+        if s not in self.q_values:
+            self.q_values[s] = self.q_init
+
     def get_distribution(self, obs: th.Tensor) -> th.Tensor:
         s = self._get_hashed_state(obs)
 
         def _get_q(s0):
-            q = self.q_values.get(s0, {a: 1 for a in range(self.n_actions)})
-            q = th.tensor(list(q.values()))
+            self.maybe_init_q_values(s0)
+            q = th.tensor(list(self.q_values.get(s0, None).values()))
             return q * self.beta
 
         q_values = th.stack([_get_q(s0) for s0 in s])
@@ -218,14 +228,17 @@ class ValueIterationAgent(BaselineCompatibleAgent):
         sp = self._get_hashed_state(obs.obsp)[0]
         return s, obs.a, obs.r, sp
 
+    def _update_rew_model(self, obs: OaroTuple):
+        s, a, r, sp = self._get_sars_tuples(obs)
+        self.transition_estimator.update(s, a, sp)
+        self.reward_estimator.update(sp, r)
+
     def _estimate_reward_model(self) -> None:
         self.reward_estimator.reset()
         for obs in self.cached_oaro_tuples:
-            s, a, r, sp = self._get_sars_tuples(obs)
-            self.transition_estimator.update(s, a, sp)
-            self.reward_estimator.update(sp, r)
+            self._update_rew_model(obs)
 
-    def _update_model(self) -> None:
+    def _estimate_batch(self) -> None:
         # update the state model
         self._train_vae_batch()
 
@@ -244,3 +257,19 @@ class ValueIterationAgent(BaselineCompatibleAgent):
             iterations=self.n_iter,
         )
         self.value_function = value_function
+
+
+class ViAgentWithExploration(ValueIterationAgent):
+    eta = 0.1
+
+    def _within_batch_update(self, obs: OaroTuple) -> None:
+        s, a, r, sp = self._get_sars_tuples(obs)
+
+        self.policy.maybe_init_q_values(s)
+        q_s_a = self.policy.q_values[s][a]
+
+        self.policy.maybe_init_q_values(sp)
+        V_sp = max(self.policy.q_values[sp].values())
+
+        q_s_a = (1 - self.eta) * q_s_a + self.eta * (r + self.gamma * V_sp)
+        self.policy.q_values[s][a] = q_s_a

@@ -1,0 +1,13 @@
+state_inference_model:
+  batch_size: 64
+  n_epochs: 20
+  grad_clip = True
+  optim_kwargs:
+    lr: 3e-4
+  encoder_kwargs
+
+value_iteration_kwargs:
+  gamma: 0.98
+  n_iter: 1000
+  softmax_gain: 1.0
+  epsilon: 0.05
