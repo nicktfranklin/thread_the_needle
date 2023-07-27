@@ -48,7 +48,6 @@ class BaselineCompatibleAgent:
         self.task = task
         self.state_inference_model = state_inference_model.to(DEVICE)
         self.set_action = set_action
-        self.cached_oaro_tuples = list()
         self.cached_obs = list()
 
     def get_env(self):
@@ -73,8 +72,6 @@ class BaselineCompatibleAgent:
         obs_prev = self.task.reset()[0]
 
         for _ in range(total_timesteps):
-            self.cached_obs.append(th.tensor(obs_prev))
-
             action = self.predict(obs_prev)[0][0].item()
 
             obs, rew, terminated, _, _ = self.task.step(action)
@@ -86,15 +83,13 @@ class BaselineCompatibleAgent:
 
             self._within_batch_update(obs_tuple)
 
-            self.cached_oaro_tuples.append(obs_tuple)
+            self.cached_obs.append(obs_tuple)
 
             obs_prev = obs
             if terminated:
                 obs_prev = self.task.reset()[0]
                 assert hasattr(obs, "shape")
                 assert not isinstance(obs_prev, tuple)
-
-        self.cached_obs.append(th.tensor(obs))
 
         self._estimate_batch()
 
@@ -187,7 +182,10 @@ class ValueIterationAgent(BaselineCompatibleAgent):
         assert epsilon >= 0 and epsilon < 1.0
 
     def _precomput_all_obs(self):
-        return convert_8bit_to_float(th.stack(self.cached_obs)).to(DEVICE)
+        print(self.cached_obs)
+        return convert_8bit_to_float(th.stack([obs.obs for obs in self.cached_obs])).to(
+            DEVICE
+        )
 
     def _precompute_states(self):
         obs_tensors = self._precomput_all_obs()
@@ -235,7 +233,7 @@ class ValueIterationAgent(BaselineCompatibleAgent):
 
     def _estimate_reward_model(self) -> None:
         self.reward_estimator.reset()
-        for obs in self.cached_oaro_tuples:
+        for obs in self.cached_obs:
             self._update_rew_model(obs)
 
     def _estimate_batch(self) -> None:
