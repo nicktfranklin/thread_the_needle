@@ -9,8 +9,6 @@ from state_inference.utils.pytorch_utils import DEVICE, gumbel_softmax
 
 
 class ModelBase(nn.Module):
-    device = DEVICE
-
     def __init__(self):
         super().__init__()
 
@@ -144,7 +142,7 @@ class StateVae(ModelBase):
             if x.view(-1).shape[0] == self.encoder.nin:
                 x = x[None, ...]
 
-            _, z = self.encode(x.to(self.device))
+            _, z = self.encode(x.to(DEVICE))
 
             state_vars = torch.argmax(z, dim=-1).detach().cpu().numpy()
         return state_vars
@@ -164,3 +162,54 @@ class StateVae(ModelBase):
 
     def prep_next_batch(self):
         self.anneal_tau()
+
+
+class DecoderWithActions(ModelBase):
+    def __init__(
+        self,
+        embedding_size: int,
+        n_actions: int,
+        hidden_sizes: List[int],
+        ouput_size: int,
+        dropout: float = 0.01,
+    ):
+        super().__init__()
+        self.mlp = Decoder(embedding_size, hidden_sizes, ouput_size, dropout)
+        self.latent_embedding = nn.Linear(embedding_size, embedding_size)
+        self.action_embedding = nn.Linear(n_actions, embedding_size)
+
+    def forward(self, latents, action):
+        x = self.latent_embedding(latents) + self.action_embedding(action)
+        x = F.relu(x)
+        x = self.mlp(x)
+        return x
+
+    def loss(self, latents, actions, targets):
+        y_hat = self(latents, actions)
+        # return y_hat
+        return F.mse_loss(y_hat, torch.flatten(targets, start_dim=1))
+
+
+class TransitionStateVae(StateVae):
+    def decode(self, z, action):
+        z_reshaped = z.view(-1, self.z_layers * self.z_dim).float()
+        return self.decoder(z_reshaped.float(), action.float())
+
+    def forward(self, x: torch.Tensor):
+        raise NotImplementedError
+
+    def loss(self, batch_data=List[torch.Tensor]) -> torch.Tensor:
+        obs, actions, obsp = batch_data
+        obs = obs.to(DEVICE).float()
+        actions = actions.to(DEVICE).float()
+        obsp = obsp.to(DEVICE).float()
+
+        logits, z = self.encode(obs)
+
+        # # get the two components of the ELBO loss
+        kl_loss = self.kl_loss(logits)
+        recon_loss = self.decoder.loss(
+            z.view(-1, self.z_layers * self.z_dim).float(), actions, obsp
+        )
+
+        return recon_loss + kl_loss * self.beta

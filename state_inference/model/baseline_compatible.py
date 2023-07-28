@@ -16,6 +16,7 @@ from state_inference.model.tabular_models import (
     value_iteration,
 )
 from state_inference.model.vae import StateVae
+from state_inference.utils.data import TransitionVaeDataset
 from state_inference.utils.pytorch_utils import (
     DEVICE,
     convert_8bit_array_to_float_tensor,
@@ -210,9 +211,7 @@ class ValueIterationAgent(BaselineCompatibleAgent):
         dataloader = self._prep_vae_dataloader(self.batch_size)
         for _ in range(N_EPOCHS):
             self.state_inference_model.train()
-            _ = train(
-                self.state_inference_model, dataloader, self.optim, self.grad_clip
-            )
+            train(self.state_inference_model, dataloader, self.optim, self.grad_clip)
             self.state_inference_model.prep_next_batch()
 
     def _get_hashed_state(self, obs: th.tensor):
@@ -273,4 +272,15 @@ class ViAgentWithExploration(ValueIterationAgent):
 
 
 class ViControlableStateInf(ViAgentWithExploration):
-    pass
+    def _prep_vae_dataloader(self, batch_size: int = BATCH_SIZE):
+        dataset = TransitionVaeDataset(
+            observations=th.stack(
+                [obs.obs for obs in self.cached_obs] + [self.cached_obs[-1].obsp]
+            )
+        )
+
+        return DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=True,
+        )

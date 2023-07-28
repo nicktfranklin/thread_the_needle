@@ -72,3 +72,24 @@ class PomdpDataset(Dataset):
 
     def __len__(self):
         return self.n
+
+
+class TransitionVaeDataset(Dataset):
+    def __init__(
+        self,
+        observations: torch.tensor,
+        actions: torch.tensor,
+        successor_obs: torch.tensor,
+    ):
+        super().__init__()
+        self.obs = convert_8bit_to_float(observations)
+        self.obsp = convert_8bit_to_float(successor_obs)
+        self.actions = actions.float()
+
+    def __getitem__(
+        self, index: int
+    ) -> Tuple[torch.tensor, torch.tensor, torch.tensor]:
+        return self.obs[index], self.actions[index], self.obsp[index]
+
+    def __len__(self):
+        return len(self.obs)
