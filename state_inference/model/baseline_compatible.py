@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Set, Union
 
 import numpy as np
 import torch as th
+import torch.nn.functional as F
 from stable_baselines3.common.base_class import BaseAlgorithm
 from stable_baselines3.common.distributions import CategoricalDistribution
 from torch.optim import AdamW
@@ -273,11 +274,13 @@ class ViAgentWithExploration(ValueIterationAgent):
 
 class ViControlableStateInf(ViAgentWithExploration):
     def _prep_vae_dataloader(self, batch_size: int = BATCH_SIZE):
-        dataset = TransitionVaeDataset(
-            observations=th.stack(
-                [obs.obs for obs in self.cached_obs] + [self.cached_obs[-1].obsp]
-            )
-        )
+        obs = th.stack([obs.obs for obs in self.cached_obs])
+        obsp = th.stack([obs.obsp for obs in self.cached_obs])
+        a = F.one_hot(
+            th.tensor([obs.a for obs in self.cached_obs]), num_classes=4
+        ).float()
+
+        dataset = TransitionVaeDataset(obs, a, obsp)
 
         return DataLoader(
             dataset,
