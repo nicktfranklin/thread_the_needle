@@ -1,6 +1,7 @@
 from typing import Tuple
 
 import torch
+from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset
 
 from state_inference.gridworld_env import (
@@ -93,3 +94,46 @@ class TransitionVaeDataset(Dataset):
 
     def __len__(self):
         return len(self.obs)
+
+
+class RecurrentVaeDataset(Dataset):
+    def __init__(
+        self,
+        observations: torch.tensor,
+        actions: torch.tensor,
+        max_sequence_len: int,
+    ):
+        self.obs = convert_8bit_to_float(observations)
+        self.actions = actions.float()
+        self.n = max_sequence_len
+
+    def __getitem__(self, index: int) -> Tuple:
+        start = max(0, index - self.n)
+        return self.obs[start:index], self.actions[start:index], index - start
+
+    def __len__(self):
+        return len(self.obs)
+
+    @staticmethod
+    def collate_fn(batch):
+        obs = [x[0] for x in batch]
+        actions = [x[1] for x in batch]
+        lengths = [x[2] for x in batch]
+
+        obs = pad_sequence(obs, batch_first=True, padding_value=0)
+        actions = pad_sequence(actions, batch_first=True, padding_value=0)
+
+        return (obs, actions), lengths
+
+    @classmethod
+    def contruct_dataloader(
+        cls,
+        observations: torch.tensor,
+        actions: torch.tensor,
+        max_sequence_len: int = 10,
+        batch_size: int = 64,
+    ):
+        dataset = cls(observations, actions, max_sequence_len)
+        return torch.utils.data.DataLoader(
+            dataset, batch_size=batch_size, collate_fn=cls.collate_fn
+        )

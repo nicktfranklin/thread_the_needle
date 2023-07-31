@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -74,6 +74,10 @@ class Decoder(MLP):
         super().__init__(input_size, hidden_sizes, output_size, dropout)
         self.net.pop(-1)
         self.net.append(torch.nn.Sigmoid())
+
+    def loss(self, x, target):
+        y_hat = self(x)
+        return F.mse_loss(y_hat, torch.flatten(target, start_dim=1))
 
 
 class StateVae(ModelBase):
@@ -191,25 +195,122 @@ class DecoderWithActions(ModelBase):
 
 
 class TransitionStateVae(StateVae):
-    def decode(self, z, action):
-        z_reshaped = z.view(-1, self.z_layers * self.z_dim).float()
-        return self.decoder(z_reshaped.float(), action.float())
+    def __init__(
+        self,
+        encoder: ModelBase,
+        decoder: ModelBase,
+        next_obs_decoder: DecoderWithActions,
+        z_dim: int,
+        z_layers: int = 2,
+        beta: float = 1,
+        tau: float = 1,
+        gamma: float = 1,
+    ):
+        super().__init__(encoder, decoder, z_dim, z_layers, beta, tau, gamma)
+        self.next_obs_decoder = next_obs_decoder
 
     def forward(self, x: torch.Tensor):
         raise NotImplementedError
 
-    def loss(self, batch_data=List[torch.Tensor]) -> torch.Tensor:
+    def loss(self, batch_data: List[torch.Tensor]) -> torch.Tensor:
         obs, actions, obsp = batch_data
         obs = obs.to(DEVICE).float()
         actions = actions.to(DEVICE).float()
         obsp = obsp.to(DEVICE).float()
 
         logits, z = self.encode(obs)
+        z = z.view(-1, self.z_layers * self.z_dim).float()
 
         # # get the two components of the ELBO loss
         kl_loss = self.kl_loss(logits)
-        recon_loss = self.decoder.loss(
-            z.view(-1, self.z_layers * self.z_dim).float(), actions, obsp
-        )
+        recon_loss = self.decoder.loss(z, obs)
+        next_obs_loss = self.next_obs_decoder.loss(z, actions, obsp)
+
+        return recon_loss + next_obs_loss + kl_loss * self.beta
+
+
+class GruEncoder(ModelBase):
+    def __init__(
+        self,
+        input_size: int,
+        hidden_sizes: List[int],
+        embedding_dims: int,
+        n_actions: int,
+        gru_kwargs: Optional[Dict[str, Any]] = None,
+        batch_first: bool = True,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        gru_kwargs = gru_kwargs if gru_kwargs is not None else dict()
+        self.feature_extracter = MLP(input_size, hidden_sizes, embedding_dims, dropout)
+        self.gru_cell = nn.GRUCell(embedding_dims, embedding_dims, **gru_kwargs)
+        self.hidden_encoder = nn.Linear(embedding_dims + n_actions, embedding_dims)
+        self.action_encoder = nn.Linear(n_actions, n_actions)
+        self.batch_first = batch_first
+        self.hidden_size = embedding_dims
+        self.n_actions = n_actions
+
+    def forward(
+        self,
+        obs: torch.tensor,
+        actions: torch.tensor,
+    ):
+        obs = torch.flatten(obs, start_dim=2)
+        if self.batch_first:
+            obs = torch.permute(obs, (1, 0, 2))
+            actions = torch.permute(actions, (1, 0, 2))
+
+        n_batch = obs.shape[1]
+
+        # initialize the hidden state and action
+        h = torch.zeros(n_batch, self.hidden_size)
+        a_prev = torch.zeros(n_batch, self.n_actions)
+
+        # loop through the sequence of observations
+        for o, a in zip(obs, actions):
+            # use the feature extractor on the observation
+            x = self.feature_extracter(o)
+
+            # encode the hidden state with the previous actions
+            h = self.hidden_encoder(torch.concat([h, a_prev], dim=1))
+
+            # encode the action for the next step
+            a_prev = self.action_encoder(a)
+
+            # pass the observation through the cell
+            h = self.gru_cell(x, h)
+
+        return h
+
+
+class RecurrentStateVae(StateVae):
+    def __init__(
+        self,
+        encoder: GruEncoder,
+        decoder: ModelBase,
+        z_dim: int,
+        z_layers: int = 2,
+        beta: float = 1,
+        tau: float = 1,
+        gamma: float = 1,
+    ):
+        super().__init__(encoder, decoder, z_dim, z_layers, beta, tau, gamma)
+
+    def encode(self, obs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        logits = self.encoder(obs, actions)
+        z = self.reparameterize(logits)
+        return logits, z
+
+    def loss(self, batch_data: List[torch.Tensor]) -> torch.tensor:
+        obs, actions = batch_data
+        obs = obs.to(DEVICE).float()
+        actions = actions.to(DEVICE).float()
+
+        logits, z = self.encode(obs, actions)
+        z = z.view(-1, self.z_layers * self.z_dim).float()
+
+        # get the two components of the ELBO loss
+        kl_loss = self.kl_loss(logits)
+        recon_loss = self.decoder.loss(z, obs[:, -1, ...])
 
         return recon_loss + kl_loss * self.beta

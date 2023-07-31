@@ -17,7 +17,7 @@ from state_inference.model.tabular_models import (
     value_iteration,
 )
 from state_inference.model.vae import StateVae
-from state_inference.utils.data import TransitionVaeDataset
+from state_inference.utils.data import RecurrentVaeDataset, TransitionVaeDataset
 from state_inference.utils.pytorch_utils import (
     DEVICE,
     convert_8bit_array_to_float_tensor,
@@ -27,6 +27,7 @@ from state_inference.utils.pytorch_utils import (
 
 BATCH_SIZE = 64
 N_EPOCHS = 20
+MAX_SEQUENCE_LEN = 10
 OPTIM_KWARGS = dict(lr=3e-4)
 GRAD_CLIP = True
 GAMMA = 0.99
@@ -303,3 +304,21 @@ class ViDynaAgent(ViControlableStateInf):
             for _ in range(self.k):
                 obs = choice(self.cached_obs)
                 self.update_qvalues(obs)
+
+
+class RecurrentStateInf(ViAgentWithExploration):
+    def _prep_vae_dataloader(
+        self, batch_size: int = BATCH_SIZE, max_sequence_len: int = MAX_SEQUENCE_LEN
+    ):
+        obs = th.stack([obs.obs for obs in self.cached_obs])
+        actions = F.one_hot(th.tensor([obs.a for obs in self.cached_obs]))
+        return RecurrentVaeDataset.contruct_dataloader(
+            obs, actions, max_sequence_len, batch_size
+        )
+
+    def predict(
+        self, obs: ObsType, deterministic: bool = False
+    ) -> tuple[np.ndarray, None]:
+        if deterministic:
+            return np.array(list(self.set_action)[0]), None
+        return choice(list(self.set_action)), None
