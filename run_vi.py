@@ -3,7 +3,7 @@ import pandas as pd
 import yaml
 
 from state_inference.gridworld_env import ThreadTheNeedleEnv
-from state_inference.model.baseline_compatible import ViAgentWithExploration
+from state_inference.model.agents import ViAgentWithExploration
 from state_inference.model.vae import DEVICE, Decoder, Encoder, StateVae
 from state_inference.utils.training_utils import parse_config, train_model
 
