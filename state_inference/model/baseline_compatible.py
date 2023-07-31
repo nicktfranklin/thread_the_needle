@@ -69,7 +69,9 @@ class BaselineCompatibleAgent:
     def _within_batch_update(self, obs: OaroTuple) -> None:
         pass
 
-    def learn(self, total_timesteps: int, **kwargs) -> None:
+    def learn(
+        self, total_timesteps: int, estimate_batch: bool = True, **kwargs
+    ) -> None:
         # Use the current policy to explore
         obs_prev = self.task.reset()[0]
 
@@ -92,8 +94,8 @@ class BaselineCompatibleAgent:
                 obs_prev = self.task.reset()[0]
                 assert hasattr(obs, "shape")
                 assert not isinstance(obs_prev, tuple)
-
-        self._estimate_batch()
+        if estimate_batch:
+            self._estimate_batch()
 
 
 class SoftmaxPolicy:
@@ -225,15 +227,10 @@ class ValueIterationAgent(BaselineCompatibleAgent):
         sp = self._get_hashed_state(obs.obsp)[0]
         return s, obs.a, obs.r, sp
 
-    def _update_rew_model(self, obs: OaroTuple):
+    def update_model(self, obs: OaroTuple):
         s, a, r, sp = self._get_sars_tuples(obs)
         self.transition_estimator.update(s, a, sp)
         self.reward_estimator.update(sp, r)
-
-    def _estimate_reward_model(self) -> None:
-        self.reward_estimator.reset()
-        for obs in self.cached_obs:
-            self._update_rew_model(obs)
 
     def _estimate_batch(self) -> None:
         # update the state model
@@ -242,9 +239,9 @@ class ValueIterationAgent(BaselineCompatibleAgent):
         # construct a devono model-based learner from the new states
         self.transition_estimator.reset()
         self.reward_estimator.reset()
-        # self._precompute_states()  # for speed
 
-        self._estimate_reward_model()
+        for obs in self.cached_obs:
+            self.update_model(obs)
 
         # use value iteration to estimate the rewards
         self.policy.q_values, value_function = value_iteration(
@@ -259,7 +256,7 @@ class ValueIterationAgent(BaselineCompatibleAgent):
 class ViAgentWithExploration(ValueIterationAgent):
     eta = 0.1
 
-    def _within_batch_update(self, obs: OaroTuple) -> None:
+    def update_qvalues(self, obs: OaroTuple) -> None:
         s, a, r, sp = self._get_sars_tuples(obs)
 
         self.policy.maybe_init_q_values(s)
@@ -270,6 +267,9 @@ class ViAgentWithExploration(ValueIterationAgent):
 
         q_s_a = (1 - self.eta) * q_s_a + self.eta * (r + self.gamma * V_sp)
         self.policy.q_values[s][a] = q_s_a
+
+    def _within_batch_update(self, obs: OaroTuple) -> None:
+        self.update_qvalues(obs)
 
 
 class ViControlableStateInf(ViAgentWithExploration):
@@ -287,3 +287,19 @@ class ViControlableStateInf(ViAgentWithExploration):
             batch_size=batch_size,
             shuffle=True,
         )
+
+
+class ViDynaAgent(ViControlableStateInf):
+    k = 10
+
+    def _within_batch_update(self, obs: OaroTuple) -> None:
+        # update the current q-value
+        self.update_qvalues(obs)
+
+        # dyna updates (note: this assumes a deterministic enviornment,
+        # and this code differes from dyna as we are only using resampled
+        # values and not seperately sampling rewards and sucessor states
+        if self.cached_obs:
+            for _ in range(self.k):
+                obs = choice(self.cached_obs)
+                self.update_qvalues(obs)
