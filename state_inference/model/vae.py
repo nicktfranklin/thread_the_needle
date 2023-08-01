@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
-from torch import nn
+from torch import Tensor, nn
 from torch.distributions.categorical import Categorical
 
 from state_inference.utils.pytorch_utils import DEVICE, gumbel_softmax
@@ -54,12 +54,12 @@ class MLP(ModelBase):
 
         self.net = nn.Sequential(*self.net)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: Tensor) -> Tensor:
         return self.net(x)
 
 
 class Encoder(MLP):
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: Tensor) -> Tensor:
         return super().forward(x.view(x.shape[0], -1))
 
 
@@ -121,14 +121,14 @@ class StateVae(ModelBase):
     def decode(self, z):
         return self.decoder(z.view(-1, self.z_layers * self.z_dim).float())
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
         logits, z = self.encode(x)
         return (logits, z), self.decode(z).view(x.shape)  # preserve original shape
 
     def kl_loss(self, logits):
         return Categorical(logits=logits).entropy().mean()
 
-    def loss(self, x: torch.Tensor) -> torch.Tensor:
+    def loss(self, x: Tensor) -> Tensor:
         x = x.to(DEVICE).float()
         (logits, _), x_hat = self(x)
 
@@ -166,6 +166,24 @@ class StateVae(ModelBase):
 
     def prep_next_batch(self):
         self.anneal_tau()
+
+
+class StateVaeLearnedTau(StateVae):
+    def __init__(
+        self,
+        encoder: ModelBase,
+        decoder: ModelBase,
+        z_dim: int,
+        z_layers: int = 2,
+        beta: float = 1,
+        tau: float = 1,
+        gamma: float = 1,
+    ):
+        super().__init__(encoder, decoder, z_dim, z_layers, beta, tau, gamma)
+        self.tau = torch.nn.Parameter(torch.tensor([tau]), requires_grad=True)
+
+    def anneal_tau(self):
+        pass
 
 
 class DecoderWithActions(ModelBase):
@@ -209,10 +227,10 @@ class TransitionStateVae(StateVae):
         super().__init__(encoder, decoder, z_dim, z_layers, beta, tau, gamma)
         self.next_obs_decoder = next_obs_decoder
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: Tensor):
         raise NotImplementedError
 
-    def loss(self, batch_data: List[torch.Tensor]) -> torch.Tensor:
+    def loss(self, batch_data: List[Tensor]) -> Tensor:
         obs, actions, obsp = batch_data
         obs = obs.to(DEVICE).float()
         actions = actions.to(DEVICE).float()
@@ -221,7 +239,7 @@ class TransitionStateVae(StateVae):
         logits, z = self.encode(obs)
         z = z.view(-1, self.z_layers * self.z_dim).float()
 
-        # # get the two components of the ELBO loss
+        # get the two components of the ELBO loss
         kl_loss = self.kl_loss(logits)
         recon_loss = self.decoder.loss(z, obs)
         next_obs_loss = self.next_obs_decoder.loss(z, actions, obsp)
@@ -250,10 +268,14 @@ class GruEncoder(ModelBase):
         self.hidden_size = embedding_dims
         self.n_actions = n_actions
 
+    def rnn(self, obs: Tensor, h: Tensor) -> Tensor:
+        x = self.feature_extracter(obs)
+        return self.gru_cell(x, h)
+
     def forward(
         self,
-        obs: torch.tensor,
-        actions: torch.tensor,
+        obs: Tensor,
+        actions: Tensor,
     ):
         obs = torch.flatten(obs, start_dim=2)
         if self.batch_first:
@@ -268,17 +290,14 @@ class GruEncoder(ModelBase):
 
         # loop through the sequence of observations
         for o, a in zip(obs, actions):
-            # use the feature extractor on the observation
-            x = self.feature_extracter(o)
-
             # encode the hidden state with the previous actions
             h = self.hidden_encoder(torch.concat([h, a_prev], dim=1))
 
             # encode the action for the next step
             a_prev = self.action_encoder(a)
 
-            # pass the observation through the cell
-            h = self.gru_cell(x, h)
+            # pass the observation through the rnn (+ encoder)
+            h = self.rnn(o, h)
 
         return h
 
@@ -296,21 +315,41 @@ class RecurrentStateVae(StateVae):
     ):
         super().__init__(encoder, decoder, z_dim, z_layers, beta, tau, gamma)
 
-    def encode(self, obs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
-        logits = self.encoder(obs, actions)
+    def encode(self, obs: Tensor, h: Tensor) -> Tensor:
+        logits = self.encoder.rnn(obs, h)
         z = self.reparameterize(logits)
         return logits, z
 
-    def loss(self, batch_data: List[torch.Tensor]) -> torch.tensor:
+    def get_state(self, obs: Tensor, hidden_state: Optional[Tensor] = None):
+        raise NotImplementedError
+        # self.eval()
+        # with torch.no_grad():
+        #     # check the dimensions
+        #     n_dim = obs.dim()
+
+        #     # expand if unbatched
+        #     assert obs.view(-1).shape[0] % self.encoder.nin == 0
+        #     if obs.view(-1).shape[0] == self.encoder.nin:
+        #         obs = obs[None, ...]
+        #         hidden_state = hidden_state[None, ...]
+
+        #     _, z = self.encode(obs.to(DEVICE), hidden_state.to(DEVICE))
+
+        #     state_vars = torch.argmax(z, dim=-1).detach().cpu().numpy()
+        # return state_vars
+
+    def loss(self, batch_data: List[Tensor]) -> Tensor:
         obs, actions = batch_data
         obs = obs.to(DEVICE).float()
         actions = actions.to(DEVICE).float()
 
-        logits, z = self.encode(obs, actions)
-        z = z.view(-1, self.z_layers * self.z_dim).float()
+        raise NotImplementedError
 
-        # get the two components of the ELBO loss
-        kl_loss = self.kl_loss(logits)
-        recon_loss = self.decoder.loss(z, obs[:, -1, ...])
+        # logits, z = self.encode(obs, actions)  # this won't work
+        # z = z.view(-1, self.z_layers * self.z_dim).float()
 
-        return recon_loss + kl_loss * self.beta
+        # # get the two components of the ELBO loss
+        # kl_loss = self.kl_loss(logits)
+        # recon_loss = self.decoder.loss(z, obs[:, -1, ...])
+
+        # return recon_loss + kl_loss * self.beta

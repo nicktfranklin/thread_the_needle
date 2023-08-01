@@ -415,17 +415,21 @@ class GridWorldEnv(gym.Env):
         return np.random.randint(self.n_states)
 
     def display_gridworld(
-        self, ax: Optional[matplotlib.axes.Axes] = None, wall_color="k"
+        self,
+        ax: Optional[matplotlib.axes.Axes] = None,
+        wall_color="k",
+        annotate: bool = True,
     ) -> matplotlib.axes.Axes:
         if not ax:
             _, ax = plt.subplots(figsize=(5, 5))
             ax.invert_yaxis()
         self.transition_model.display_gridworld(ax, wall_color)
 
-        for s, rew in self.reward_model.successor_state_rew.items():
-            loc = self.observation_model.get_grid_coords(s)
-            c = "b" if rew > 0 else "r"
-            ax.annotate(f"{rew}", loc, ha="center", va="center", c=c)
+        if annotate:
+            for s, rew in self.reward_model.successor_state_rew.items():
+                loc = self.observation_model.get_grid_coords(s)
+                c = "b" if rew > 0 else "r"
+                ax.annotate(f"{rew}", loc, ha="center", va="center", c=c)
         ax.set_title("Thread-the-needle states")
         return ax
 

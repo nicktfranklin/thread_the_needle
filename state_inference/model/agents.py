@@ -1,14 +1,17 @@
+import time
 from dataclasses import dataclass
 from random import choice
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
-import torch as th
+import torch
 import torch.nn.functional as F
 from stable_baselines3.common.base_class import BaseAlgorithm
 from stable_baselines3.common.distributions import CategoricalDistribution
+from torch import Tensor
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
+from tqdm import trange
 
 from state_inference.gridworld_env import ActType, ObsType, RewType
 from state_inference.model.tabular_models import (
@@ -29,14 +32,15 @@ GAMMA = 0.99
 N_ITER_VALUE_ITERATION = 1000
 SOFTMAX_GAIN = 1.0
 EPSILON = 0.05
+BATCH_LENGTH = 10000
 
 
 @dataclass
 class OaroTuple:
-    obs: th.tensor
+    obs: Tensor
     a: ActType
     r: RewType
-    obsp: th.tensor
+    obsp: Tensor
 
 
 class BaseAgent:
@@ -63,7 +67,7 @@ class BaseAgent:
             return np.array(list(self.set_action)[0]), None
         return choice(list(self.set_action)), None
 
-    def _estimate_batch(self) -> None:
+    def _batch_estimate(self, step: int, last_step: bool) -> None:
         pass
 
     def _within_batch_update(self, obs: OaroTuple) -> None:
@@ -73,7 +77,11 @@ class BaseAgent:
         return None
 
     def learn(
-        self, total_timesteps: int, estimate_batch: bool = True, **kwargs
+        self,
+        total_timesteps: int,
+        estimate_batch: bool = True,
+        progress_bar: bool = False,
+        **kwargs,
     ) -> None:
         # Use the current policy to explore
         obs_prev = self.task.reset()[0]
@@ -81,7 +89,11 @@ class BaseAgent:
         episode_start = True
         state = self._init_state()
 
-        for _ in range(total_timesteps):
+        if progress_bar:
+            iterator = trange(total_timesteps)
+        else:
+            iterator = range(total_timesteps)
+        for step in iterator:
             action, state = self.predict(obs_prev, state, episode_start)
             episode_start = False
 
@@ -89,7 +101,10 @@ class BaseAgent:
             assert hasattr(obs, "shape")
 
             obs_tuple = OaroTuple(
-                obs=th.tensor(obs_prev), a=action.item(), r=rew, obsp=th.tensor(obs)
+                obs=torch.tensor(obs_prev),
+                a=action.item(),
+                r=rew,
+                obsp=torch.tensor(obs),
             )
 
             self._within_batch_update(obs_tuple)
@@ -101,8 +116,9 @@ class BaseAgent:
                 obs_prev = self.task.reset()[0]
                 assert hasattr(obs, "shape")
                 assert not isinstance(obs_prev, tuple)
-        if estimate_batch:
-            self._estimate_batch()
+
+            if estimate_batch:
+                self._batch_estimate(step, step == total_timesteps - 1)
 
 
 class SoftmaxPolicy:
@@ -123,15 +139,22 @@ class SoftmaxPolicy:
 
     def maybe_init_q_values(self, s: int) -> None:
         if s not in self.q_values:
-            self.q_values[s] = self.q_init
+            if self.q_values:
+                q_init = {
+                    a: max([max(v.values()) for v in self.q_values.values()])
+                    for a in range(self.n_actions)
+                }
+            else:
+                q_init = self.q_init
+            self.q_values[s] = q_init
 
-    def get_distribution(self, s: int) -> th.Tensor:
+    def get_distribution(self, s: int) -> Tensor:
         def _get_q(s0):
             self.maybe_init_q_values(s0)
-            q = th.tensor(list(self.q_values.get(s0, None).values()))
+            q = torch.tensor(list(self.q_values.get(s0, None).values()))
             return q * self.beta
 
-        q_values = th.stack([_get_q(s0) for s0 in s])
+        q_values = torch.stack([_get_q(s0) for s0 in s])
         return self.dist.proba_distribution(q_values)
 
 
@@ -152,6 +175,7 @@ class ValueIterationAgent(BaseAgent):
         n_iter: int = N_ITER_VALUE_ITERATION,
         softmax_gain: float = SOFTMAX_GAIN,
         epsilon: float = EPSILON,
+        batch_length: int = BATCH_LENGTH,
     ) -> None:
         super().__init__(task, state_inference_model, set_action)
 
@@ -161,6 +185,7 @@ class ValueIterationAgent(BaseAgent):
         self.batch_size = batch_size
         self.gamma = gamma
         self.n_iter = n_iter
+        self.batch_length = batch_length
 
         self.transition_estimator = self.TRANSITION_MODEL_CLASS()
         self.reward_estimator = self.REWARD_MODEL_CLASS()
@@ -169,7 +194,6 @@ class ValueIterationAgent(BaseAgent):
             epsilon=epsilon,
             n_actions=len(set_action),
         )
-        self.list_states = list()
 
         assert epsilon >= 0 and epsilon < 1.0
 
@@ -179,16 +203,6 @@ class ValueIterationAgent(BaseAgent):
                 for ii in range(self.state_inference_model.z_layers)
             ]
         )
-
-    def _precomput_all_obs(self):
-        return convert_8bit_to_float(th.stack([obs.obs for obs in self.cached_obs])).to(
-            DEVICE
-        )
-
-    def _precompute_states(self):
-        obs_tensors = self._precomput_all_obs()
-        states = self.state_inference_model.get_state(obs_tensors)
-        self.list_states = states.dot(self.hash_vector)
 
     def get_policy(self, obs: ObsType):
         s = self._get_hashed_state(obs)
@@ -205,22 +219,33 @@ class ValueIterationAgent(BaseAgent):
         p = self.policy.get_distribution(s)
         return p.get_actions(deterministic=deterministic), None
 
-    def _prep_vae_dataloader(self, batch_size: int = BATCH_SIZE):
+    def _prep_vae_dataloader(self, batch_size: int, n_trailing: int):
+        r"""
+        preps the dataloader for training the State Inference VAE
+
+        Args:
+            batch_size (int): The number of samples per batch
+            n_trailing (int): the number of trailing observations to select
+        """
+        obs = torch.stack([o.obs for o in self.cached_obs[-n_trailing:]])
+        obs = convert_8bit_to_float(obs).to(DEVICE)
+
         return DataLoader(
-            self._precomput_all_obs(),
+            obs,
             batch_size=batch_size,
             shuffle=True,
+            drop_last=True,
         )
 
     def _train_vae_batch(self):
-        dataloader = self._prep_vae_dataloader(self.batch_size)
+        dataloader = self._prep_vae_dataloader(self.batch_size, self.batch_length)
         for _ in range(N_EPOCHS):
             self.state_inference_model.train()
             train(self.state_inference_model, dataloader, self.optim, self.grad_clip)
             self.state_inference_model.prep_next_batch()
 
-    def _get_hashed_state(self, obs: th.tensor):
-        obs = obs if isinstance(obs, th.Tensor) else th.tensor(obs)
+    def _get_hashed_state(self, obs: Tensor):
+        obs = obs if isinstance(obs, Tensor) else torch.tensor(obs)
         return self.state_inference_model.get_state(convert_8bit_to_float(obs)).dot(
             self.hash_vector
         )
@@ -235,16 +260,34 @@ class ValueIterationAgent(BaseAgent):
         self.transition_estimator.update(s, a, sp)
         self.reward_estimator.update(sp, r)
 
-    def _estimate_batch(self) -> None:
+    def _precalculate_states_for_batch_training(self) -> Tuple[Tensor, Tensor]:
+        # pass all of the observations throught the model (really, twice)
+        # for speed. It's much faster in a batch than single observations
+        obs = torch.stack([o.obs for o in self.cached_obs])
+        obsp = torch.stack([o.obsp for o in self.cached_obs])
+        s = self._get_hashed_state(obs)
+        sp = self._get_hashed_state(obsp)
+
+    def retrain_model(self):
+        self.transition_estimator.reset()
+        self.reward_estimator.reset()
+
+        s, sp = self._precalculate_states_for_batch_training()
+
+        for idx, obs in enumerate(self.cached_obs):
+            self.transition_estimator.update(s[idx], obs.a, sp[idx])
+            self.reward_estimator.update(sp[idx], obs.r)
+
+    def _batch_estimate(self, step: int, last_step: bool) -> None:
+        # update only periodically
+        if (not last_step) and (step == 0 or step % self.batch_length != 0):
+            return
+
         # update the state model
         self._train_vae_batch()
 
         # construct a devono model-based learner from the new states
-        self.transition_estimator.reset()
-        self.reward_estimator.reset()
-
-        for obs in self.cached_obs:
-            self.update_model(obs)
+        self.retrain_model()
 
         # use value iteration to estimate the rewards
         self.policy.q_values, value_function = value_iteration(
@@ -277,10 +320,10 @@ class ViAgentWithExploration(ValueIterationAgent):
 
 class ViControlableStateInf(ViAgentWithExploration):
     def _prep_vae_dataloader(self, batch_size: int = BATCH_SIZE):
-        obs = th.stack([obs.obs for obs in self.cached_obs])
-        obsp = th.stack([obs.obsp for obs in self.cached_obs])
+        obs = torch.stack([obs.obs for obs in self.cached_obs])
+        obsp = torch.stack([obs.obsp for obs in self.cached_obs])
         a = F.one_hot(
-            th.tensor([obs.a for obs in self.cached_obs]), num_classes=4
+            torch.tensor([obs.a for obs in self.cached_obs]), num_classes=4
         ).float()
 
         dataset = TransitionVaeDataset(obs, a, obsp)
@@ -309,28 +352,54 @@ class ViDynaAgent(ViControlableStateInf):
 
 
 class RecurrentStateInf(ViAgentWithExploration):
+    max_sequence_len: int = MAX_SEQUENCE_LEN
+
     def _prep_vae_dataloader(
-        self, batch_size: int = BATCH_SIZE, max_sequence_len: int = MAX_SEQUENCE_LEN
+        self,
+        batch_size: int,
+        n_trailing_obs: int,
     ):
-        obs = th.stack([obs.obs for obs in self.cached_obs])
-        actions = F.one_hot(th.tensor([obs.a for obs in self.cached_obs]))
+        r"""
+        preps the dataloader for training the State Inference VAE
+
+        Args:
+            batch_size (int): The number of samples per batch
+            n_trailing (int): the number of trailing observations to select
+        """
+        obs = torch.stack([obs.obs for obs in self.cached_obs[-n_trailing_obs:]])
+        actions = F.one_hot(torch.tensor([obs.a for obs in self.cached_obs]))
         return RecurrentVaeDataset.contruct_dataloader(
-            obs, actions, max_sequence_len, batch_size
+            obs, actions, self.max_sequence_len, batch_size
         )
 
+    def _precalculate_states_for_batch_training(self) -> Tuple[Tensor, Tensor]:
+        raise NotImplementedError
+
     def _init_state(self):
-        return super()._init_state()
+        # unbatch state for the agent (not vae training)
+        return torch.zeros(
+            self.state_inference_model.z_dim * self.state_inference_model.z_layers
+        )
+
+    def _get_hashed_state(self, obs: Tensor, state_prev: Tensor):
+        obs = obs if isinstance(obs, Tensor) else torch.tensor(obs)
+        obs = convert_8bit_to_float(obs)
+
+        assert isinstance(state_prev, Tensor)
+
+        state = self.state_inference_model.get_state(obs, state_prev)
+        return state.dot(self.hash_vector)
 
     def predict(
         self,
         obs: ObsType,
-        state: th.Tensor,
+        state: Tensor,
         episode_start=None,
         deterministic: bool = False,
     ) -> tuple[np.ndarray, None]:
         if not deterministic and np.random.rand() < self.policy.epsilon:
             return np.array([np.random.randint(self.policy.n_actions)]), None
 
-        s = self._get_hashed_state(obs)
+        s = self._get_hashed_state(obs, state)
         p = self.policy.get_distribution(s)
         return p.get_actions(deterministic=deterministic), None
