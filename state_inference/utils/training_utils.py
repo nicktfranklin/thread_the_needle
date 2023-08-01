@@ -1,3 +1,5 @@
+from typing import Callable
+
 import numpy as np
 import torch
 import yaml
@@ -23,7 +25,17 @@ def eval_model(model, n, start_state=None):
     return np.array(rewards), obs_all, state_trajectory
 
 
-def get_policy_prob(model, n_states=400, map_height=60, cnn=True):
+def stable_baselines_get_pmf(model, obs):
+    return (
+        model.policy.get_distribution(obs).distribution.probs.clone().detach().numpy()
+    )
+
+
+def vae_get_pmf(model, obs):
+    return model.get_policy(obs).distribution.probs.clone().detach().numpy()
+
+
+def get_policy_prob(model, fn_get_pmf: Callable, n_states=400, map_height=60, cnn=True):
     env = model.get_env()
     # print(type(env.reset()))
     shape = [map_height, map_height]
@@ -36,23 +48,19 @@ def get_policy_prob(model, n_states=400, map_height=60, cnn=True):
     ]
     obs = torch.stack(obs)
     with torch.no_grad():
-        pmf = (
-            model.policy.get_distribution(obs)
-            .distribution.probs.clone()
-            .detach()
-            .numpy()
-        )
+        pmf = fn_get_pmf(model, obs)
     return pmf
 
 
 def score_policy(
     model,
+    fn_get_pmf,
     optimal_policy,
     n_states=400,
     map_height=60,
     cnn=True,
 ):
-    pmf = get_policy_prob(model, n_states, map_height, cnn)
+    pmf = get_policy_prob(model, fn_get_pmf, n_states, map_height, cnn)
     return np.sum(optimal_policy * pmf, axis=1).mean()
 
 

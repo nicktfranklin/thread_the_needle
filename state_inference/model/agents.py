@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from random import choice
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 import torch as th
@@ -18,12 +18,7 @@ from state_inference.model.tabular_models import (
 )
 from state_inference.model.vae import StateVae
 from state_inference.utils.data import RecurrentVaeDataset, TransitionVaeDataset
-from state_inference.utils.pytorch_utils import (
-    DEVICE,
-    convert_8bit_array_to_float_tensor,
-    convert_8bit_to_float,
-    train,
-)
+from state_inference.utils.pytorch_utils import DEVICE, convert_8bit_to_float, train
 
 BATCH_SIZE = 64
 N_EPOCHS = 20
@@ -44,7 +39,7 @@ class OaroTuple:
     obsp: th.tensor
 
 
-class BaselineCompatibleAgent:
+class BaseAgent:
     def __init__(
         self, task, state_inference_model: StateVae, set_action: Set[ActType]
     ) -> None:
@@ -58,8 +53,12 @@ class BaselineCompatibleAgent:
         return BaseAlgorithm._wrap_env(self.task, verbose=False, monitor_wrapper=True)
 
     def predict(
-        self, obs: ObsType, deterministic: bool = False
-    ) -> tuple[np.ndarray, None]:
+        self,
+        observation: Union[np.ndarray, Dict[str, np.ndarray]],
+        state: Optional[Tuple[np.ndarray, ...]] = None,
+        episode_start: Optional[np.ndarray] = None,
+        deterministic: bool = False,
+    ) -> Tuple[np.ndarray, Optional[Tuple[np.ndarray, ...]]]:
         if deterministic:
             return np.array(list(self.set_action)[0]), None
         return choice(list(self.set_action)), None
@@ -70,20 +69,27 @@ class BaselineCompatibleAgent:
     def _within_batch_update(self, obs: OaroTuple) -> None:
         pass
 
+    def _init_state(self):
+        return None
+
     def learn(
         self, total_timesteps: int, estimate_batch: bool = True, **kwargs
     ) -> None:
         # Use the current policy to explore
         obs_prev = self.task.reset()[0]
 
-        for _ in range(total_timesteps):
-            action = self.predict(obs_prev)[0][0].item()
+        episode_start = True
+        state = self._init_state()
 
-            obs, rew, terminated, _, _ = self.task.step(action)
+        for _ in range(total_timesteps):
+            action, state = self.predict(obs_prev, state, episode_start)
+            episode_start = False
+
+            obs, rew, terminated, _, _ = self.task.step(action.item())
             assert hasattr(obs, "shape")
 
             obs_tuple = OaroTuple(
-                obs=th.tensor(obs_prev), a=action, r=rew, obsp=th.tensor(obs)
+                obs=th.tensor(obs_prev), a=action.item(), r=rew, obsp=th.tensor(obs)
             )
 
             self._within_batch_update(obs_tuple)
@@ -102,42 +108,24 @@ class BaselineCompatibleAgent:
 class SoftmaxPolicy:
     def __init__(
         self,
-        feature_extractor: StateVae,
         beta: float,
         epsilon: float,
         n_actions: int = 4,
         q_init: float = 1,
     ):
-        self.feature_extractor = feature_extractor
         self.n_actions = n_actions
         self.q_values = dict()
         self.beta = beta
         self.epsilon = epsilon
 
-        self.hash_vector = np.array(
-            [
-                self.feature_extractor.z_dim**ii
-                for ii in range(self.feature_extractor.z_layers)
-            ]
-        )
         self.dist = CategoricalDistribution(action_dim=n_actions)
         self.q_init = {a: q_init for a in range(self.n_actions)}
-
-    def _preprocess_obs(self, obs: Union[ObsType, List[ObsType]]) -> th.Tensor:
-        return convert_8bit_array_to_float_tensor(obs)
-
-    def _get_hashed_state(self, obs: ObsType) -> tuple[int]:
-        obs = self._preprocess_obs(obs)
-        z = self.feature_extractor.get_state(obs.to(DEVICE))
-        return z.dot(self.hash_vector)
 
     def maybe_init_q_values(self, s: int) -> None:
         if s not in self.q_values:
             self.q_values[s] = self.q_init
 
-    def get_distribution(self, obs: th.Tensor) -> th.Tensor:
-        s = self._get_hashed_state(obs)
-
+    def get_distribution(self, s: int) -> th.Tensor:
         def _get_q(s0):
             self.maybe_init_q_values(s0)
             q = th.tensor(list(self.q_values.get(s0, None).values()))
@@ -147,7 +135,7 @@ class SoftmaxPolicy:
         return self.dist.proba_distribution(q_values)
 
 
-class ValueIterationAgent(BaselineCompatibleAgent):
+class ValueIterationAgent(BaseAgent):
     TRANSITION_MODEL_CLASS = TabularStateActionTransitionEstimator
     REWARD_MODEL_CLASS = TabularRewardEstimator
     POLICY_CLASS = SoftmaxPolicy
@@ -177,7 +165,6 @@ class ValueIterationAgent(BaselineCompatibleAgent):
         self.transition_estimator = self.TRANSITION_MODEL_CLASS()
         self.reward_estimator = self.REWARD_MODEL_CLASS()
         self.policy = self.POLICY_CLASS(
-            feature_extractor=state_inference_model,
             beta=softmax_gain,
             epsilon=epsilon,
             n_actions=len(set_action),
@@ -185,6 +172,13 @@ class ValueIterationAgent(BaselineCompatibleAgent):
         self.list_states = list()
 
         assert epsilon >= 0 and epsilon < 1.0
+
+        self.hash_vector = np.array(
+            [
+                self.state_inference_model.z_dim**ii
+                for ii in range(self.state_inference_model.z_layers)
+            ]
+        )
 
     def _precomput_all_obs(self):
         return convert_8bit_to_float(th.stack([obs.obs for obs in self.cached_obs])).to(
@@ -194,14 +188,21 @@ class ValueIterationAgent(BaselineCompatibleAgent):
     def _precompute_states(self):
         obs_tensors = self._precomput_all_obs()
         states = self.state_inference_model.get_state(obs_tensors)
-        self.list_states = states.dot(self.policy.hash_vector)
+        self.list_states = states.dot(self.hash_vector)
+
+    def get_policy(self, obs: ObsType):
+        s = self._get_hashed_state(obs)
+        p = self.policy.get_distribution(s)
+        return p
 
     def predict(
-        self, obs: ObsType, deterministic: bool = False
+        self, obs: ObsType, state=None, episode_start=None, deterministic: bool = False
     ) -> tuple[np.ndarray, None]:
         if not deterministic and np.random.rand() < self.policy.epsilon:
             return np.array([np.random.randint(self.policy.n_actions)]), None
-        p = self.policy.get_distribution(obs)
+
+        s = self._get_hashed_state(obs)
+        p = self.policy.get_distribution(s)
         return p.get_actions(deterministic=deterministic), None
 
     def _prep_vae_dataloader(self, batch_size: int = BATCH_SIZE):
@@ -219,8 +220,9 @@ class ValueIterationAgent(BaselineCompatibleAgent):
             self.state_inference_model.prep_next_batch()
 
     def _get_hashed_state(self, obs: th.tensor):
+        obs = obs if isinstance(obs, th.Tensor) else th.tensor(obs)
         return self.state_inference_model.get_state(convert_8bit_to_float(obs)).dot(
-            self.policy.hash_vector
+            self.hash_vector
         )
 
     def _get_sars_tuples(self, obs: OaroTuple):
@@ -316,9 +318,19 @@ class RecurrentStateInf(ViAgentWithExploration):
             obs, actions, max_sequence_len, batch_size
         )
 
+    def _init_state(self):
+        return super()._init_state()
+
     def predict(
-        self, obs: ObsType, deterministic: bool = False
+        self,
+        obs: ObsType,
+        state: th.Tensor,
+        episode_start=None,
+        deterministic: bool = False,
     ) -> tuple[np.ndarray, None]:
-        if deterministic:
-            return np.array(list(self.set_action)[0]), None
-        return choice(list(self.set_action)), None
+        if not deterministic and np.random.rand() < self.policy.epsilon:
+            return np.array([np.random.randint(self.policy.n_actions)]), None
+
+        s = self._get_hashed_state(obs)
+        p = self.policy.get_distribution(s)
+        return p.get_actions(deterministic=deterministic), None
