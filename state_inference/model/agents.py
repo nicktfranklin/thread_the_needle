@@ -266,6 +266,7 @@ class ValueIterationAgent(BaseAgent):
         obsp = torch.stack([o.obsp for o in self.cached_obs])
         s = self._get_hashed_state(obs)
         sp = self._get_hashed_state(obsp)
+        return s, sp
 
     def retrain_model(self):
         self.transition_estimator.reset()
