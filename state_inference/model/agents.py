@@ -25,13 +25,12 @@ from state_inference.utils.pytorch_utils import DEVICE, convert_8bit_to_float, t
 BATCH_SIZE = 64
 N_EPOCHS = 20
 MAX_SEQUENCE_LEN = 10
-OPTIM_KWARGS = dict(lr=3e-4)
 GRAD_CLIP = True
 GAMMA = 0.99
 N_ITER_VALUE_ITERATION = 1000
 SOFTMAX_GAIN = 1.0
 EPSILON = 0.05
-BATCH_LENGTH = 10000
+BATCH_LENGTH = None  # only update at end
 
 
 @dataclass
@@ -175,11 +174,13 @@ class ValueIterationAgent(BaseAgent):
         softmax_gain: float = SOFTMAX_GAIN,
         epsilon: float = EPSILON,
         batch_length: int = BATCH_LENGTH,
+        lr_decay: Optional[float] = None,
     ) -> None:
         super().__init__(task, state_inference_model, set_action)
 
-        optim_kwargs = optim_kwargs if optim_kwargs is not None else OPTIM_KWARGS
-        self.optim = AdamW(self.state_inference_model.parameters(), **optim_kwargs)
+        self.optim = self.state_inference_model.configure_optimizers(
+            optim_kwargs, lr_decay
+        )
         self.grad_clip = grad_clip
         self.batch_size = batch_size
         self.gamma = gamma
@@ -226,7 +227,7 @@ class ValueIterationAgent(BaseAgent):
             batch_size (int): The number of samples per batch
             n_trailing (int): the number of trailing observations to select
         """
-        obs = torch.stack([o.obs for o in self.cached_obs[-n_trailing:]])
+        obs = torch.stack([o.obs for o in self.cached_obs])
         obs = convert_8bit_to_float(obs).to(DEVICE)
 
         return DataLoader(
@@ -245,9 +246,9 @@ class ValueIterationAgent(BaseAgent):
 
     def _get_hashed_state(self, obs: Tensor):
         obs = obs if isinstance(obs, Tensor) else torch.tensor(obs)
-        return self.state_inference_model.get_state(convert_8bit_to_float(obs)).dot(
-            self.hash_vector
-        )
+        obs_ = convert_8bit_to_float(obs)
+        z = self.state_inference_model.get_state(obs_)
+        return z.dot(self.hash_vector)
 
     def _get_sars_tuples(self, obs: OaroTuple):
         s = self._get_hashed_state(obs.obs)[0]
@@ -280,7 +281,9 @@ class ValueIterationAgent(BaseAgent):
 
     def _batch_estimate(self, step: int, last_step: bool) -> None:
         # update only periodically
-        if (not last_step) and (step == 0 or step % self.batch_length != 0):
+        if (not last_step) and (
+            self.batch_length is None or step == 0 or step % self.batch_length != 0
+        ):
             return
 
         # update the state model
@@ -366,7 +369,7 @@ class RecurrentStateInf(ViAgentWithExploration):
             batch_size (int): The number of samples per batch
             n_trailing (int): the number of trailing observations to select
         """
-        obs = torch.stack([obs.obs for obs in self.cached_obs[-n_trailing_obs:]])
+        obs = torch.stack([obs.obs for obs in self.cached_obs])
         actions = F.one_hot(torch.tensor([obs.a for obs in self.cached_obs]))
         return RecurrentVaeDataset.contruct_dataloader(
             obs, actions, self.max_sequence_len, batch_size

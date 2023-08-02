@@ -132,8 +132,13 @@ def train_epochs(
     preprocess: Optional[callable] = None,
 ):
     epochs, lr = train_args["epochs"], train_args["lr"]
+    lr_decay = train_args.get("lr_decay", None)
     grad_clip = train_args.get("grad_clip", None)
-    optimizer = optim.AdamW(model.parameters(), lr=lr)
+    if hasattr(model, "configure_optimizers"):
+        optimizer = model.configure_optimizers(dict(lr=lr), lr_decay)
+    else:
+        assert lr_decay is None, "LR Decay only supported for Model Base"
+        optimizer = optim.AdamW(lr=lr)
 
     train_losses = []
     test_losses = [eval_loss(model, test_loader, preprocess=preprocess)]

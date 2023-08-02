@@ -7,13 +7,20 @@ from torch.distributions.categorical import Categorical
 
 from state_inference.utils.pytorch_utils import DEVICE, gumbel_softmax
 
+OPTIM_KWARGS = dict(lr=3e-4)
+
 
 class ModelBase(nn.Module):
     def __init__(self):
         super().__init__()
 
-    def configure_optimizers(self, lr: float = 3e-4):
-        optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+    def configure_optimizers(
+        self,
+        optim_kwargs: Optional[Dict[str, Any]] = None,
+    ):
+        optim_kwargs = optim_kwargs if optim_kwargs is not None else OPTIM_KWARGS
+        optimizer = torch.optim.AdamW(self.parameters(), **optim_kwargs)
+
         return optimizer
 
     def forward(self, x):
