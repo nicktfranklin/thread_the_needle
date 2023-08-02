@@ -219,13 +219,12 @@ class ValueIterationAgent(BaseAgent):
         p = self.policy.get_distribution(s)
         return p.get_actions(deterministic=deterministic), None
 
-    def _prep_vae_dataloader(self, batch_size: int, n_trailing: int):
+    def _prep_vae_dataloader(self, batch_size: int):
         r"""
         preps the dataloader for training the State Inference VAE
 
         Args:
             batch_size (int): The number of samples per batch
-            n_trailing (int): the number of trailing observations to select
         """
         obs = torch.stack([o.obs for o in self.cached_obs])
         obs = convert_8bit_to_float(obs).to(DEVICE)
@@ -360,14 +359,12 @@ class RecurrentStateInf(ViAgentWithExploration):
     def _prep_vae_dataloader(
         self,
         batch_size: int,
-        n_trailing_obs: int,
     ):
         r"""
         preps the dataloader for training the State Inference VAE
 
         Args:
             batch_size (int): The number of samples per batch
-            n_trailing (int): the number of trailing observations to select
         """
         obs = torch.stack([obs.obs for obs in self.cached_obs])
         actions = F.one_hot(torch.tensor([obs.a for obs in self.cached_obs]))
