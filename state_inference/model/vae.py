@@ -274,8 +274,10 @@ class GruEncoder(ModelBase):
         self.batch_first = batch_first
         self.hidden_size = embedding_dims
         self.n_actions = n_actions
+        self.nin = input_size
 
     def rnn(self, obs: Tensor, h: Tensor) -> Tensor:
+        print(obs.shape, h.shape)
         x = self.feature_extracter(obs)
         return self.gru_cell(x, h)
 
@@ -298,7 +300,7 @@ class GruEncoder(ModelBase):
         # loop through the sequence of observations
         for o, a in zip(obs, actions):
             # encode the hidden state with the previous actions
-            h = self.hidden_encoder(torch.concat([h, a_prev], dim=1))
+            h = self.hidden_encoder(torch.concat([h, a_prev], dim=1).to(DEVICE))
 
             # encode the action for the next step
             a_prev = self.action_encoder(a)
@@ -309,7 +311,7 @@ class GruEncoder(ModelBase):
         return h
 
 
-class RecurrentStateVae(StateVae):
+class RecurrentVae(StateVae):
     def __init__(
         self,
         encoder: GruEncoder,
@@ -322,41 +324,64 @@ class RecurrentStateVae(StateVae):
     ):
         super().__init__(encoder, decoder, z_dim, z_layers, beta, tau, gamma)
 
-    def encode(self, obs: Tensor, h: Tensor) -> Tensor:
+    def encode(self, x):
+        raise NotImplementedError
+
+    def _encode_from_sequence(self, obs: Tensor, actions: Tensor) -> Tensor:
+        logits = self.encoder(obs, actions)
+        z = self.reparameterize(logits)
+        return logits, z
+
+    def _encode_from_state(self, obs: Tensor, h: Tensor) -> Tensor:
         logits = self.encoder.rnn(obs, h)
         z = self.reparameterize(logits)
         return logits, z
 
     def get_state(self, obs: Tensor, hidden_state: Optional[Tensor] = None):
+        r"""
+        Takes in observations and returns discrete states
+
+        Args:
+            obs (Tensor): a NxCxHxW tensor
+            hidden_state (Tensor, optional) a NxD tensor of hidden states.  If
+                no value is specified, will use a default value of zero
+        """
         raise NotImplementedError
+        # hidden_state = (
+        #     hidden_state
+        #     if isinstance(hidden_state, Tensor)
+        #     else torch.zeros_like(obs).to(DEVICE)
+        # )
+
         # self.eval()
         # with torch.no_grad():
-        #     # check the dimensions
-        #     n_dim = obs.dim()
+        #     # check the dimensions, expand if unbatch
 
         #     # expand if unbatched
         #     assert obs.view(-1).shape[0] % self.encoder.nin == 0
+        #     print(obs.shape)
         #     if obs.view(-1).shape[0] == self.encoder.nin:
         #         obs = obs[None, ...]
         #         hidden_state = hidden_state[None, ...]
 
-        #     _, z = self.encode(obs.to(DEVICE), hidden_state.to(DEVICE))
+        #     state_vars = []
+        #     for o, h in zip(obs, hidden_state):
+        #         print(o, h)
+        # #         _, z = self._encode_from_state(o.to(DEVICE), h.to(DEVICE))
+        # #         state_vars.append(torch.argmax(z, dim=-1).detach().cpu().numpy())
 
-        #     state_vars = torch.argmax(z, dim=-1).detach().cpu().numpy()
-        # return state_vars
+        # # return state_vars
 
     def loss(self, batch_data: List[Tensor]) -> Tensor:
-        obs, actions = batch_data
+        (obs, actions), _ = batch_data
         obs = obs.to(DEVICE).float()
         actions = actions.to(DEVICE).float()
 
-        raise NotImplementedError
+        logits, z = self._encode_from_sequence(obs, actions)  # this won't work
+        z = z.view(-1, self.z_layers * self.z_dim).float()
 
-        # logits, z = self.encode(obs, actions)  # this won't work
-        # z = z.view(-1, self.z_layers * self.z_dim).float()
+        # get the two components of the ELBO loss
+        kl_loss = self.kl_loss(logits)
+        recon_loss = self.decoder.loss(z, obs[:, -1, ...])
 
-        # # get the two components of the ELBO loss
-        # kl_loss = self.kl_loss(logits)
-        # recon_loss = self.decoder.loss(z, obs[:, -1, ...])
-
-        # return recon_loss + kl_loss * self.beta
+        return recon_loss + kl_loss * self.beta

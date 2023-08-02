@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from random import choice
-from typing import Any, Dict, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 import torch
@@ -234,7 +234,7 @@ class ValueIterationAgent(BaseAgent):
         )
 
     def _train_vae_batch(self):
-        dataloader = self._prep_vae_dataloader(self.batch_size, self.batch_length)
+        dataloader = self._prep_vae_dataloader(self.batch_size)
         for _ in range(N_EPOCHS):
             self.state_inference_model.train()
             train(self.state_inference_model, dataloader, self.optim, self.grad_clip)
@@ -353,6 +353,16 @@ class ViDynaAgent(ViControlableStateInf):
 class RecurrentStateInf(ViAgentWithExploration):
     max_sequence_len: int = MAX_SEQUENCE_LEN
 
+    @staticmethod
+    def construct_dataloader_from_obs(
+        batch_size: int, list_obs: List[Tensor], max_seq_len: int = MAX_SEQUENCE_LEN
+    ) -> DataLoader:
+        obs = torch.stack([obs.obs for obs in list_obs])
+        actions = F.one_hot(torch.tensor([obs.a for obs in list_obs]))
+        return RecurrentVaeDataset.contruct_dataloader(
+            obs, actions, max_seq_len, batch_size
+        )
+
     def _prep_vae_dataloader(
         self,
         batch_size: int,
@@ -363,10 +373,8 @@ class RecurrentStateInf(ViAgentWithExploration):
         Args:
             batch_size (int): The number of samples per batch
         """
-        obs = torch.stack([obs.obs for obs in self.cached_obs])
-        actions = F.one_hot(torch.tensor([obs.a for obs in self.cached_obs]))
-        return RecurrentVaeDataset.contruct_dataloader(
-            obs, actions, self.max_sequence_len, batch_size
+        return RecurrentStateInf.construct_dataloader_from_obs(
+            self.batch_size, self.cached_obs, self.max_sequence_len
         )
 
     def _precalculate_states_for_batch_training(self) -> Tuple[Tensor, Tensor]:
