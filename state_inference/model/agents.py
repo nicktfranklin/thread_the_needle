@@ -174,13 +174,10 @@ class ValueIterationAgent(BaseAgent):
         softmax_gain: float = SOFTMAX_GAIN,
         epsilon: float = EPSILON,
         batch_length: int = BATCH_LENGTH,
-        lr_decay: Optional[float] = None,
     ) -> None:
         super().__init__(task, state_inference_model, set_action)
 
-        self.optim = self.state_inference_model.configure_optimizers(
-            optim_kwargs, lr_decay
-        )
+        self.optim = self.state_inference_model.configure_optimizers(optim_kwargs)
         self.grad_clip = grad_clip
         self.batch_size = batch_size
         self.gamma = gamma
