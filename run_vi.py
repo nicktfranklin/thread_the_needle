@@ -5,7 +5,7 @@ import yaml
 from state_inference.gridworld_env import ThreadTheNeedleEnv
 from state_inference.model.agents import ViAgentWithExploration
 from state_inference.model.vae import DEVICE, Decoder, Encoder, StateVae
-from state_inference.utils.training_utils import parse_config, train_model
+from state_inference.utils.training_utils import parse_task_config, train_model
 
 CONFIG_FILE = "state_inference/env_config.yml"
 TASK_NAME = "thread_the_needle"
@@ -57,7 +57,7 @@ def make_vi(task):
 
 
 def train():
-    env_kwargs, training_kwargs = parse_config(TASK_NAME, CONFIG_FILE)
+    env_kwargs, training_kwargs = parse_task_config(TASK_NAME, CONFIG_FILE)
 
     # create the task
     task = TASK_CLASS.create_env(**env_kwargs)

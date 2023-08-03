@@ -104,7 +104,13 @@ def train_model(
     return model_reward, score
 
 
-def parse_config(task, config_file):
+def load_config(config_file):
+    with open(config_file) as file:
+        config = yaml.load(file, Loader=yaml.FullLoader)
+    return config
+
+
+def parse_task_config(task, config_file):
     with open(config_file) as file:
         config = yaml.load(file, Loader=yaml.FullLoader)
 
@@ -121,3 +127,6 @@ def parse_config(task, config_file):
     )
 
     return env_kwargs, training_kwargs
+
+
+# def parse_state_inf_

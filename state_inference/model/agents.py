@@ -8,7 +8,6 @@ import torch.nn.functional as F
 from stable_baselines3.common.base_class import BaseAlgorithm
 from stable_baselines3.common.distributions import CategoricalDistribution
 from torch import Tensor
-from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from tqdm import trange
 
@@ -31,6 +30,7 @@ N_ITER_VALUE_ITERATION = 1000
 SOFTMAX_GAIN = 1.0
 EPSILON = 0.05
 BATCH_LENGTH = None  # only update at end
+ALPHA = 0.05
 
 
 @dataclass
@@ -174,6 +174,7 @@ class ValueIterationAgent(BaseAgent):
         softmax_gain: float = SOFTMAX_GAIN,
         epsilon: float = EPSILON,
         batch_length: int = BATCH_LENGTH,
+        n_epochs: int = N_EPOCHS,
     ) -> None:
         super().__init__(task, state_inference_model, set_action)
 
@@ -183,6 +184,7 @@ class ValueIterationAgent(BaseAgent):
         self.gamma = gamma
         self.n_iter = n_iter
         self.batch_length = batch_length
+        self.n_epochs = n_epochs
 
         self.transition_estimator = self.TRANSITION_MODEL_CLASS()
         self.reward_estimator = self.REWARD_MODEL_CLASS()
@@ -235,7 +237,7 @@ class ValueIterationAgent(BaseAgent):
 
     def _train_vae_batch(self):
         dataloader = self._prep_vae_dataloader(self.batch_size)
-        for _ in range(N_EPOCHS):
+        for _ in range(self.n_epochs):
             self.state_inference_model.train()
             train(self.state_inference_model, dataloader, self.optim, self.grad_clip)
             self.state_inference_model.prep_next_batch()
@@ -299,7 +301,37 @@ class ValueIterationAgent(BaseAgent):
 
 
 class ViAgentWithExploration(ValueIterationAgent):
-    eta = 0.1
+    def __init__(
+        self,
+        task,
+        state_inference_model: StateVae,
+        set_action: Set[ActType],
+        optim_kwargs: Dict[str, Any] | None = None,
+        grad_clip: bool = GRAD_CLIP,
+        batch_size: int = BATCH_SIZE,
+        gamma: float = GAMMA,
+        n_iter: int = N_ITER_VALUE_ITERATION,
+        softmax_gain: float = SOFTMAX_GAIN,
+        epsilon: float = EPSILON,
+        batch_length: int = BATCH_LENGTH,
+        n_epochs: int = N_EPOCHS,
+        alpha: float = ALPHA,
+    ) -> None:
+        super().__init__(
+            task,
+            state_inference_model,
+            set_action,
+            optim_kwargs,
+            grad_clip,
+            batch_size,
+            gamma,
+            n_iter,
+            softmax_gain,
+            epsilon,
+            batch_length,
+            n_epochs,
+        )
+        self.alpha = alpha
 
     def update_qvalues(self, obs: OaroTuple) -> None:
         s, a, r, sp = self._get_sars_tuples(obs)
@@ -310,7 +342,7 @@ class ViAgentWithExploration(ValueIterationAgent):
         self.policy.maybe_init_q_values(sp)
         V_sp = max(self.policy.q_values[sp].values())
 
-        q_s_a = (1 - self.eta) * q_s_a + self.eta * (r + self.gamma * V_sp)
+        q_s_a = (1 - self.alpha) * q_s_a + self.alpha * (r + self.gamma * V_sp)
         self.policy.q_values[s][a] = q_s_a
 
     def _within_batch_update(self, obs: OaroTuple) -> None:
