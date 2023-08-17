@@ -4,6 +4,8 @@ import numpy as np
 import scipy.sparse
 from scipy.special import logsumexp
 
+from state_inference.utils.utils import inverse_cmf_sampler
+
 
 def sample_trajectory_until_goal(
     start_state: int, goal_state: int, policy: np.ndarray, transition_functions
@@ -19,13 +21,6 @@ def sample_trajectory_until_goal(
         state_trajectory.append(current_state)
 
     return state_trajectory
-
-
-def inverse_cmf_sampler(pmf: Union[np.ndarray, scipy.sparse.csr_matrix]) -> int:
-    if type(pmf) == scipy.sparse.csr_matrix:
-        pmf = pmf.toarray()
-
-    return np.array(np.cumsum(np.array(pmf)) < np.random.rand(), dtype=int).sum()
 
 
 def evaluate_policy(

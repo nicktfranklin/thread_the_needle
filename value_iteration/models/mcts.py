@@ -7,11 +7,8 @@ import numpy as np
 from scipy import sparse
 from tqdm import tqdm
 
-from value_iteration.models.utils import (
-    calculate_sr_from_transitions,
-    inverse_cmf_sampler,
-    softmax,
-)
+from state_inference.utils.utils import inverse_cmf_sampler
+from value_iteration.models.utils import calculate_sr_from_transitions, softmax
 
 N_ACTIONS = 4
 
