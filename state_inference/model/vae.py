@@ -284,21 +284,17 @@ class StateVae(ModelBase):
         return logits, z
 
     def decode(self, z):
-        print("decode", z.shape)
         return self.decoder(z.view(-1, self.z_layers * self.z_dim).float())
 
     def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
         logits, z = self.encode(x)
-        print(logits.shape, z.shape)
         x_hat = self.decode(z)
-        print(x_hat.shape)
         return (logits, z), x_hat.view(x.shape)  # preserve original shape
 
     def kl_loss(self, logits):
         return Categorical(logits=logits).entropy().mean()
 
     def loss(self, x: Tensor) -> Tensor:
-        print(x.shape)
         x = x.to(DEVICE).float()
         (logits, _), x_hat = self(x)
 

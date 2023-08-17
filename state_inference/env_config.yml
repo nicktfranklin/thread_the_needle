@@ -4,8 +4,8 @@ training_kwargs:
   n_eval_steps: 100
 
 obs_kwargs:
-    rbf_kernel_size: 21  # must be odd
-    rbf_kernel_scale: 0.45
+    rbf_kernel_size: 33  # must be odd
+    rbf_kernel_scale: 0.3
     location_noise_scale: 0.12
     noise_log_mean: -3
     noise_log_scale: 0.05
@@ -15,7 +15,7 @@ open_env:
   env_kwargs:
     height: 20
     width: 20
-    map_height: 40
+    map_height: 64
     state_rewards:
       210: 10
       0: -1
@@ -36,7 +36,7 @@ thread_the_needle:
   env_kwargs:
     height: 20
     width: 20
-    map_height: 40
+    map_height: 64
     state_rewards:
       84: 100
       399: -1

@@ -256,7 +256,6 @@ class ValueIterationAgent(BaseAgent):
 
     def _train_vae_batch(self):
         dataloader = self._prep_vae_dataloader(self.batch_size)
-        print(next(iter(dataloader)).shape)
         for _ in range(self.n_epochs):
             self.state_inference_model.train()
             train(self.state_inference_model, dataloader, self.optim, self.grad_clip)

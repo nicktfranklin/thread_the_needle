@@ -47,9 +47,9 @@ class RbfKernelEmbedding:
 class ObservationModel:
     def __init__(
         self,
-        h: int = 10,
-        w: int = 10,
-        map_height: int = 60,
+        h: int = 20,
+        w: int = 20,
+        map_height: int = 64,
         rbf_kernel_size: int = 51,
         rbf_kernel_scale: float = 0.15,
         location_noise_scale=1.0,
@@ -58,16 +58,15 @@ class ObservationModel:
         noise_corruption_prob: float = 0.01,
         discrete_range: Optional[tuple[int, int]] = None,
     ) -> None:
-        assert map_height % h == 0
-        assert map_height % w == 0
-        multiplier = map_height // h
+        # evenly space the observations
+        multiplier = map_height / (h + 1)
         self.h = h
         self.w = w
         self.map_height = map_height
 
         x = [ii for ii in range(h) for _ in range(h)]
         y = [ii for _ in range(w) for ii in range(w)]
-        self.coordinates = np.array([x, y]).T * multiplier + multiplier // 2
+        self.coordinates = np.array([x, y]).T * multiplier + multiplier
         self.states = {ii: c for ii, c in enumerate(self.coordinates)}
 
         self.kernel = RbfKernelEmbedding(rbf_kernel_size, rbf_kernel_scale)
@@ -81,7 +80,9 @@ class ObservationModel:
         )
 
     def get_obs_coords(self, s: StateType) -> tuple[int, int]:
-        return self.states[s]
+        x, y = self.states[s]
+        x, y = int(round(x)), int(round(y))  # assign to nearest gridcell
+        return x, y
 
     def get_grid_coords(self, s: StateType) -> tuple[int, int]:
         r = s // self.w
@@ -96,6 +97,7 @@ class ObservationModel:
 
     def _embed_one_hot(self, x: int, y: int) -> np.ndarray:
         grid = np.zeros((self.map_height, self.map_height))
+        x, y = int(round(x)), int(round(y))  # assign to nearest gridcell
         grid[x, y] = 1.0
         return grid
 
