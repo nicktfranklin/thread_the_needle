@@ -80,64 +80,48 @@ class Encoder(MLP):
         return super().forward(x.view(x.shape[0], -1))
 
 
-class Conv2dBlock(nn.Module):
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size,
-        stride=1,
-        padding=0,
-        act_fn="relu",
-        conv_kwargs=None,
-    ) -> None:
-        super().__init__()
-        conv_kwargs = conv_kwargs if conv_kwargs is not None else dict()
-        self.conv2d = nn.Conv2d(
-            in_channels, out_channels, kernel_size, stride, padding, **conv_kwargs
-        )
-        self.batch_norm = nn.BatchNorm2d(out_channels)
-        self.activation = getattr(F, act_fn)
-
-    def forward(self, x: Tensor) -> Tensor:
-        x = self.conv2d(x)
-        x = self.batch_norm(x)
-        x = self.activation(x)
-        return x
-
-
 class CnnEncoder(ModelBase):
     def __init__(
         self,
-        in_channel: int,
+        in_channels: int,
         output_size: int,
         height: int = 40,
         width: int = 40,
+        hidden_dims: Optional[List[int]] = None,
         act_fn="relu",
     ):
         super().__init__()
-        self.cnn = nn.Sequential(
-            Conv2dBlock(in_channel, 32, 8, stride=4, padding=0, act_fn=act_fn),
-            Conv2dBlock(32, 64, 4, stride=2, padding=0, act_fn=act_fn),
-            Conv2dBlock(64, 64, 3, stride=1, padding=0, act_fn=act_fn),
-            nn.Flatten(),
-        )
 
-        # Compute shape by doing one forward pass
-        self.eval()
-        x = torch.rand(1, in_channel, height, width)
-        with torch.no_grad():
-            n_flatten = self.cnn(x).shape[-1]
+        if hidden_dims is None:
+            hidden_dims = [32, 64, 128, 256, 512]
 
-        self.linear = nn.Sequential(nn.Linear(n_flatten, output_size), nn.ReLU())
+        modules = []
+        h_in = in_channels
+        for h_dim in hidden_dims:
+            modules.append(
+                nn.Sequential(
+                    nn.Conv2d(
+                        in_channels=h_in,
+                        out_channels=h_dim,
+                        kernel_size=3,
+                        stride=2,
+                        padding=1,
+                    ),
+                    nn.BatchNorm2d(h_dim),
+                    nn.LeakyReLU(),
+                )
+            )
+            h_in = h_dim
+        self.cnn = nn.Sequential(*modules)
+        self.fc_z = nn.Linear(hidden_dims[-1] * 4, output_size)
 
-        self.input_shape = (in_channel, height, width)
+        self.input_shape = (in_channels, height, width)
 
     def forward(self, x):
         # Assume NxCxHxW input or CxHxW input
         assert_correct_end_shape(x, self.input_shape)
         x = maybe_expand_batch(x, self.input_shape)
-        return self.linear(self.cnn(x))
+        return self.fc_z(torch.flatten(self.cnn(x), start_dim=1))
 
     def encode_sequence(self, x: Tensor, batch_first: bool = True) -> Tensor:
         assert x.ndim == 5
@@ -166,57 +150,64 @@ class Decoder(MLP):
         return F.mse_loss(y_hat, torch.flatten(target, start_dim=1))
 
 
-class ConvTrans2dBlock(nn.Module):
+class CnnDecoder(ModelBase):
     def __init__(
         self,
-        in_channels,
-        out_channels,
-        kernel_size,
-        stride=1,
-        padding=0,
-        act_fn="relu",
-        conv_kwargs=None,
-    ) -> None:
-        super().__init__()
-        conv_kwargs = conv_kwargs if conv_kwargs is not None else dict()
-        self.conv_trans2d = nn.ConvTranspose2d(
-            in_channels, out_channels, kernel_size, stride, padding, **conv_kwargs
-        )
-        self.batch_norm = nn.BatchNorm2d(out_channels)
-        self.activation = getattr(F, act_fn)
-
-    def forward(self, x: Tensor) -> Tensor:
-        x = self.conv_trans2d(x)
-        x = self.batch_norm(x)
-        x = self.activation(x)
-        return x
-
-
-class CnnDecoder(ModelBase):
-    def __init__(self, input_size: int, channel_out: int, act_fn: str = "relu"):
+        input_size: int,
+        channel_out: int,
+        act_fn: str = "relu",
+        hidden_dims: Optional[List[int]] = None,
+    ):
         super().__init__()
 
-        self.fc = nn.Sequential(nn.Linear(input_size, 4 * 4 * 128), nn.ReLU())
+        if hidden_dims is None:
+            hidden_dims = [32, 64, 128, 256, 512][::-1]
 
-        self.deconv = nn.Sequential(
-            ConvTrans2dBlock(128, 128, 4, stride=2, padding=1, act_fn=act_fn),
-            ConvTrans2dBlock(128, 64, 4, stride=2, padding=1, act_fn=act_fn),
-            ConvTrans2dBlock(64, 32, 4, stride=4, padding=0, act_fn=act_fn),
-            nn.ConvTranspose2d(32, channel_out, 3, stride=1, padding=1),
+        self.fc = nn.Linear(input_size, 4 * hidden_dims[0])
+
+        modules = []
+        for ii in range(len(hidden_dims) - 1):
+            modules.append(
+                nn.Sequential(
+                    nn.ConvTranspose2d(
+                        hidden_dims[ii],
+                        hidden_dims[ii + 1],
+                        kernel_size=3,
+                        stride=2,
+                        padding=1,
+                        output_padding=1,
+                    ),
+                    nn.BatchNorm2d(hidden_dims[ii + 1]),
+                    nn.LeakyReLU(),
+                )
+            )
+        self.deconv = nn.Sequential(*modules)
+
+        self.final_layer = nn.Sequential(
+            nn.ConvTranspose2d(
+                hidden_dims[-1],
+                hidden_dims[-1],
+                3,
+                stride=2,
+                padding=1,
+                output_padding=1,
+            ),
+            nn.BatchNorm2d(hidden_dims[-1]),
+            nn.LeakyReLU(),
+            nn.Conv2d(
+                hidden_dims[-1], out_channels=channel_out, kernel_size=3, padding=1
+            ),
+            nn.Sigmoid(),
         )
 
-    def forward(self, x):
-        hidden = self.fc(x)
-        hidden = hidden.view(-1, 128, 4, 4)  # does not effect batching
+    def forward(self, z):
+        hidden = self.fc(z)
+        hidden = hidden.view(-1, 512, 2, 2)  # does not effect batching
         hidden = self.deconv(hidden)
-        observation = F.sigmoid(hidden)
+        observation = self.final_layer(hidden)
         if observation.shape[0] == 1:
             return observation.squeeze(0)
         return observation
-
-    def loss(self, x, target):
-        y_hat = self(x)
-        return F.mse_loss(y_hat, torch.flatten(target, start_dim=1))
 
 
 def unit_test_vae_reconstruction(model, input_shape):
@@ -283,28 +274,6 @@ class StateVae(ModelBase):
             decoder_hidden_layers,
             observation_dim,
         )
-
-        return cls(encoder, decoder, **vae_kwargs)
-
-    @classmethod
-    def make_cnn_from_configs(
-        cls, model_config: Dict[str, Any], env_kwargs: Dict[str, Any]
-    ):
-        h = env_kwargs["map_height"]
-
-        vae_kwargs = model_config["vae_kwargs"]
-        vae_kwargs.update(dict(input_shape=(1, h, h)))
-
-        embedding_dim = vae_kwargs["z_dim"] * vae_kwargs["z_layers"]
-
-        encoder_kwargs = dict(output_size=embedding_dim, height=h, width=h)
-        encoder_kwargs.update(model_config["cnn_encoder"])
-
-        decoder_kwargs = dict(input_size=embedding_dim)
-        decoder_kwargs.update(model_config["cnn_decoder"])
-
-        encoder = CnnEncoder(**encoder_kwargs)
-        decoder = CnnDecoder(**decoder_kwargs)
 
         return cls(encoder, decoder, **vae_kwargs)
 
@@ -382,6 +351,70 @@ class StateVae(ModelBase):
         self.tau *= self.gamma
 
     def prep_next_batch(self):
+        self.anneal_tau()
+
+
+class CnnVae(StateVae):
+    def __init__(
+        self,
+        encoder: ModelBase,
+        decoder: ModelBase,
+        z_dim: int,
+        z_layers: int,
+        beta: float = VAE_BETA,
+        tau: float = VAE_TAU,
+        gamma: float = VAE_GAMMA,
+        input_shape: Tuple[int, int, int] = INPUT_SHAPE,
+        beta_annealing_rate: float = 0.25,
+    ):
+        super().__init__(
+            encoder, decoder, z_dim, z_layers, beta, tau, gamma, input_shape
+        )
+
+        self.beta = 0.01
+        self.max_beta = beta
+        self.beta_annealing_rate = beta_annealing_rate
+
+    @classmethod
+    def make_from_configs(
+        cls, model_config: Dict[str, Any], env_kwargs: Dict[str, Any]
+    ):
+        h = env_kwargs["map_height"]
+
+        vae_kwargs = model_config["vae_kwargs"]
+        vae_kwargs.update(dict(input_shape=(1, h, h)))
+
+        embedding_dim = vae_kwargs["z_dim"] * vae_kwargs["z_layers"]
+
+        encoder_kwargs = dict(output_size=embedding_dim, height=h, width=h)
+        encoder_kwargs.update(model_config["cnn_encoder"])
+
+        decoder_kwargs = dict(input_size=embedding_dim)
+        decoder_kwargs.update(model_config["cnn_decoder"])
+
+        encoder = CnnEncoder(**encoder_kwargs)
+        decoder = CnnDecoder(**decoder_kwargs)
+
+        # h = env_kwargs["map_height"]
+        # observation_dim = h**2
+        # decoder_hidden_layers = [observation_dim // 10, observation_dim // 5]
+
+        # embedding_dim = vae_kwargs["z_dim"] * vae_kwargs["z_layers"]
+
+        # decoder = Decoder(
+        #     embedding_dim,
+        #     decoder_hidden_layers,
+        #     observation_dim,
+        # )
+
+        return cls(encoder, decoder, **vae_kwargs)
+
+    def anneal_beta(self):
+        # exponentially anneal beta towards max
+        self.beta += self.beta_annealing_rate * (self.max_beta - self.beta)
+
+    def prep_next_batch(self):
+        self.anneal_beta()
         self.anneal_tau()
 
 
