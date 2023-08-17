@@ -34,6 +34,7 @@ class ObservationDataset(Dataset):
             )
 
         self.observations = convert_8bit_to_float(self.observations)
+        self.observations = self.observations[:, None, ...]
         self.n = self.observations.shape[0]
 
     def __getitem__(self, idx):
