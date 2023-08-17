@@ -71,7 +71,9 @@ class BaseAgent:
             return np.array(list(self.set_action)[0]), None
         return choice(list(self.set_action)), None
 
-    def _batch_estimate(self, step: int, last_step: bool) -> None:
+    def _batch_estimate(
+        self, step: int, last_step: bool, progress_bar: Optional[bool] = False
+    ) -> None:
         pass
 
     def _within_batch_update(
@@ -103,7 +105,7 @@ class BaseAgent:
         idx = self._init_index()
 
         if progress_bar:
-            iterator = trange(total_timesteps)
+            iterator = trange(total_timesteps, desc="Steps")
         else:
             iterator = range(total_timesteps)
         for step in iterator:
@@ -133,8 +135,10 @@ class BaseAgent:
                 assert hasattr(obs, "shape")
                 assert not isinstance(obs_prev, tuple)
 
-            if estimate_batch:
-                self._batch_estimate(step, step == total_timesteps - 1)
+        if estimate_batch:
+            self._batch_estimate(
+                step, step == total_timesteps - 1, progress_bar=progress_bar
+            )
 
 
 class SoftmaxPolicy:
@@ -254,9 +258,14 @@ class ValueIterationAgent(BaseAgent):
             drop_last=True,
         )
 
-    def _train_vae_batch(self):
+    def _train_vae_batch(self, progress_bar: Optional[bool] = False):
         dataloader = self._prep_vae_dataloader(self.batch_size)
-        for _ in range(self.n_epochs):
+        if progress_bar:
+            iterator = trange(self.n_epochs, desc="Vae Batches")
+        else:
+            iterator = range(self.n_epochs)
+
+        for _ in iterator:
             self.state_inference_model.train()
             train(self.state_inference_model, dataloader, self.optim, self.grad_clip)
             self.state_inference_model.prep_next_batch()
@@ -304,7 +313,9 @@ class ValueIterationAgent(BaseAgent):
             self.transition_estimator.update(s[idx], obs.a, sp[idx])
             self.reward_estimator.update(sp[idx], obs.r)
 
-    def _batch_estimate(self, step: int, last_step: bool) -> None:
+    def _batch_estimate(
+        self, step: int, last_step: bool, progress_bar: Optional[bool] = False
+    ) -> None:
         # update only periodically
         if (not last_step) and (
             self.batch_length is None or step == 0 or step % self.batch_length != 0
@@ -312,7 +323,7 @@ class ValueIterationAgent(BaseAgent):
             return
 
         # update the state model
-        self._train_vae_batch()
+        self._train_vae_batch(progress_bar=progress_bar)
 
         # construct a devono model-based learner from the new states
         self.retrain_model()

@@ -27,7 +27,10 @@ def eval_model(model, n, start_state=None):
 
 def stable_baselines_get_pmf(model, obs):
     return (
-        model.policy.get_distribution(obs).distribution.probs.clone().detach().numpy()
+        model.policy.get_distribution(obs.permute(0, 3, 1, 2))
+        .distribution.probs.clone()
+        .detach()
+        .numpy()
     )
 
 
@@ -106,7 +109,7 @@ def train_model(
     return model_reward, score
 
 
-def load_config(config_file):
+def parse_model_config(config_file):
     with open(config_file) as file:
         config = yaml.load(file, Loader=yaml.FullLoader)
     return config

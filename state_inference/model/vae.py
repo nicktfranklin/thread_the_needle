@@ -202,7 +202,7 @@ class CnnDecoder(ModelBase):
             ConvTrans2dBlock(128, 128, 4, stride=2, padding=1, act_fn=act_fn),
             ConvTrans2dBlock(128, 64, 4, stride=2, padding=1, act_fn=act_fn),
             ConvTrans2dBlock(64, 32, 4, stride=4, padding=0, act_fn=act_fn),
-            ConvTrans2dBlock(32, channel_out, 3, stride=1, padding=1, act_fn=act_fn),
+            nn.ConvTranspose2d(32, channel_out, 3, stride=1, padding=1),
         )
 
     def forward(self, x):
@@ -257,6 +257,56 @@ class StateVae(ModelBase):
         self.input_shape = input_shape
 
         unit_test_vae_reconstruction(self, input_shape)
+
+    @classmethod
+    def make_from_configs(
+        cls, model_config: Dict[str, Any], env_kwargs: Dict[str, Any]
+    ):
+        h = env_kwargs["map_height"]
+        observation_dim = h**2
+
+        vae_kwargs = model_config["vae_kwargs"]
+        vae_kwargs.update(dict(input_shape=(1, h, h)))
+
+        encoder_hidden_layers = [observation_dim // 5, observation_dim // 10]
+        decoder_hidden_layers = [observation_dim // 10, observation_dim // 5]
+
+        embedding_dim = vae_kwargs["z_dim"] * vae_kwargs["z_layers"]
+        encoder = Encoder(
+            observation_dim,
+            encoder_hidden_layers,
+            embedding_dim,
+        )
+
+        decoder = Decoder(
+            embedding_dim,
+            decoder_hidden_layers,
+            observation_dim,
+        )
+
+        return cls(encoder, decoder, **vae_kwargs)
+
+    @classmethod
+    def make_cnn_from_configs(
+        cls, model_config: Dict[str, Any], env_kwargs: Dict[str, Any]
+    ):
+        h = env_kwargs["map_height"]
+
+        vae_kwargs = model_config["vae_kwargs"]
+        vae_kwargs.update(dict(input_shape=(1, h, h)))
+
+        embedding_dim = vae_kwargs["z_dim"] * vae_kwargs["z_layers"]
+
+        encoder_kwargs = dict(output_size=embedding_dim, height=h, width=h)
+        encoder_kwargs.update(model_config["cnn_encoder"])
+
+        decoder_kwargs = dict(input_size=embedding_dim)
+        decoder_kwargs.update(model_config["cnn_decoder"])
+
+        encoder = CnnEncoder(**encoder_kwargs)
+        decoder = CnnDecoder(**decoder_kwargs)
+
+        return cls(encoder, decoder, **vae_kwargs)
 
     def reparameterize(self, logits):
         """
