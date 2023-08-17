@@ -11,19 +11,24 @@ from torch import Tensor
 from torch.utils.data import DataLoader
 from tqdm import trange
 
-from state_inference.gridworld_env import ActType, ObsType, RewType
+from state_inference.gridworld_env import ActType, RewType
 from state_inference.model.tabular_models import (
     TabularRewardEstimator,
     TabularStateActionTransitionEstimator,
     value_iteration,
 )
-from state_inference.model.vae import StateVae
+from state_inference.model.vae import RecurrentVae, StateVae
 from state_inference.utils.data import RecurrentVaeDataset, TransitionVaeDataset
-from state_inference.utils.pytorch_utils import DEVICE, convert_8bit_to_float, train
+from state_inference.utils.pytorch_utils import (
+    DEVICE,
+    convert_8bit_to_float,
+    maybe_convert_to_tensor,
+    train,
+)
 
 BATCH_SIZE = 64
 N_EPOCHS = 20
-MAX_SEQUENCE_LEN = 10
+MAX_SEQUENCE_LEN = 4
 GRAD_CLIP = True
 GAMMA = 0.99
 N_ITER_VALUE_ITERATION = 1000
@@ -39,6 +44,7 @@ class OaroTuple:
     a: ActType
     r: RewType
     obsp: Tensor
+    index: int  # unique index for each trial
 
 
 class BaseAgent:
@@ -68,11 +74,19 @@ class BaseAgent:
     def _batch_estimate(self, step: int, last_step: bool) -> None:
         pass
 
-    def _within_batch_update(self, obs: OaroTuple) -> None:
+    def _within_batch_update(
+        self, obs: OaroTuple, state: Optional[Tensor], state_prev: Optional[Tensor]
+    ) -> None:
         pass
 
     def _init_state(self):
         return None
+
+    def _init_index(self):
+        if len(self.cached_obs) == 0:
+            return 0
+        last_obs = self.cached_obs[-1]
+        return last_obs.index + 1
 
     def learn(
         self,
@@ -85,14 +99,15 @@ class BaseAgent:
         obs_prev = self.task.reset()[0]
 
         episode_start = True
-        state = self._init_state()
+        state_prev = self._init_state()
+        idx = self._init_index()
 
         if progress_bar:
             iterator = trange(total_timesteps)
         else:
             iterator = range(total_timesteps)
         for step in iterator:
-            action, state = self.predict(obs_prev, state, episode_start)
+            action, state = self.predict(obs_prev, state_prev, episode_start)
             episode_start = False
 
             obs, rew, terminated, _, _ = self.task.step(action.item())
@@ -103,15 +118,18 @@ class BaseAgent:
                 a=action.item(),
                 r=rew,
                 obsp=torch.tensor(obs),
+                index=idx,
             )
 
-            self._within_batch_update(obs_tuple)
+            self._within_batch_update(obs_tuple, state, state_prev)
 
             self.cached_obs.append(obs_tuple)
 
             obs_prev = obs
+            state_prev = state
             if terminated:
                 obs_prev = self.task.reset()[0]
+                idx += 1
                 assert hasattr(obs, "shape")
                 assert not isinstance(obs_prev, tuple)
 
@@ -203,14 +221,14 @@ class ValueIterationAgent(BaseAgent):
             ]
         )
 
-    def get_policy(self, obs: ObsType):
+    def get_policy(self, obs: Tensor):
         s = self._get_hashed_state(obs)
         p = self.policy.get_distribution(s)
         return p
 
     def predict(
-        self, obs: ObsType, state=None, episode_start=None, deterministic: bool = False
-    ) -> tuple[np.ndarray, None]:
+        self, obs: Tensor, state=None, episode_start=None, deterministic: bool = False
+    ) -> tuple[Tensor, None]:
         if not deterministic and np.random.rand() < self.policy.epsilon:
             return np.array([np.random.randint(self.policy.n_actions)]), None
 
@@ -227,6 +245,7 @@ class ValueIterationAgent(BaseAgent):
         """
         obs = torch.stack([o.obs for o in self.cached_obs])
         obs = convert_8bit_to_float(obs).to(DEVICE)
+        obs = obs.permute(0, 3, 1, 2)  # -> NxCxHxW
 
         return DataLoader(
             obs,
@@ -237,14 +256,23 @@ class ValueIterationAgent(BaseAgent):
 
     def _train_vae_batch(self):
         dataloader = self._prep_vae_dataloader(self.batch_size)
+        print(next(iter(dataloader)).shape)
         for _ in range(self.n_epochs):
             self.state_inference_model.train()
             train(self.state_inference_model, dataloader, self.optim, self.grad_clip)
             self.state_inference_model.prep_next_batch()
 
+    def _preprocess_obs(self, obs: Tensor) -> Tensor:
+        # take in 8bit with shape NxHxWxC
+        # convert to float with shape NxCxHxW
+        obs = convert_8bit_to_float(obs)
+        if obs.ndim == 3:
+            return obs.permute(2, 0, 1)
+        return obs.permute(0, 3, 1, 2)
+
     def _get_hashed_state(self, obs: Tensor):
         obs = obs if isinstance(obs, Tensor) else torch.tensor(obs)
-        obs_ = convert_8bit_to_float(obs)
+        obs_ = self._preprocess_obs(obs)
         z = self.state_inference_model.get_state(obs_)
         return z.dot(self.hash_vector)
 
@@ -333,9 +361,7 @@ class ViAgentWithExploration(ValueIterationAgent):
         )
         self.alpha = alpha
 
-    def update_qvalues(self, obs: OaroTuple) -> None:
-        s, a, r, sp = self._get_sars_tuples(obs)
-
+    def update_qvalues(self, s, a, r, sp) -> None:
         self.policy.maybe_init_q_values(s)
         q_s_a = self.policy.q_values[s][a]
 
@@ -345,8 +371,15 @@ class ViAgentWithExploration(ValueIterationAgent):
         q_s_a = (1 - self.alpha) * q_s_a + self.alpha * (r + self.gamma * V_sp)
         self.policy.q_values[s][a] = q_s_a
 
-    def _within_batch_update(self, obs: OaroTuple) -> None:
-        self.update_qvalues(obs)
+    def _within_batch_update(
+        self, obs: OaroTuple, state: Optional[Tensor], state_prev: Optional[Tensor]
+    ) -> None:
+        # state and state_prev are only used by recurrent models
+        assert state is None
+        assert state_prev is None
+
+        s, a, r, sp = self._get_sars_tuples(obs)
+        self.update_qvalues(s, a, r, sp)
 
 
 class ViControlableStateInf(ViAgentWithExploration):
@@ -371,7 +404,8 @@ class ViDynaAgent(ViControlableStateInf):
 
     def _within_batch_update(self, obs: OaroTuple) -> None:
         # update the current q-value
-        self.update_qvalues(obs)
+        s, a, r, sp = self._get_sars_tuples(obs)
+        self.update_qvalues(s, a, r, sp)
 
         # dyna updates (note: this assumes a deterministic enviornment,
         # and this code differes from dyna as we are only using resampled
@@ -379,11 +413,44 @@ class ViDynaAgent(ViControlableStateInf):
         if self.cached_obs:
             for _ in range(self.k):
                 obs = choice(self.cached_obs)
-                self.update_qvalues(obs)
+                s, a, r, sp = self._get_sars_tuples(obs)
+                self.update_qvalues(s, a, r, sp)
 
 
 class RecurrentStateInf(ViAgentWithExploration):
-    max_sequence_len: int = MAX_SEQUENCE_LEN
+    def __init__(
+        self,
+        task,
+        state_inference_model: RecurrentVae,
+        set_action: Set[ActType],
+        optim_kwargs: Dict[str, Any] | None = None,
+        grad_clip: bool = GRAD_CLIP,
+        batch_size: int = BATCH_SIZE,
+        gamma: float = GAMMA,
+        n_iter: int = N_ITER_VALUE_ITERATION,
+        softmax_gain: float = SOFTMAX_GAIN,
+        epsilon: float = EPSILON,
+        batch_length: int = BATCH_LENGTH,
+        n_epochs: int = N_EPOCHS,
+        alpha: float = ALPHA,
+        max_sequence_len: int = MAX_SEQUENCE_LEN,
+    ) -> None:
+        super().__init__(
+            task,
+            state_inference_model,
+            set_action,
+            optim_kwargs,
+            grad_clip,
+            batch_size,
+            gamma,
+            n_iter,
+            softmax_gain,
+            epsilon,
+            batch_length,
+            n_epochs,
+            alpha,
+        )
+        self.max_sequence_len = max_sequence_len
 
     @staticmethod
     def construct_dataloader_from_obs(
@@ -391,8 +458,9 @@ class RecurrentStateInf(ViAgentWithExploration):
     ) -> DataLoader:
         obs = torch.stack([obs.obs for obs in list_obs])
         actions = F.one_hot(torch.tensor([obs.a for obs in list_obs]))
-        return RecurrentVaeDataset.contruct_dataloader(
-            obs, actions, max_seq_len, batch_size
+        index = [obs.index for obs in list_obs]
+        return RecurrentVaeDataset.construct_dataloader(
+            obs, actions, index, max_seq_len, batch_size
         )
 
     def _prep_vae_dataloader(
@@ -406,37 +474,97 @@ class RecurrentStateInf(ViAgentWithExploration):
             batch_size (int): The number of samples per batch
         """
         return RecurrentStateInf.construct_dataloader_from_obs(
-            self.batch_size, self.cached_obs, self.max_sequence_len
+            batch_size, self.cached_obs, self.max_sequence_len
+        )
+
+    def contruct_validation_dataloader(self, sample_size, seq_len):
+        # assert (
+        #     sample_size % seq_len == 0
+        # ), "Sample size must be an interger multiple of sequence length"
+        validation_obs = []
+        for t in range(sample_size // seq_len):
+            obs_prev = self.task.reset()[0]
+
+            for _ in range(seq_len):
+                action = choice(list(self.set_action))
+                obs, rew, terminated, _, _ = self.task.step(action)
+                obs_tuple = OaroTuple(
+                    obs=torch.tensor(obs_prev),
+                    a=action,
+                    r=rew,
+                    obsp=torch.tensor(obs),
+                    index=t,
+                )
+                validation_obs.append(obs_tuple)
+
+                if terminated:
+                    break
+        return RecurrentStateInf.construct_dataloader_from_obs(
+            batch_size=len(validation_obs), list_obs=validation_obs, max_seq_len=seq_len
         )
 
     def _precalculate_states_for_batch_training(self) -> Tuple[Tensor, Tensor]:
         raise NotImplementedError
 
-    def _init_state(self):
+    def _init_state(self) -> Tensor:
         # unbatch state for the agent (not vae training)
         return torch.zeros(
             self.state_inference_model.z_dim * self.state_inference_model.z_layers
         )
 
-    def _get_hashed_state(self, obs: Tensor, state_prev: Tensor):
-        obs = obs if isinstance(obs, Tensor) else torch.tensor(obs)
+    def _get_hashed_state(self, obs: Tensor, state_prev: Optional[Tensor]):
+        obs = maybe_convert_to_tensor(obs)
         obs = convert_8bit_to_float(obs)
-
-        assert isinstance(state_prev, Tensor)
-
         state = self.state_inference_model.get_state(obs, state_prev)
         return state.dot(self.hash_vector)
 
+    def _update_hidden_state(self, obs: Tensor, state: Tensor) -> Tensor:
+        return self.state_inference_model.update_hidden_state(obs, state)
+
     def predict(
         self,
-        obs: ObsType,
+        obs: Tensor,
         state: Tensor,
         episode_start=None,
         deterministic: bool = False,
-    ) -> tuple[np.ndarray, None]:
-        if not deterministic and np.random.rand() < self.policy.epsilon:
-            return np.array([np.random.randint(self.policy.n_actions)]), None
+    ) -> tuple[Tensor, Tensor]:
+        obs = maybe_convert_to_tensor(obs)
+        obs = convert_8bit_to_float(obs)
 
-        s = self._get_hashed_state(obs, state)
-        p = self.policy.get_distribution(s)
-        return p.get_actions(deterministic=deterministic), None
+        # e-greedy sampling
+        if not deterministic and np.random.rand() < self.policy.epsilon:
+            a = torch.tensor([np.random.randint(self.policy.n_actions)])
+        else:
+            hashed_sucessor_state = self._get_hashed_state(obs, state)
+
+            p = self.policy.get_distribution(hashed_sucessor_state)
+
+            # sample the action
+            a = p.get_actions(deterministic=deterministic)
+
+        # update the RNN Hidden state
+        next_state = self._update_hidden_state(obs, state)
+
+        return a, next_state
+
+    def _within_batch_update(
+        self, obs: OaroTuple, state: None, state_prev: None
+    ) -> None:
+        # prep the observations for the RNN
+        o = convert_8bit_to_float(obs.obs[None, ...]).to(DEVICE)
+        op = convert_8bit_to_float(obs.obsp[None, ...]).to(DEVICE)
+
+        state = state.view(1, -1).to(DEVICE)
+        state_prev = state_prev.view(1, -1).to(DEVICE)
+
+        # pass through the RNN to get the embedding
+        _, z = self.state_inference_model.encode_from_state(o, state)
+        _, zp = self.state_inference_model.encode_from_state(op, state_prev)
+
+        # convert from one hot tensor to int array
+        s = torch.argmax(z, dim=-1).detach().cpu().view(-1).numpy()
+        sp = torch.argmax(zp, dim=-1).detach().cpu().view(-1).numpy()
+
+        s = s.dot(self.hash_vector)
+        sp = sp.dot(self.hash_vector)
+        self.update_qvalues(s, obs.a, obs.r, sp)

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -135,7 +135,7 @@ def train_epochs(
     lr_decay = train_args.get("lr_decay", None)
     grad_clip = train_args.get("grad_clip", None)
     if hasattr(model, "configure_optimizers"):
-        optimizer = model.configure_optimizers(dict(lr=lr), lr_decay)
+        optimizer = model.configure_optimizers(dict(lr=lr))
     else:
         assert lr_decay is None, "LR Decay only supported for Model Base"
         optimizer = optim.AdamW(lr=lr)
@@ -195,3 +195,35 @@ def convert_8bit_array_to_float_tensor(
         return torch.stack([convert_8bit_array_to_float_tensor(x0) for x0 in x])
 
     return convert_8bit_to_float(make_tensor(x))
+
+
+def maybe_convert_to_tensor(x: Union[Tensor, np.ndarray]) -> Tensor:
+    return x if isinstance(x, Tensor) else torch.tensor(x)
+
+
+def check_shape_match(x: Tensor, shape: Tuple[int]):
+    return x.view(-1).shape[0] == torch.prod(torch.tensor(shape))
+
+
+def assert_correct_end_shape(
+    x: Tensor, shape: Tuple[int, int] | Tuple[int, int, int]
+) -> bool:
+    if len(shape) == 2:
+        assert (
+            x.shape[-2:] == shape
+        ), f"Tensor Shape {x.shape} does not match target {shape}"
+    elif len(shape) == 3:
+        assert (
+            x.shape[-3:] == shape
+        ), f"Tensor Shape {x.shape} does not match target {shape}"
+    else:
+        raise Exception(f"Shape {shape} is unsupported")
+
+
+def maybe_expand_batch(
+    x: Tensor, target_shape: Tuple[int, int] | Tuple[int, int, int]
+) -> Tensor:
+    # expand if unbatched
+    if check_shape_match(x, target_shape):
+        return x[None, ...]
+    return x

@@ -5,9 +5,19 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 from torch.distributions.categorical import Categorical
 
-from state_inference.utils.pytorch_utils import DEVICE, gumbel_softmax
+from state_inference.utils.pytorch_utils import (
+    DEVICE,
+    assert_correct_end_shape,
+    check_shape_match,
+    gumbel_softmax,
+    maybe_expand_batch,
+)
 
 OPTIM_KWARGS = dict(lr=3e-4)
+VAE_BETA = 1.0
+VAE_TAU = 1.0
+VAE_GAMMA = 1.0
+INPUT_SHAPE = (1, 40, 40)
 
 
 class ModelBase(nn.Module):
@@ -70,6 +80,75 @@ class Encoder(MLP):
         return super().forward(x.view(x.shape[0], -1))
 
 
+class Conv2dBlock(nn.Module):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size,
+        stride=1,
+        padding=0,
+        act_fn="relu",
+        conv_kwargs=None,
+    ) -> None:
+        super().__init__()
+        conv_kwargs = conv_kwargs if conv_kwargs is not None else dict()
+        self.conv2d = nn.Conv2d(
+            in_channels, out_channels, kernel_size, stride, padding, **conv_kwargs
+        )
+        self.batch_norm = nn.BatchNorm2d(out_channels)
+        self.activation = getattr(F, act_fn)
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = self.conv2d(x)
+        x = self.batch_norm(x)
+        x = self.activation(x)
+        return x
+
+
+class CnnEncoder(ModelBase):
+    def __init__(
+        self,
+        in_channel: int,
+        output_size: int,
+        height: int = 40,
+        width: int = 40,
+        act_fn="relu",
+    ):
+        super().__init__()
+        self.cnn = nn.Sequential(
+            Conv2dBlock(in_channel, 32, 8, stride=4, padding=0, act_fn=act_fn),
+            Conv2dBlock(32, 64, 4, stride=2, padding=0, act_fn=act_fn),
+            Conv2dBlock(64, 64, 3, stride=1, padding=0, act_fn=act_fn),
+            nn.Flatten(),
+        )
+
+        # Compute shape by doing one forward pass
+        self.eval()
+        x = torch.rand(1, in_channel, height, width)
+        with torch.no_grad():
+            n_flatten = self.cnn(x).shape[-1]
+
+        self.linear = nn.Sequential(nn.Linear(n_flatten, output_size), nn.ReLU())
+
+        self.input_shape = (in_channel, height, width)
+
+    def forward(self, x):
+        # Assume NxCxHxW input or CxHxW input
+        assert_correct_end_shape(x, self.input_shape)
+        x = maybe_expand_batch(x, self.input_shape)
+        return self.linear(self.cnn(x))
+
+    def encode_sequence(self, x: Tensor, batch_first: bool = True) -> Tensor:
+        assert x.ndim == 5
+        if batch_first:
+            x = x.permute(1, 0, 2, 3, 4)
+        x = torch.stack([self(xt) for xt in x])
+        if batch_first:
+            x = x.permute(1, 0, 2, 3, 4)
+        return x
+
+
 class Decoder(MLP):
     def __init__(
         self,
@@ -87,16 +166,82 @@ class Decoder(MLP):
         return F.mse_loss(y_hat, torch.flatten(target, start_dim=1))
 
 
+class ConvTrans2dBlock(nn.Module):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size,
+        stride=1,
+        padding=0,
+        act_fn="relu",
+        conv_kwargs=None,
+    ) -> None:
+        super().__init__()
+        conv_kwargs = conv_kwargs if conv_kwargs is not None else dict()
+        self.conv_trans2d = nn.ConvTranspose2d(
+            in_channels, out_channels, kernel_size, stride, padding, **conv_kwargs
+        )
+        self.batch_norm = nn.BatchNorm2d(out_channels)
+        self.activation = getattr(F, act_fn)
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = self.conv_trans2d(x)
+        x = self.batch_norm(x)
+        x = self.activation(x)
+        return x
+
+
+class CnnDecoder(ModelBase):
+    def __init__(self, input_size: int, channel_out: int, act_fn: str = "relu"):
+        super().__init__()
+
+        self.fc = nn.Sequential(nn.Linear(input_size, 4 * 4 * 128), nn.ReLU())
+
+        self.deconv = nn.Sequential(
+            ConvTrans2dBlock(128, 128, 4, stride=2, padding=1, act_fn=act_fn),
+            ConvTrans2dBlock(128, 64, 4, stride=2, padding=1, act_fn=act_fn),
+            ConvTrans2dBlock(64, 32, 4, stride=4, padding=0, act_fn=act_fn),
+            ConvTrans2dBlock(32, channel_out, 3, stride=1, padding=1, act_fn=act_fn),
+        )
+
+    def forward(self, x):
+        hidden = self.fc(x)
+        hidden = hidden.view(-1, 128, 4, 4)  # does not effect batching
+        hidden = self.deconv(hidden)
+        observation = F.sigmoid(hidden)
+        if observation.shape[0] == 1:
+            return observation.squeeze(0)
+        return observation
+
+    def loss(self, x, target):
+        y_hat = self(x)
+        return F.mse_loss(y_hat, torch.flatten(target, start_dim=1))
+
+
+def unit_test_vae_reconstruction(model, input_shape):
+    # Unit Test
+    model.eval()
+    with torch.no_grad():
+        x = torch.rand(*input_shape)
+        _, z = model.encode(x)
+        x_hat = model.decode(z)
+        assert check_shape_match(
+            x_hat, input_shape
+        ), f"Reconstruction Shape {tuple(x_hat.shape)} Doesn't match Input {input_shape}"
+
+
 class StateVae(ModelBase):
     def __init__(
         self,
         encoder: ModelBase,
         decoder: ModelBase,
         z_dim: int,
-        z_layers: int = 2,
-        beta: float = 1,
-        tau: float = 1,
-        gamma: float = 1,
+        z_layers: int,
+        beta: float = VAE_BETA,
+        tau: float = VAE_TAU,
+        gamma: float = VAE_GAMMA,
+        input_shape: Tuple[int, int, int] = INPUT_SHAPE,
     ):
         """
         Note: larger values of beta result in more independent state values
@@ -109,8 +254,18 @@ class StateVae(ModelBase):
         self.beta = beta
         self.tau = tau
         self.gamma = gamma
+        self.input_shape = input_shape
+
+        unit_test_vae_reconstruction(self, input_shape)
 
     def reparameterize(self, logits):
+        """
+        Assume input shape of NxLxD
+        """
+        assert logits.ndim == 3
+        assert logits.shape[1] == self.z_layers
+        assert logits.shape[2] == self.z_dim
+
         # either sample the state or take the argmax
         if self.training:
             z = gumbel_softmax(logits=logits, tau=self.tau, hard=False)
@@ -119,23 +274,31 @@ class StateVae(ModelBase):
             z = F.one_hot(s, num_classes=self.z_dim)
         return z
 
-    def encode(self, x):
+    def encode(self, x: Tensor) -> Tuple[Tensor, Tensor]:
+        """
+        Assume input shape of NxCxHxW
+        """
         # reshape encoder output to (n_batch, z_layers, z_dim)
         logits = self.encoder(x).view(-1, self.z_layers, self.z_dim)
         z = self.reparameterize(logits)
         return logits, z
 
     def decode(self, z):
+        print("decode", z.shape)
         return self.decoder(z.view(-1, self.z_layers * self.z_dim).float())
 
     def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
         logits, z = self.encode(x)
-        return (logits, z), self.decode(z).view(x.shape)  # preserve original shape
+        print(logits.shape, z.shape)
+        x_hat = self.decode(z)
+        print(x_hat.shape)
+        return (logits, z), x_hat.view(x.shape)  # preserve original shape
 
     def kl_loss(self, logits):
         return Categorical(logits=logits).entropy().mean()
 
     def loss(self, x: Tensor) -> Tensor:
+        print(x.shape)
         x = x.to(DEVICE).float()
         (logits, _), x_hat = self(x)
 
@@ -146,13 +309,14 @@ class StateVae(ModelBase):
         return recon_loss + kl_loss * self.beta
 
     def get_state(self, x):
+        """
+        Assume input shape of NxCxHxW or CxHxW.
+        """
+        assert x.ndim <= 4
+        assert_correct_end_shape(x, self.input_shape)
+
         self.eval()
         with torch.no_grad():
-            # expand if unbatched
-            assert x.view(-1).shape[0] % self.encoder.nin == 0
-            if x.view(-1).shape[0] == self.encoder.nin:
-                x = x[None, ...]
-
             _, z = self.encode(x.to(DEVICE))
 
             state_vars = torch.argmax(z, dim=-1).detach().cpu().numpy()
