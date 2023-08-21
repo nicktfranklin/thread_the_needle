@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import List, Tuple
 
 import torch
 from torch.nn.utils.rnn import pad_sequence
@@ -98,19 +98,48 @@ class TransitionVaeDataset(Dataset):
 
 
 class RecurrentVaeDataset(Dataset):
+    """Creates a dataset of tuples with the elements
+        (obs, actions)
+
+    where
+        -obs is a Batch*Length*Height*Width*Channel tensor
+        -actions is a Batch*Length*n_actions tensor
+    """
+
     def __init__(
         self,
         observations: torch.tensor,
         actions: torch.tensor,
+        trial_idx: List[int],
         max_sequence_len: int,
     ):
         self.obs = convert_8bit_to_float(observations)
         self.actions = actions.float()
+        self.trial_idx = trial_idx
         self.n = max_sequence_len
 
     def __getitem__(self, index: int) -> Tuple:
-        start = max(0, index - self.n)
-        return self.obs[start:index], self.actions[start:index], index - start
+        # get the first observation
+        start_idx = max(0, index - self.n)
+
+        # filter by trial number
+        while self.trial_idx[start_idx] < self.trial_idx[index]:
+            start_idx += 1
+
+        # EDIT: this should be done in the loss function of the model.
+        # # get the actions from the previous time step
+        # if (start_idx > 0) and (self.trial_idx[start_idx - 1] == self.trial_idx):
+        #     actions = self.actions[start_idx - 1 : index]
+        # else:
+        #     # pad with zeros if trial start
+        #     actions = torch.cat(
+        #         [torch.zeros(1, self.actions.shape[1]), self.actions[start_idx:index]]
+        #     )
+
+        return (
+            self.obs[start_idx : index + 1],
+            self.actions[start_idx : index + 1],
+        )
 
     def __len__(self):
         return len(self.obs)
@@ -119,22 +148,36 @@ class RecurrentVaeDataset(Dataset):
     def collate_fn(batch):
         obs = [x[0] for x in batch]
         actions = [x[1] for x in batch]
-        lengths = [x[2] for x in batch]
 
+        # we want to left-pad the sequences, and the pad_sequence
+        # function right pads them.  To do so, we use reverse -> pad -> reverse
+
+        # reverse
+        obs = [torch.flip(o, dims=tuple([0])) for o in obs]
+        actions = [torch.flip(a, dims=tuple([0])) for a in actions]
+
+        # pad
         obs = pad_sequence(obs, batch_first=True, padding_value=0)
         actions = pad_sequence(actions, batch_first=True, padding_value=0)
 
-        return (obs, actions), lengths
+        # reverse (dim 1 is sequence after padding)
+        obs = torch.flip(obs, dims=tuple([1]))
+        actions = torch.flip(actions, dims=tuple([1]))
+
+        # shift the actions by one
+
+        return obs, actions
 
     @classmethod
-    def contruct_dataloader(
+    def construct_dataloader(
         cls,
         observations: torch.tensor,
         actions: torch.tensor,
+        trial_index: List[int],
         max_sequence_len: int = 10,
         batch_size: int = 64,
     ):
-        dataset = cls(observations, actions, max_sequence_len)
+        dataset = cls(observations, actions, trial_index, max_sequence_len)
         return torch.utils.data.DataLoader(
             dataset, batch_size=batch_size, collate_fn=cls.collate_fn
         )
