@@ -130,6 +130,8 @@ def train_epochs(
     test_loader: DataLoader,
     train_args: Dict[str, Any],
     preprocess: Optional[callable] = None,
+    scheduler: Optional[str] = None,
+    scheduler_kwargs: Optional[Dict[str, Any]] = None,
 ):
     epochs, lr = train_args["epochs"], train_args["lr"]
     lr_decay = train_args.get("lr_decay", None)
@@ -139,6 +141,12 @@ def train_epochs(
     else:
         assert lr_decay is None, "LR Decay only supported for Model Base"
         optimizer = optim.AdamW(lr=lr)
+
+    if scheduler is not None:
+        assert scheduler_kwargs is not None, "must specify kwargs for scheduler!"
+        SchedularClass = getattr(torch.optim.lr_scheduler, scheduler)
+        scheduler = SchedularClass(optimizer, **scheduler_kwargs)
+        assert hasattr(scheduler, "step")
 
     train_losses = []
     test_losses = [eval_loss(model, test_loader, preprocess=preprocess)]
@@ -154,6 +162,9 @@ def train_epochs(
 
         if not QUIET:
             print(f"Epoch {epoch}, ELBO Loss (test) {test_loss:.6f}")
+
+        if scheduler is not None:
+            scheduler.step()
 
     return train_losses, test_losses
 

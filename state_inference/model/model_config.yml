@@ -1,14 +1,25 @@
 state_inference_model:
-  batch_size: 64
+  batch_size: 16
   n_epochs: 20
   grad_clip: True
   optim_kwargs:
     lr: 0.0003
 
 vae_kwargs:
+  z_dim: 128
+  z_layers: 32
   beta: 1.0
-  tau: 1.0
-  gamma: 1.0 
+  tau: 0.5
+  gamma: 0.9997 
+
+
+cnn_encoder:
+  in_channels: 1
+  act_fn: 'relu'
+
+cnn_decoder:
+  channel_out: 1
+  act_fn: 'relu'
 
 value_iteration_kwargs:
   gamma: 0.99
