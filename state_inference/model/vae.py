@@ -395,18 +395,6 @@ class CnnVae(StateVae):
         encoder = CnnEncoder(**encoder_kwargs)
         decoder = CnnDecoder(**decoder_kwargs)
 
-        # h = env_kwargs["map_height"]
-        # observation_dim = h**2
-        # decoder_hidden_layers = [observation_dim // 10, observation_dim // 5]
-
-        # embedding_dim = vae_kwargs["z_dim"] * vae_kwargs["z_layers"]
-
-        # decoder = Decoder(
-        #     embedding_dim,
-        #     decoder_hidden_layers,
-        #     observation_dim,
-        # )
-
         return cls(encoder, decoder, **vae_kwargs)
 
     def anneal_beta(self):
