@@ -12,6 +12,12 @@ vae_kwargs:
   tau: 0.5
   gamma: 0.9997 
 
+mlp_encoder:
+  dropout: 0.00
+
+mlp_decoder:
+  dropout: 0.00
+
 
 cnn_encoder:
   in_channels: 1
