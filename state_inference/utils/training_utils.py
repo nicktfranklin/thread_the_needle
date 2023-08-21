@@ -51,7 +51,6 @@ def get_policy_prob(model, fn_get_pmf: Callable, n_states=400, map_height=60, cn
         for s in range(n_states)
     ]
     obs = torch.stack(obs)
-    print(obs.shape)
     with torch.no_grad():
         pmf = fn_get_pmf(model, obs)
     return pmf
