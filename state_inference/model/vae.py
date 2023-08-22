@@ -27,7 +27,7 @@ class MLP(nn.Module):
         input_size: int,
         hidden_sizes: List[int],
         output_size: int,
-        dropout: float = 0.00,
+        dropout: float = 0.1,
     ):
         super().__init__()
         self.nin = input_size
@@ -104,7 +104,7 @@ class CnnEncoder(BaseEncoder):
                         padding=1,
                     ),
                     nn.BatchNorm2d(h_dim),
-                    nn.ReLU(),
+                    nn.LeakyReLU(),
                 )
             )
             h_in = h_dim
