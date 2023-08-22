@@ -332,12 +332,16 @@ class StateVae(nn.Module):
 
         q = Categorical(logits=logits)
         p = Categorical(probs=torch.full((B * N, K), 1.0 / K).to(DEVICE))
-        kl = dist.kl.kl_divergence(q, p).view(B, N)
 
-        return torch.mean(torch.sum(kl, dim=1))
+        # sum loss over dimensions in each example, average over batch
+        kl = dist.kl.kl_divergence(q, p).view(B, N).sum(1).mean()
+
+        return kl
 
     def recontruction_loss(self, x, x_hat):
-        return F.mse_loss(x_hat, x, reduction="mean")
+        mse_loss = F.mse_loss(x_hat, x, reduction="none")
+        # sum loss over dimensions in each example, average over batch
+        return mse_loss.view(x.shape[0], -1).sum(1).mean()
 
     def loss(self, x: Tensor) -> Tensor:
         x = x.to(DEVICE).float()
