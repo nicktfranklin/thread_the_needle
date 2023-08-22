@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
+import torch.distributions as dist
 import torch.nn.functional as F
 from torch import Tensor, nn
 from torch.distributions.categorical import Categorical
@@ -320,7 +321,23 @@ class StateVae(nn.Module):
         return (logits, z), x_hat.view(x.shape)  # preserve original shape
 
     def kl_loss(self, logits):
-        return Categorical(logits=logits).entropy().mean()
+        """
+        Logits are shape (B, N, K), where B is the number of batches, N is the number
+            of categorical distributions and where K is the number of classes
+        # returns kl-divergence, in nats
+        """
+        assert logits.ndim == 3
+        B, N, K = logits.shape
+        logits = logits.view(B * N, K)
+
+        q = Categorical(logits=logits)
+        p = Categorical(probs=torch.full((B * N, K), 1.0 / K).to(DEVICE))
+        kl = dist.kl.kl_divergence(q, p).view(B, N)
+
+        return torch.mean(torch.sum(kl, dim=1))
+
+    def recontruction_loss(self, x, x_hat):
+        return F.mse_loss(x_hat, x, reduction="mean")
 
     def loss(self, x: Tensor) -> Tensor:
         x = x.to(DEVICE).float()
@@ -328,9 +345,23 @@ class StateVae(nn.Module):
 
         # get the two components of the ELBO loss
         kl_loss = self.kl_loss(logits)
-        recon_loss = F.mse_loss(x_hat, x, reduction="sum")
+        recon_loss = self.recontruction_loss(x, x_hat)
 
         return recon_loss + kl_loss * self.beta
+
+    def diagnose_loss(self, x):
+        with torch.no_grad():
+            x = x.to(DEVICE).float()
+            (logits, _), x_hat = self(x)
+
+            # get the two components of the ELBO loss
+            kl_loss = self.kl_loss(logits)
+            recon_loss = self.recontruction_loss(x, x_hat)
+
+            loss = recon_loss - kl_loss * self.beta
+            print(
+                f"Total Loss: {loss}, Reconstruction: {recon_loss}, KL-Loss: {kl_loss}, beta: {self.beta}"
+            )
 
     def get_state(self, x):
         """
