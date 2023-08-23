@@ -83,17 +83,16 @@ class CnnEncoder(BaseEncoder):
         output_size: int,
         height: int = 40,
         width: int = 40,
-        hidden_dims: Optional[List[int]] = None,
-        act_fn="relu",
+        channels: Optional[List[int]] = None,
     ):
         super().__init__()
 
-        if hidden_dims is None:
-            hidden_dims = [32, 64, 128, 256, 512]
+        if channels is None:
+            channels = [32, 64, 128, 256, 512]
 
         modules = []
         h_in = in_channels
-        for h_dim in hidden_dims:
+        for h_dim in channels:
             modules.append(
                 nn.Sequential(
                     nn.Conv2d(
@@ -109,7 +108,7 @@ class CnnEncoder(BaseEncoder):
             )
             h_in = h_dim
         self.cnn = nn.Sequential(*modules)
-        self.fc_z = nn.Linear(hidden_dims[-1] * 4, output_size)
+        self.fc_z = nn.Linear(channels[-1] * 4, output_size)
 
         self.input_shape = (in_channels, height, width)
 
@@ -155,29 +154,29 @@ class CnnDecoder(BaseDecoder):
         self,
         input_size: int,
         channel_out: int,
-        act_fn: str = "relu",
-        hidden_dims: Optional[List[int]] = None,
+        channels: Optional[List[int]] = None,
     ):
         super().__init__()
 
-        if hidden_dims is None:
-            hidden_dims = [32, 64, 128, 256, 512][::-1]
+        if channels is None:
+            channels = [32, 64, 128, 256, 512][::-1]
 
-        self.fc = nn.Linear(input_size, 4 * hidden_dims[0])
+        self.fc = nn.Linear(input_size, 4 * channels[0])
+        self.first_channel_size = channels[0]
 
         modules = []
-        for ii in range(len(hidden_dims) - 1):
+        for ii in range(len(channels) - 1):
             modules.append(
                 nn.Sequential(
                     nn.ConvTranspose2d(
-                        hidden_dims[ii],
-                        hidden_dims[ii + 1],
+                        channels[ii],
+                        channels[ii + 1],
                         kernel_size=3,
                         stride=2,
                         padding=1,
                         output_padding=1,
                     ),
-                    nn.BatchNorm2d(hidden_dims[ii + 1]),
+                    nn.BatchNorm2d(channels[ii + 1]),
                     nn.LeakyReLU(),
                 )
             )
@@ -185,24 +184,25 @@ class CnnDecoder(BaseDecoder):
 
         self.final_layer = nn.Sequential(
             nn.ConvTranspose2d(
-                hidden_dims[-1],
-                hidden_dims[-1],
+                channels[-1],
+                channels[-1],
                 3,
                 stride=2,
                 padding=1,
                 output_padding=1,
             ),
-            nn.BatchNorm2d(hidden_dims[-1]),
+            nn.BatchNorm2d(channels[-1]),
             nn.LeakyReLU(),
-            nn.Conv2d(
-                hidden_dims[-1], out_channels=channel_out, kernel_size=3, padding=1
-            ),
+            nn.Conv2d(channels[-1], out_channels=channel_out, kernel_size=3, padding=1),
             nn.Sigmoid(),
         )
 
     def forward(self, z):
         hidden = self.fc(z)
-        hidden = hidden.view(-1, 512, 2, 2)  # does not effect batching
+        print(hidden.shape)
+        hidden = hidden.view(
+            -1, self.first_channel_size, 2, 2
+        )  # does not effect batching
         hidden = self.deconv(hidden)
         observation = self.final_layer(hidden)
         if observation.shape[0] == 1:

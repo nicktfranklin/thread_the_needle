@@ -21,11 +21,21 @@ mlp_decoder:
 
 cnn_encoder:
   in_channels: 1
-  act_fn: 'relu'
+  channels:
+    - 32
+    - 64
+    - 128
+    - 256
+    - 512
 
 cnn_decoder:
   channel_out: 1
-  act_fn: 'relu'
+  channels:
+    - 512
+    - 256
+    - 128
+    - 64
+    - 32
 
 value_iteration_kwargs:
   gamma: 0.99
