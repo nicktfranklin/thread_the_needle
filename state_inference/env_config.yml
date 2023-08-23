@@ -61,15 +61,15 @@ thread_the_needle:
 thread_the_needle_small:
   env_kwargs:
     observation_kwargs:
-      rbf_kernel_size: 33  # must be odd
-      rbf_kernel_scale: 0.3
+      rbf_kernel_size: 25  # must be odd
+      rbf_kernel_scale: 0.45
       location_noise_scale: 0.12
       noise_log_mean: -3
       noise_log_scale: 0.05
       noise_corruption_prob: 0.005
     height: 20
     width: 20
-    map_height: 64
+    map_height: 42
     state_rewards:
       84: 100
       399: -1
