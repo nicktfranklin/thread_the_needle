@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
+import torch.distributions as dist
 import torch.nn.functional as F
 from torch import Tensor, nn
 from torch.distributions.categorical import Categorical
@@ -20,27 +21,47 @@ VAE_GAMMA = 1.0
 INPUT_SHAPE = (1, 40, 40)
 
 
-class ModelBase(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    def configure_optimizers(
+class MLP(nn.Module):
+    def __init__(
         self,
-        optim_kwargs: Optional[Dict[str, Any]] = None,
+        input_size: int,
+        hidden_sizes: List[int],
+        output_size: int,
+        dropout: float = 0.1,
     ):
-        optim_kwargs = optim_kwargs if optim_kwargs is not None else OPTIM_KWARGS
-        optimizer = torch.optim.AdamW(self.parameters(), **optim_kwargs)
+        super().__init__()
+        self.nin = input_size
+        self.nout = output_size
 
-        return optimizer
+        # define a simple MLP neural net
+        self.net = []
 
-    def forward(self, x):
-        raise NotImplementedError
+        d_in = self.nin
+        for d_out in hidden_sizes:
+            self.net.extend(
+                [
+                    nn.Linear(d_in, d_out),
+                    nn.BatchNorm1d(d_out),
+                    nn.Dropout(p=dropout),
+                    nn.ReLU(),
+                ]
+            )
+            d_in = d_out
 
-    def prep_next_batch(self):
-        pass
+        # final linear layer
+        self.net.append(nn.Linear(d_out, self.nout))
+
+        self.net = nn.Sequential(*self.net)
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.net(x)
 
 
-class MLP(ModelBase):
+class BaseEncoder(nn.Module):
+    pass
+
+
+class MlpEncoder(BaseEncoder):
     def __init__(
         self,
         input_size: int,
@@ -49,55 +70,29 @@ class MLP(ModelBase):
         dropout: float = 0.01,
     ):
         super().__init__()
-        self.nin = input_size
-        self.nout = output_size
-
-        # define a simple MLP neural net
-        self.net = []
-        hidden_size = [self.nin] + hidden_sizes + [self.nout]
-        for h0, h1 in zip(hidden_size, hidden_size[1:]):
-            self.net.extend(
-                [
-                    nn.Linear(h0, h1),
-                    nn.BatchNorm1d(h1),
-                    nn.Dropout(p=dropout),
-                    nn.ReLU(),
-                ]
-            )
-
-        # pop the last ReLU and dropout layers for the output
-        self.net.pop()
-        self.net.pop()
-
-        self.net = nn.Sequential(*self.net)
+        self.net = MLP(input_size, hidden_sizes, output_size, dropout)
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.net(x)
+        return self.net(x.view(x.shape[0], -1))
 
 
-class Encoder(MLP):
-    def forward(self, x: Tensor) -> Tensor:
-        return super().forward(x.view(x.shape[0], -1))
-
-
-class CnnEncoder(ModelBase):
+class CnnEncoder(BaseEncoder):
     def __init__(
         self,
         in_channels: int,
         output_size: int,
         height: int = 40,
         width: int = 40,
-        hidden_dims: Optional[List[int]] = None,
-        act_fn="relu",
+        channels: Optional[List[int]] = None,
     ):
         super().__init__()
 
-        if hidden_dims is None:
-            hidden_dims = [32, 64, 128, 256, 512]
+        if channels is None:
+            channels = [32, 64, 128, 256, 512]
 
         modules = []
         h_in = in_channels
-        for h_dim in hidden_dims:
+        for h_dim in channels:
             modules.append(
                 nn.Sequential(
                     nn.Conv2d(
@@ -113,7 +108,7 @@ class CnnEncoder(ModelBase):
             )
             h_in = h_dim
         self.cnn = nn.Sequential(*modules)
-        self.fc_z = nn.Linear(hidden_dims[-1] * 4, output_size)
+        self.fc_z = nn.Linear(channels[-1] * 4, output_size)
 
         self.input_shape = (in_channels, height, width)
 
@@ -133,7 +128,13 @@ class CnnEncoder(ModelBase):
         return x
 
 
-class Decoder(MLP):
+class BaseDecoder(nn.Module):
+    def loss(self, x, target):
+        y_hat = self(x)
+        return F.mse_loss(y_hat, torch.flatten(target, start_dim=1))
+
+
+class MlpDecoder(BaseDecoder):
     def __init__(
         self,
         input_size: int,
@@ -141,43 +142,41 @@ class Decoder(MLP):
         output_size: int,
         dropout: float = 0.01,
     ):
-        super().__init__(input_size, hidden_sizes, output_size, dropout)
-        self.net.pop(-1)
-        self.net.append(torch.nn.Sigmoid())
+        super().__init__()
+        self.net = MLP(input_size, hidden_sizes, output_size, dropout)
 
-    def loss(self, x, target):
-        y_hat = self(x)
-        return F.mse_loss(y_hat, torch.flatten(target, start_dim=1))
+    def forward(self, x):
+        return F.sigmoid(self.net(x))
 
 
-class CnnDecoder(ModelBase):
+class CnnDecoder(BaseDecoder):
     def __init__(
         self,
         input_size: int,
         channel_out: int,
-        act_fn: str = "relu",
-        hidden_dims: Optional[List[int]] = None,
+        channels: Optional[List[int]] = None,
     ):
         super().__init__()
 
-        if hidden_dims is None:
-            hidden_dims = [32, 64, 128, 256, 512][::-1]
+        if channels is None:
+            channels = [32, 64, 128, 256, 512][::-1]
 
-        self.fc = nn.Linear(input_size, 4 * hidden_dims[0])
+        self.fc = nn.Linear(input_size, 4 * channels[0])
+        self.first_channel_size = channels[0]
 
         modules = []
-        for ii in range(len(hidden_dims) - 1):
+        for ii in range(len(channels) - 1):
             modules.append(
                 nn.Sequential(
                     nn.ConvTranspose2d(
-                        hidden_dims[ii],
-                        hidden_dims[ii + 1],
+                        channels[ii],
+                        channels[ii + 1],
                         kernel_size=3,
                         stride=2,
                         padding=1,
                         output_padding=1,
                     ),
-                    nn.BatchNorm2d(hidden_dims[ii + 1]),
+                    nn.BatchNorm2d(channels[ii + 1]),
                     nn.LeakyReLU(),
                 )
             )
@@ -185,24 +184,24 @@ class CnnDecoder(ModelBase):
 
         self.final_layer = nn.Sequential(
             nn.ConvTranspose2d(
-                hidden_dims[-1],
-                hidden_dims[-1],
+                channels[-1],
+                channels[-1],
                 3,
                 stride=2,
                 padding=1,
                 output_padding=1,
             ),
-            nn.BatchNorm2d(hidden_dims[-1]),
+            nn.BatchNorm2d(channels[-1]),
             nn.LeakyReLU(),
-            nn.Conv2d(
-                hidden_dims[-1], out_channels=channel_out, kernel_size=3, padding=1
-            ),
+            nn.Conv2d(channels[-1], out_channels=channel_out, kernel_size=3, padding=1),
             nn.Sigmoid(),
         )
 
     def forward(self, z):
         hidden = self.fc(z)
-        hidden = hidden.view(-1, 512, 2, 2)  # does not effect batching
+        hidden = hidden.view(
+            -1, self.first_channel_size, 2, 2
+        )  # does not effect batching
         hidden = self.deconv(hidden)
         observation = self.final_layer(hidden)
         if observation.shape[0] == 1:
@@ -222,11 +221,11 @@ def unit_test_vae_reconstruction(model, input_shape):
         ), f"Reconstruction Shape {tuple(x_hat.shape)} Doesn't match Input {input_shape}"
 
 
-class StateVae(ModelBase):
+class StateVae(nn.Module):
     def __init__(
         self,
-        encoder: ModelBase,
-        decoder: ModelBase,
+        encoder: BaseEncoder,
+        decoder: BaseDecoder,
         z_dim: int,
         z_layers: int,
         beta: float = VAE_BETA,
@@ -249,6 +248,15 @@ class StateVae(ModelBase):
 
         unit_test_vae_reconstruction(self, input_shape)
 
+    def configure_optimizers(
+        self,
+        optim_kwargs: Optional[Dict[str, Any]] = None,
+    ):
+        optim_kwargs = optim_kwargs if optim_kwargs is not None else OPTIM_KWARGS
+        optimizer = torch.optim.AdamW(self.parameters(), **optim_kwargs)
+
+        return optimizer
+
     @classmethod
     def make_from_configs(
         cls, model_config: Dict[str, Any], env_kwargs: Dict[str, Any]
@@ -263,16 +271,17 @@ class StateVae(ModelBase):
         decoder_hidden_layers = [observation_dim // 10, observation_dim // 5]
 
         embedding_dim = vae_kwargs["z_dim"] * vae_kwargs["z_layers"]
-        encoder = Encoder(
+        encoder = MlpEncoder(
             observation_dim,
             encoder_hidden_layers,
             embedding_dim,
+            dropout=model_config["mlp_encoder"]["dropout"],
         )
-
-        decoder = Decoder(
+        decoder = MlpDecoder(
             embedding_dim,
             decoder_hidden_layers,
             observation_dim,
+            dropout=model_config["mlp_decoder"]["dropout"],
         )
 
         return cls(encoder, decoder, **vae_kwargs)
@@ -311,7 +320,27 @@ class StateVae(ModelBase):
         return (logits, z), x_hat.view(x.shape)  # preserve original shape
 
     def kl_loss(self, logits):
-        return Categorical(logits=logits).entropy().mean()
+        """
+        Logits are shape (B, N, K), where B is the number of batches, N is the number
+            of categorical distributions and where K is the number of classes
+        # returns kl-divergence, in nats
+        """
+        assert logits.ndim == 3
+        B, N, K = logits.shape
+        logits = logits.view(B * N, K)
+
+        q = Categorical(logits=logits)
+        p = Categorical(probs=torch.full((B * N, K), 1.0 / K).to(DEVICE))
+
+        # sum loss over dimensions in each example, average over batch
+        kl = dist.kl.kl_divergence(q, p).view(B, N).sum(1).mean()
+
+        return kl
+
+    def recontruction_loss(self, x, x_hat):
+        mse_loss = F.mse_loss(x_hat, x, reduction="none")
+        # sum loss over dimensions in each example, average over batch
+        return mse_loss.view(x.shape[0], -1).sum(1).mean()
 
     def loss(self, x: Tensor) -> Tensor:
         x = x.to(DEVICE).float()
@@ -319,9 +348,24 @@ class StateVae(ModelBase):
 
         # get the two components of the ELBO loss
         kl_loss = self.kl_loss(logits)
-        recon_loss = F.mse_loss(x_hat, x)
+        recon_loss = self.recontruction_loss(x, x_hat)
 
         return recon_loss + kl_loss * self.beta
+
+    def diagnose_loss(self, x):
+        with torch.no_grad():
+            x = x.to(DEVICE).float()
+            (logits, _), x_hat = self(x)
+
+            # get the two components of the ELBO loss
+            kl_loss = self.kl_loss(logits)
+            recon_loss = self.recontruction_loss(x, x_hat)
+
+            loss = recon_loss - kl_loss * self.beta
+            print(
+                f"Total Loss: {loss:.4f}, Reconstruction: {recon_loss:.4f}, "
+                + f"KL-Loss: {kl_loss:.4f}, beta: {self.beta}"
+            )
 
     def get_state(self, x):
         """
@@ -357,23 +401,20 @@ class StateVae(ModelBase):
 class CnnVae(StateVae):
     def __init__(
         self,
-        encoder: ModelBase,
-        decoder: ModelBase,
+        encoder: BaseEncoder,
+        decoder: BaseDecoder,
         z_dim: int,
         z_layers: int,
         beta: float = VAE_BETA,
         tau: float = VAE_TAU,
         gamma: float = VAE_GAMMA,
         input_shape: Tuple[int, int, int] = INPUT_SHAPE,
-        beta_annealing_rate: float = 0.25,
     ):
         super().__init__(
             encoder, decoder, z_dim, z_layers, beta, tau, gamma, input_shape
         )
 
-        self.beta = 0.01
-        self.max_beta = beta
-        self.beta_annealing_rate = beta_annealing_rate
+        self.beta = beta
 
     @classmethod
     def make_from_configs(
@@ -397,20 +438,12 @@ class CnnVae(StateVae):
 
         return cls(encoder, decoder, **vae_kwargs)
 
-    def anneal_beta(self):
-        # exponentially anneal beta towards max
-        self.beta += self.beta_annealing_rate * (self.max_beta - self.beta)
-
-    def prep_next_batch(self):
-        self.anneal_beta()
-        self.anneal_tau()
-
 
 class StateVaeLearnedTau(StateVae):
     def __init__(
         self,
-        encoder: ModelBase,
-        decoder: ModelBase,
+        encoder: BaseEncoder,
+        decoder: BaseDecoder,
         z_dim: int,
         z_layers: int = 2,
         beta: float = 1,
@@ -424,7 +457,7 @@ class StateVaeLearnedTau(StateVae):
         pass
 
 
-class DecoderWithActions(ModelBase):
+class DecoderWithActions(BaseDecoder):
     def __init__(
         self,
         embedding_size: int,
@@ -434,7 +467,7 @@ class DecoderWithActions(ModelBase):
         dropout: float = 0.01,
     ):
         super().__init__()
-        self.mlp = Decoder(embedding_size, hidden_sizes, ouput_size, dropout)
+        self.mlp = MlpDecoder(embedding_size, hidden_sizes, ouput_size, dropout)
         self.latent_embedding = nn.Linear(embedding_size, embedding_size)
         self.action_embedding = nn.Linear(n_actions, embedding_size)
 
@@ -453,8 +486,8 @@ class DecoderWithActions(ModelBase):
 class TransitionStateVae(StateVae):
     def __init__(
         self,
-        encoder: ModelBase,
-        decoder: ModelBase,
+        encoder: BaseEncoder,
+        decoder: BaseDecoder,
         next_obs_decoder: DecoderWithActions,
         z_dim: int,
         z_layers: int = 2,
@@ -485,7 +518,7 @@ class TransitionStateVae(StateVae):
         return recon_loss + next_obs_loss + kl_loss * self.beta
 
 
-class GruEncoder(ModelBase):
+class GruEncoder(nn.Module):
     def __init__(
         self,
         input_size: int,
@@ -545,8 +578,8 @@ class GruEncoder(ModelBase):
 class RecurrentVae(StateVae):
     def __init__(
         self,
-        encoder: GruEncoder,
-        decoder: ModelBase,
+        encoder: BaseEncoder,
+        decoder: BaseDecoder,
         z_dim: int,
         z_layers: int = 2,
         beta: float = 1,

@@ -119,7 +119,6 @@ def parse_task_config(task, config_file):
         config = yaml.load(file, Loader=yaml.FullLoader)
 
     env_kwargs = config[task]["env_kwargs"]
-    env_kwargs["observation_kwargs"] = config["obs_kwargs"]
 
     training_kwargs = config["training_kwargs"]
     training_kwargs.update(

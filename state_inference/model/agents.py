@@ -427,7 +427,7 @@ class ViDynaAgent(ViControlableStateInf):
                 self.update_qvalues(s, a, r, sp)
 
 
-class RecurrentStateInf(ViAgentWithExploration):
+class RecurrentViAgent(ViAgentWithExploration):
     def __init__(
         self,
         task,
@@ -483,7 +483,7 @@ class RecurrentStateInf(ViAgentWithExploration):
         Args:
             batch_size (int): The number of samples per batch
         """
-        return RecurrentStateInf.construct_dataloader_from_obs(
+        return RecurrentViAgent.construct_dataloader_from_obs(
             batch_size, self.cached_obs, self.max_sequence_len
         )
 
@@ -509,7 +509,7 @@ class RecurrentStateInf(ViAgentWithExploration):
 
                 if terminated:
                     break
-        return RecurrentStateInf.construct_dataloader_from_obs(
+        return RecurrentViAgent.construct_dataloader_from_obs(
             batch_size=len(validation_obs), list_obs=validation_obs, max_seq_len=seq_len
         )
 

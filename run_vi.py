@@ -4,7 +4,7 @@ import yaml
 
 from state_inference.gridworld_env import ThreadTheNeedleEnv
 from state_inference.model.agents import ViAgentWithExploration
-from state_inference.model.vae import DEVICE, Decoder, Encoder, StateVae
+from state_inference.model.vae import DEVICE, MlpDecoder, MlpEncoder, StateVae
 from state_inference.utils.training_utils import parse_task_config, train_model
 
 CONFIG_FILE = "state_inference/env_config.yml"
@@ -33,14 +33,14 @@ def make_vi(task):
     decoder_hidden = [OBSERVATION_DIM // 10, OBSERVATION_DIM // 5]
     z_dim = EMBEDDING_DIM * EMBEDDING_LAYERS
 
-    encoder = Encoder(
+    encoder = MlpEncoder(
         OBSERVATION_DIM,
         encoder_hidden,
         z_dim,
         dropout=dropout,
     )
 
-    decoder = Decoder(
+    decoder = MlpDecoder(
         z_dim,
         decoder_hidden,
         OBSERVATION_DIM,
