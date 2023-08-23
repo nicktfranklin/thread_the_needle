@@ -199,7 +199,6 @@ class CnnDecoder(BaseDecoder):
 
     def forward(self, z):
         hidden = self.fc(z)
-        print(hidden.shape)
         hidden = hidden.view(
             -1, self.first_channel_size, 2, 2
         )  # does not effect batching
@@ -364,7 +363,8 @@ class StateVae(nn.Module):
 
             loss = recon_loss - kl_loss * self.beta
             print(
-                f"Total Loss: {loss}, Reconstruction: {recon_loss}, KL-Loss: {kl_loss}, beta: {self.beta}"
+                f"Total Loss: {loss:.4f}, Reconstruction: {recon_loss:.4f}, "
+                + f"KL-Loss: {kl_loss:.4f}, beta: {self.beta}"
             )
 
     def get_state(self, x):

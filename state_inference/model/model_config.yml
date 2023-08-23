@@ -6,7 +6,7 @@ state_inference_model:
     lr: 0.0003
 
 vae_kwargs:
-  z_dim: 128
+  z_dim: 12 
   z_layers: 32
   beta: 1.0
   tau: 0.5
@@ -22,20 +22,20 @@ mlp_decoder:
 cnn_encoder:
   in_channels: 1
   channels:
+    - 16
     - 32
     - 64
     - 128
     - 256
-    - 512
 
 cnn_decoder:
   channel_out: 1
   channels:
-    - 512
     - 256
     - 128
     - 64
     - 32
+    - 16
 
 value_iteration_kwargs:
   gamma: 0.99
