@@ -5,37 +5,52 @@ state_inference_model:
   optim_kwargs:
     lr: 0.0003
 
-vae_kwargs:
-  z_dim: 12 
-  z_layers: 32
-  beta: 1.0
-  tau: 0.5
-  gamma: 0.9997 
+mlp_vae:
+  vae_kwargs:
+    z_dim: 12 
+    z_layers: 32
+    beta: 1.0
+    tau: 0.5
+    tau_annealing_rate: 0.9997 
+  encoder_class: MlpEncoder
+  decoder_class: MlpDecoder
+  encoder_kwargs:
+    dropout: 0.00
+    hidden_sizes:
+      - 820
+      - 410
 
-mlp_encoder:
-  dropout: 0.00
+  decoder_kwargs:
+    dropout: 0.00
+    hidden_sizes:
+      - 410
+      - 820
 
-mlp_decoder:
-  dropout: 0.00
-
-
-cnn_encoder:
-  in_channels: 1
-  channels:
-    - 16
-    - 32
-    - 64
-    - 128
-    - 256
-
-cnn_decoder:
-  channel_out: 1
-  channels:
-    - 256
-    - 128
-    - 64
-    - 32
-    - 16
+cnn_vae:
+  vae_kwargs:
+    z_dim: 12 
+    z_layers: 32
+    beta: 1.0
+    tau: 0.5
+    tau_annealing_rate: 0.9997 
+  encoder_class: CnnEncoder
+  decoder_class: CnnDecoder
+  encoder_kwargs:
+    in_channels: 1
+    channels:
+      - 16
+      - 32
+      - 64
+      - 128
+      - 256
+  decoder_kwargs:
+    channel_out: 1
+    channels:
+      - 256
+      - 128
+      - 64
+      - 32
+      - 16
 
 value_iteration_kwargs:
   gamma: 0.99

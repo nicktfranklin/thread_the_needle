@@ -2,7 +2,8 @@ import pandas as pd
 from stable_baselines3 import PPO
 
 from state_inference.gridworld_env import CnnWrapper, ThreadTheNeedleEnv
-from state_inference.utils.training_utils import parse_task_config, train_model
+from state_inference.utils.config_utils import parse_task_config
+from state_inference.utils.training_utils import train_model
 
 CONFIG_FILE = "state_inference/env_config.yml"
 TASK_NAME = "thread_the_needle"

@@ -2,7 +2,6 @@ from typing import Callable
 
 import numpy as np
 import torch
-import yaml
 
 
 def eval_model(model, n, start_state=None):
@@ -106,30 +105,3 @@ def train_model(
         model.learn(total_timesteps=n_train_steps, progress_bar=False)
 
     return model_reward, score
-
-
-def parse_model_config(config_file):
-    with open(config_file) as file:
-        config = yaml.load(file, Loader=yaml.FullLoader)
-    return config
-
-
-def parse_task_config(task, config_file):
-    with open(config_file) as file:
-        config = yaml.load(file, Loader=yaml.FullLoader)
-
-    env_kwargs = config[task]["env_kwargs"]
-
-    training_kwargs = config["training_kwargs"]
-    training_kwargs.update(
-        dict(
-            n_states=env_kwargs["n_states"],
-            map_height=env_kwargs["map_height"],
-            test_start_state=config[task]["test_start_state"],
-        )
-    )
-
-    return env_kwargs, training_kwargs
-
-
-# def parse_state_inf_
