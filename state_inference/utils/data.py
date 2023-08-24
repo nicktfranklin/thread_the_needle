@@ -101,6 +101,11 @@ class RecurrentVaeDataset(Dataset):
     """Creates a dataset of tuples with the elements
         (obs, actions)
 
+    observations and actions are alligned in time. That is
+    the observations and actions are sequences where their indicies
+    correspond to the same time. Causally, the observations precede the
+    actions.
+
     where
         -obs is a Batch*Length*Height*Width*Channel tensor
         -actions is a Batch*Length*n_actions tensor
@@ -125,16 +130,6 @@ class RecurrentVaeDataset(Dataset):
         # filter by trial number
         while self.trial_idx[start_idx] < self.trial_idx[index]:
             start_idx += 1
-
-        # EDIT: this should be done in the loss function of the model.
-        # # get the actions from the previous time step
-        # if (start_idx > 0) and (self.trial_idx[start_idx - 1] == self.trial_idx):
-        #     actions = self.actions[start_idx - 1 : index]
-        # else:
-        #     # pad with zeros if trial start
-        #     actions = torch.cat(
-        #         [torch.zeros(1, self.actions.shape[1]), self.actions[start_idx:index]]
-        #     )
 
         return (
             self.obs[start_idx : index + 1],
