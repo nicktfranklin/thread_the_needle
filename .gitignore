@@ -6,6 +6,7 @@
 .vscode
 .idea
 *.csv
+/simuations/*yml
 
 
 # Byte-compiled / optimized / DLL files
