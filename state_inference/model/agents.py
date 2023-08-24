@@ -11,6 +11,7 @@ from torch import Tensor
 from torch.utils.data import DataLoader
 from tqdm import trange
 
+import state_inference.model.vae
 from state_inference.gridworld_env import ActType, RewType
 from state_inference.model.tabular_models import (
     TabularRewardEstimator,
@@ -49,8 +50,13 @@ class OaroTuple:
 
 class BaseAgent:
     def __init__(
-        self, task, state_inference_model: StateVae, set_action: Set[ActType]
+        self,
+        task,
+        state_inference_model: StateVae,
+        set_action: List[ActType] | Set[ActType],
     ) -> None:
+        set_action = set_action if isinstance(set_action, set) else set(set_action)
+
         self.task = task
         self.state_inference_model = state_inference_model.to(DEVICE)
         self.set_action = set_action
@@ -187,7 +193,7 @@ class ValueIterationAgent(BaseAgent):
         self,
         task,
         state_inference_model: StateVae,
-        set_action: Set[ActType],
+        set_action: List[ActType] | Set[ActType],
         optim_kwargs: Optional[Dict[str, Any]] = None,
         grad_clip: bool = GRAD_CLIP,
         batch_size: int = BATCH_SIZE,
@@ -224,6 +230,18 @@ class ValueIterationAgent(BaseAgent):
                 for ii in range(self.state_inference_model.z_layers)
             ]
         )
+
+    @classmethod
+    def make_from_configs(
+        cls,
+        task,
+        agent_config: Dict[str, Any],
+        vae_config: Dict[str, Any],
+        env_kwargs: Dict[str, Any],
+    ):
+        VaeClass = getattr(state_inference.model.vae, agent_config["vae_model_class"])
+        vae = VaeClass.make_from_configs(vae_config, env_kwargs)
+        return cls(task, vae, **agent_config["state_inference_model"])
 
     def get_policy(self, obs: Tensor):
         s = self._get_hashed_state(obs)

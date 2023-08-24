@@ -299,20 +299,18 @@ class StateVae(nn.Module):
         return optimizer
 
     @classmethod
-    def make_from_configs(
-        cls, model_config: Dict[str, Any], env_kwargs: Dict[str, Any]
-    ):
+    def make_from_configs(cls, vae_config: Dict[str, Any], env_kwargs: Dict[str, Any]):
         h = env_kwargs["map_height"]
         input_shape = (1, h, h)
 
-        vae_kwargs = model_config["vae_kwargs"]
+        vae_kwargs = vae_config["vae_kwargs"]
         vae_kwargs["input_shape"] = input_shape
 
-        Encoder = getattr(sys.modules[__name__], model_config["encoder_class"])
-        Decoder = getattr(sys.modules[__name__], model_config["decoder_class"])
+        Encoder = getattr(sys.modules[__name__], vae_config["encoder_class"])
+        Decoder = getattr(sys.modules[__name__], vae_config["decoder_class"])
 
-        encoder_kwargs = model_config["encoder_kwargs"]
-        decoder_kwargs = model_config["decoder_kwargs"]
+        encoder_kwargs = vae_config["encoder_kwargs"]
+        decoder_kwargs = vae_config["decoder_kwargs"]
 
         embedding_dim = vae_kwargs["z_dim"] * vae_kwargs["z_layers"]
         encoder_kwargs["embedding_dim"] = embedding_dim
