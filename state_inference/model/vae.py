@@ -76,6 +76,19 @@ class MlpEncoder(BaseEncoder):
         return self.net(x.view(x.shape[0], -1))
 
 
+class ConvBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=1):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding),
+            nn.BatchNorm2d(out_channels),
+            nn.LeakyReLU(),
+        )
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.net(x)
+
+
 class CnnEncoder(BaseEncoder):
     def __init__(
         self,
@@ -93,19 +106,7 @@ class CnnEncoder(BaseEncoder):
         modules = []
         h_in = in_channels
         for h_dim in channels:
-            modules.append(
-                nn.Sequential(
-                    nn.Conv2d(
-                        in_channels=h_in,
-                        out_channels=h_dim,
-                        kernel_size=3,
-                        stride=2,
-                        padding=1,
-                    ),
-                    nn.BatchNorm2d(h_dim),
-                    nn.LeakyReLU(),
-                )
-            )
+            modules.append(ConvBlock(h_in, h_dim, 3, stride=2, padding=1))
             h_in = h_dim
         self.cnn = nn.Sequential(*modules)
         self.fc_z = nn.Linear(channels[-1] * 4, output_size)
@@ -149,6 +150,29 @@ class MlpDecoder(BaseDecoder):
         return F.sigmoid(self.net(x))
 
 
+class ConvTransposeBlock(nn.Module):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size,
+        stride=1,
+        padding=1,
+        output_padding=0,
+    ):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.ConvTranspose2d(
+                in_channels, out_channels, kernel_size, stride, padding, output_padding
+            ),
+            nn.BatchNorm2d(out_channels),
+            nn.LeakyReLU(),
+        )
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.net(x)
+
+
 class CnnDecoder(BaseDecoder):
     def __init__(
         self,
@@ -167,17 +191,13 @@ class CnnDecoder(BaseDecoder):
         modules = []
         for ii in range(len(channels) - 1):
             modules.append(
-                nn.Sequential(
-                    nn.ConvTranspose2d(
-                        channels[ii],
-                        channels[ii + 1],
-                        kernel_size=3,
-                        stride=2,
-                        padding=1,
-                        output_padding=1,
-                    ),
-                    nn.BatchNorm2d(channels[ii + 1]),
-                    nn.LeakyReLU(),
+                ConvTransposeBlock(
+                    channels[ii],
+                    channels[ii + 1],
+                    3,
+                    stride=2,
+                    padding=1,
+                    output_padding=1,
                 )
             )
         self.deconv = nn.Sequential(*modules)
