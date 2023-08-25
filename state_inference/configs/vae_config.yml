@@ -8,13 +8,11 @@ mlp_vae:
   encoder_class: MlpEncoder
   decoder_class: MlpDecoder
   encoder_kwargs:
-    dropout: 0.00
     hidden_sizes:
       - 820
       - 410
 
   decoder_kwargs:
-    dropout: 0.00
     hidden_sizes:
       - 410
       - 820
