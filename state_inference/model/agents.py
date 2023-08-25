@@ -288,6 +288,9 @@ class ValueIterationAgent(BaseAgent):
             train(self.state_inference_model, dataloader, self.optim, self.grad_clip)
             self.state_inference_model.prep_next_batch()
 
+        # clear memory
+        torch.cuda.empty_cache()
+
     def _preprocess_obs(self, obs: Tensor) -> Tensor:
         # take in 8bit with shape NxHxWxC
         # convert to float with shape NxCxHxW
@@ -299,7 +302,8 @@ class ValueIterationAgent(BaseAgent):
     def _get_hashed_state(self, obs: Tensor):
         obs = obs if isinstance(obs, Tensor) else torch.tensor(obs)
         obs_ = self._preprocess_obs(obs)
-        z = self.state_inference_model.get_state(obs_)
+        with torch.no_grad():
+            z = self.state_inference_model.get_state(obs_)
         return z.dot(self.hash_vector)
 
     def _get_sars_tuples(self, obs: OaroTuple):
@@ -543,7 +547,8 @@ class RecurrentViAgent(ViAgentWithExploration):
     def _get_hashed_state(self, obs: Tensor, state_prev: Optional[Tensor]):
         obs = maybe_convert_to_tensor(obs)
         obs = convert_8bit_to_float(obs)
-        state = self.state_inference_model.get_state(obs, state_prev)
+        with torch.no_grad():
+            state = self.state_inference_model.get_state(obs, state_prev)
         return state.dot(self.hash_vector)
 
     def _update_hidden_state(self, obs: Tensor, state: Tensor) -> Tensor:

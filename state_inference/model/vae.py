@@ -28,7 +28,6 @@ class MLP(nn.Module):
         input_size: int,
         hidden_sizes: List[int],
         output_size: int,
-        dropout: float = 0.1,
     ):
         super().__init__()
         self.nin = input_size
@@ -43,8 +42,7 @@ class MLP(nn.Module):
                 [
                     nn.Linear(d_in, d_out),
                     nn.BatchNorm1d(d_out),
-                    nn.Dropout(p=dropout),
-                    nn.ReLU(),
+                    nn.ELU(),
                 ]
             )
             d_in = d_out
@@ -68,13 +66,12 @@ class MlpEncoder(BaseEncoder):
         input_shape: int | Tuple[int],
         hidden_sizes: List[int],
         embedding_dim: int,
-        dropout: float = 0.01,
     ):
         super().__init__()
         if isinstance(input_shape, tuple):
             input_shape = torch.tensor(input_shape).prod().item()
 
-        self.net = MLP(input_shape, hidden_sizes, embedding_dim, dropout)
+        self.net = MLP(input_shape, hidden_sizes, embedding_dim)
 
     def forward(self, x: Tensor) -> Tensor:
         return self.net(x.view(x.shape[0], -1))
@@ -83,14 +80,13 @@ class MlpEncoder(BaseEncoder):
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=1):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding),
-            nn.BatchNorm2d(out_channels),
-            nn.LeakyReLU(),
-        )
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
+        self.act = nn.ELU()
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.net(x)
+        x = self.conv(x)
+        x = self.act(x)
+        return x
 
 
 class CnnEncoder(BaseEncoder):
@@ -112,7 +108,12 @@ class CnnEncoder(BaseEncoder):
             modules.append(ConvBlock(h_in, h_dim, 3, stride=2, padding=1))
             h_in = h_dim
         self.cnn = nn.Sequential(*modules)
-        self.fc_z = nn.Linear(channels[-1] * 4, embedding_dim)
+        self.mlp = nn.Sequential(
+            nn.LayerNorm(channels[-1] * 4),
+            nn.Linear(channels[-1] * 4, channels[-1] * 4),
+            nn.ELU(),
+            nn.Linear(channels[-1] * 4, embedding_dim),
+        )
 
         assert in_channels == input_shape[0], "Input channels do not match shape!"
 
@@ -122,7 +123,9 @@ class CnnEncoder(BaseEncoder):
         # Assume NxCxHxW input or CxHxW input
         assert_correct_end_shape(x, self.input_shape)
         x = maybe_expand_batch(x, self.input_shape)
-        return self.fc_z(torch.flatten(self.cnn(x), start_dim=1))
+        x = self.cnn(x)
+        x = self.mlp(torch.flatten(x, start_dim=1))
+        return x
 
     def encode_sequence(self, x: Tensor, batch_first: bool = True) -> Tensor:
         assert x.ndim == 5
@@ -146,7 +149,6 @@ class MlpDecoder(BaseDecoder):
         embedding_dim: int,
         hidden_sizes: List[int],
         output_shape: int | Tuple[int, int, int],
-        dropout: float = 0.01,
     ):
         super().__init__()
 
@@ -155,7 +157,7 @@ class MlpDecoder(BaseDecoder):
         else:
             d_out = output_shape
 
-        self.net = MLP(embedding_dim, hidden_sizes, d_out, dropout)
+        self.net = MLP(embedding_dim, hidden_sizes, d_out)
         self.output_shape = output_shape
 
     def forward(self, x):
@@ -174,16 +176,15 @@ class ConvTransposeBlock(nn.Module):
         output_padding=0,
     ):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.ConvTranspose2d(
-                in_channels, out_channels, kernel_size, stride, padding, output_padding
-            ),
-            nn.BatchNorm2d(out_channels),
-            nn.LeakyReLU(),
+        self.conv_t = nn.ConvTranspose2d(
+            in_channels, out_channels, kernel_size, stride, padding, output_padding
         )
+        self.act = nn.ELU()
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.net(x)
+        x = self.conv_t(x)
+        x = self.act(x)
+        return x
 
 
 class CnnDecoder(BaseDecoder):
@@ -226,7 +227,7 @@ class CnnDecoder(BaseDecoder):
                 output_padding=1,
             ),
             nn.BatchNorm2d(channels[-1]),
-            nn.LeakyReLU(),
+            nn.GELU(),
             nn.Conv2d(channels[-1], out_channels=channel_out, kernel_size=3, padding=1),
             nn.Sigmoid(),
         )
@@ -445,10 +446,13 @@ class DecoderWithActions(BaseDecoder):
         n_actions: int,
         hidden_sizes: List[int],
         ouput_size: int,
-        dropout: float = 0.01,
     ):
         super().__init__()
-        self.mlp = MlpDecoder(embedding_size, hidden_sizes, ouput_size, dropout)
+        self.mlp = MlpDecoder(
+            embedding_size,
+            hidden_sizes,
+            ouput_size,
+        )
         self.latent_embedding = nn.Linear(embedding_size, embedding_size)
         self.action_embedding = nn.Linear(n_actions, embedding_size)
 
@@ -508,11 +512,10 @@ class GruEncoder(nn.Module):
         n_actions: int,
         gru_kwargs: Optional[Dict[str, Any]] = None,
         batch_first: bool = True,
-        dropout: float = 0.1,
     ):
         super().__init__()
         gru_kwargs = gru_kwargs if gru_kwargs is not None else dict()
-        self.feature_extracter = MLP(input_size, hidden_sizes, embedding_dims, dropout)
+        self.feature_extracter = MLP(input_size, hidden_sizes, embedding_dims)
         self.gru_cell = nn.GRUCell(embedding_dims, embedding_dims, **gru_kwargs)
         self.hidden_encoder = nn.Linear(embedding_dims + n_actions, embedding_dims)
         self.action_encoder = nn.Linear(n_actions, n_actions)

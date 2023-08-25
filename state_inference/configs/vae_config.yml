@@ -1,7 +1,7 @@
 mlp_vae:
   vae_kwargs:
-    z_dim: 12 
-    z_layers: 32
+    z_dim: 16
+    z_layers: 8
     beta: 1.0
     tau: 0.5
     tau_annealing_rate: 0.9997 
@@ -21,8 +21,8 @@ mlp_vae:
 
 cnn_vae:
   vae_kwargs:
-    z_dim: 12 
-    z_layers: 32
+    z_dim: 16
+    z_layers: 8
     beta: 1.0
     tau: 0.5
     tau_annealing_rate: 0.9997 
