@@ -28,13 +28,9 @@ class BaselineCompatibleAgent:
         self,
         task,
         state_inference_model: StateVae,
-        set_action: List[ActType] | Set[ActType],
     ) -> None:
-        set_action = set_action if isinstance(set_action, set) else set(set_action)
-
         self.task = task
         self.state_inference_model = state_inference_model.to(DEVICE)
-        self.set_action = set_action
         self.rollout_buffer = list()
 
     def get_env(self):
@@ -49,8 +45,8 @@ class BaselineCompatibleAgent:
         deterministic: bool = False,
     ) -> Tuple[np.ndarray, Optional[Tuple[np.ndarray, ...]]]:
         if deterministic:
-            return np.array(list(self.set_action)[0]), None
-        return choice(list(self.set_action)), None
+            return np.array(0), None
+        return np.array(np.random.randint(self.task.action_space.n)), None
 
     def _batch_estimate(
         self, step: int, last_step: bool, progress_bar: Optional[bool] = False

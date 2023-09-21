@@ -10,25 +10,23 @@ from torch.utils.data import DataLoader
 from state_inference.gridworld_env import ActType
 from state_inference.model.common import OaroTuple
 from state_inference.model.vae import RecurrentVae
-from state_inference.model.value_iteration import (
-    ALPHA,
-    BATCH_LENGTH,
-    BATCH_SIZE,
-    EPSILON,
-    GAMMA,
-    GRAD_CLIP,
-    MAX_SEQUENCE_LEN,
-    N_EPOCHS,
-    N_ITER_VALUE_ITERATION,
-    SOFTMAX_GAIN,
-    ValueIterationAgent,
-)
+from state_inference.model.value_iteration import ValueIterationAgent
 from state_inference.utils.data import RecurrentVaeDataset, TransitionVaeDataset
 from state_inference.utils.pytorch_utils import (
     DEVICE,
     convert_8bit_to_float,
     maybe_convert_to_tensor,
 )
+
+BATCH_SIZE = 64
+N_EPOCHS = 20
+GRAD_CLIP = True
+N_ITER_VALUE_ITERATION = 1000
+SOFTMAX_GAIN = 1.0
+EPSILON = 0.05
+GAMMA = 0.99
+BATCH_LENGTH = None  # only update at end
+ALPHA = 0.05
 
 
 class ViControlableStateInf(ValueIterationAgent):
@@ -64,6 +62,9 @@ class ViDynaAgent(ValueIterationAgent):
                 obs = choice(self.rollout_buffer)
                 s, a, r, sp = self._get_sars_tuples(obs)
                 self.update_qvalues(s, a, r, sp)
+
+
+MAX_SEQUENCE_LEN = 4
 
 
 class RecurrentViAgent(ValueIterationAgent):
@@ -135,7 +136,7 @@ class RecurrentViAgent(ValueIterationAgent):
             obs_prev = self.task.reset()[0]
 
             for _ in range(seq_len):
-                action = choice(list(self.set_action))
+                action = choice(list(self.action_space))
                 obs, rew, terminated, _, _ = self.task.step(action)
                 obs_tuple = OaroTuple(
                     obs=torch.tensor(obs_prev),

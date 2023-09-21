@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import torch
@@ -7,7 +7,6 @@ from torch.utils.data import DataLoader
 from tqdm import trange
 
 import state_inference.model.vae
-from state_inference.gridworld_env import ActType
 from state_inference.model.common import (
     BaselineCompatibleAgent,
     OaroTuple,
@@ -21,43 +20,39 @@ from state_inference.model.tabular_models import (
 from state_inference.model.vae import StateVae
 from state_inference.utils.pytorch_utils import DEVICE, convert_8bit_to_float, train
 
-BATCH_SIZE = 64
-N_EPOCHS = 20
-GRAD_CLIP = True
-N_ITER_VALUE_ITERATION = 1000
-SOFTMAX_GAIN = 1.0
-EPSILON = 0.05
-GAMMA = 0.99
-BATCH_LENGTH = None  # only update at end
-ALPHA = 0.05
-MAX_SEQUENCE_LEN = 4
-
 
 class ValueIterationAgent(BaselineCompatibleAgent):
     TRANSITION_MODEL_CLASS = TabularStateActionTransitionEstimator
     REWARD_MODEL_CLASS = TabularRewardEstimator
     POLICY_CLASS = SoftmaxPolicy
+    """
+    Value iteration agent. Collects rollouts using Q-learning with an optimistic exploration
+    policy on a state-inference model (VAE) and then updates the state-inference model with the
+    roll outs. The Value-iteration over the rollouts are used to re-estimate state-action values.
+
+    :param state_inference_model: The VAE used to estimate the State
+
+    """
 
     def __init__(
         self,
         task,
         state_inference_model: StateVae,
-        set_action: List[ActType] | Set[ActType],
         optim_kwargs: Optional[Dict[str, Any]] = None,
-        grad_clip: bool = GRAD_CLIP,
-        batch_size: int = BATCH_SIZE,
-        gamma: float = GAMMA,
-        n_iter: int = N_ITER_VALUE_ITERATION,
-        softmax_gain: float = SOFTMAX_GAIN,
-        epsilon: float = EPSILON,
-        n_steps: int = BATCH_LENGTH,
-        n_epochs: int = N_EPOCHS,
-        alpha: float = ALPHA,
+        grad_clip: bool = True,
+        batch_size: int = 64,
+        gamma: float = 0.99,
+        n_iter: int = 1000,
+        softmax_gain: float = 1.0,
+        epsilon: float = 0.05,
+        n_steps: Optional[int] = None,  # None => only update at the end,
+        n_epochs: int = 20,
+        alpha: float = 0.05,
     ) -> None:
         """
         :param n_steps: The number of steps to run for each environment per update
         """
-        super().__init__(task, state_inference_model, set_action)
+        super().__init__(task, state_inference_model)
 
         self.optim = self.state_inference_model.configure_optimizers(optim_kwargs)
         self.grad_clip = grad_clip
@@ -73,7 +68,7 @@ class ValueIterationAgent(BaselineCompatibleAgent):
         self.policy = self.POLICY_CLASS(
             beta=softmax_gain,
             epsilon=epsilon,
-            n_actions=len(set_action),
+            n_actions=task.action_space.n,
         )
 
         assert epsilon >= 0 and epsilon < 1.0
