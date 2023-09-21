@@ -23,6 +23,26 @@ class OaroTuple:
     index: int  # unique index for each trial
 
 
+class RolloutBuffer:
+    def __init__(self):
+        self.cached_obs = list()
+
+    def add(self, item):
+        self.cached_obs.append(item)
+
+    def reset(self):
+        self.cached_obs = ()
+
+    def len(self):
+        return len(self.cached_obs)
+
+    def get_all(self):
+        return self.cached_obs
+
+    def get_tensor(self, item="obs"):
+        return torch.stack([getattr(o, item) for o in self.cached_obs])
+
+
 class BaselineCompatibleAgent:
     def __init__(
         self,
@@ -31,7 +51,7 @@ class BaselineCompatibleAgent:
     ) -> None:
         self.task = task
         self.state_inference_model = state_inference_model.to(DEVICE)
-        self.rollout_buffer = list()
+        self.rollout_buffer = RolloutBuffer()
 
     def get_env(self):
         ## used for compatibility with stablebaseline code,
@@ -62,9 +82,9 @@ class BaselineCompatibleAgent:
         return None
 
     def _init_index(self):
-        if len(self.rollout_buffer) == 0:
+        if self.rollout_buffer.len() == 0:
             return 0
-        last_obs = self.rollout_buffer[-1]
+        last_obs = self.rollout_buffer.get_all()[-1]
         return last_obs.index + 1
 
     def learn(
@@ -102,7 +122,7 @@ class BaselineCompatibleAgent:
 
             self._within_batch_update(obs_tuple, state, state_prev)
 
-            self.rollout_buffer.append(obs_tuple)
+            self.rollout_buffer.add(obs_tuple)
 
             obs_prev = obs
             state_prev = state

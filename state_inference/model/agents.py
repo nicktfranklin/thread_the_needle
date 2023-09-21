@@ -31,11 +31,9 @@ ALPHA = 0.05
 
 class ViControlableStateInf(ValueIterationAgent):
     def _prep_vae_dataloader(self, batch_size: int = BATCH_SIZE):
-        obs = torch.stack([obs.obs for obs in self.rollout_buffer])
-        obsp = torch.stack([obs.obsp for obs in self.rollout_buffer])
-        a = F.one_hot(
-            torch.tensor([obs.a for obs in self.rollout_buffer]), num_classes=4
-        ).float()
+        obs = self.rollout_buffer.get_tensor("obs")
+        obsp = self.rollout_buffer.get_tensor("obsp")
+        a = F.one_hot(self.rollout_buffer.get_tensor("a"), num_classes=4).float()
 
         dataset = TransitionVaeDataset(obs, a, obsp)
 
@@ -44,24 +42,6 @@ class ViControlableStateInf(ValueIterationAgent):
             batch_size=batch_size,
             shuffle=True,
         )
-
-
-class ViDynaAgent(ValueIterationAgent):
-    k = 10
-
-    def _within_batch_update(self, obs: OaroTuple) -> None:
-        # update the current q-value
-        s, a, r, sp = self._get_sars_tuples(obs)
-        self.update_qvalues(s, a, r, sp)
-
-        # dyna updates (note: this assumes a deterministic enviornment,
-        # and this code differes from dyna as we are only using resampled
-        # values and not seperately sampling rewards and sucessor states
-        if self.rollout_buffer:
-            for _ in range(self.k):
-                obs = choice(self.rollout_buffer)
-                s, a, r, sp = self._get_sars_tuples(obs)
-                self.update_qvalues(s, a, r, sp)
 
 
 MAX_SEQUENCE_LEN = 4
@@ -124,7 +104,7 @@ class RecurrentViAgent(ValueIterationAgent):
             batch_size (int): The number of samples per batch
         """
         return RecurrentViAgent.construct_dataloader_from_obs(
-            batch_size, self.rollout_buffer, self.max_sequence_len
+            batch_size, self.rollout_buffer.get_all(), self.max_sequence_len
         )
 
     def contruct_validation_dataloader(self, sample_size, seq_len):
