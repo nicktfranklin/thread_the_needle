@@ -1,17 +1,14 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 import numpy as np
 import torch
+from stable_baselines3.common.base_class import BaseAlgorithm
 from torch import Tensor
 from torch.utils.data import DataLoader
 from tqdm import trange
 
 import state_inference.model.vae
-from state_inference.model.common import (
-    BaselineCompatibleAgent,
-    OaroTuple,
-    SoftmaxPolicy,
-)
+from state_inference.model.common import OaroTuple, RolloutBuffer, SoftmaxPolicy
 from state_inference.model.tabular_models import (
     TabularRewardEstimator,
     TabularStateActionTransitionEstimator,
@@ -21,7 +18,7 @@ from state_inference.model.vae import StateVae
 from state_inference.utils.pytorch_utils import DEVICE, convert_8bit_to_float, train
 
 
-class ValueIterationAgent(BaselineCompatibleAgent):
+class ValueIterationAgent:
     TRANSITION_MODEL_CLASS = TabularStateActionTransitionEstimator
     REWARD_MODEL_CLASS = TabularRewardEstimator
     POLICY_CLASS = SoftmaxPolicy
@@ -52,7 +49,9 @@ class ValueIterationAgent(BaselineCompatibleAgent):
         """
         :param n_steps: The number of steps to run for each environment per update
         """
-        super().__init__(task, state_inference_model)
+        self.task = task
+        self.state_inference_model = state_inference_model.to(DEVICE)
+        self.rollout_buffer = RolloutBuffer()
 
         self.optim = self.state_inference_model.configure_optimizers(optim_kwargs)
         self.grad_clip = grad_clip
@@ -80,32 +79,8 @@ class ValueIterationAgent(BaselineCompatibleAgent):
             ]
         )
 
-    @classmethod
-    def make_from_configs(
-        cls,
-        task,
-        agent_config: Dict[str, Any],
-        vae_config: Dict[str, Any],
-        env_kwargs: Dict[str, Any],
-    ):
-        VaeClass = getattr(state_inference.model.vae, agent_config["vae_model_class"])
-        vae = VaeClass.make_from_configs(vae_config, env_kwargs)
-        return cls(task, vae, **agent_config["state_inference_model"])
-
-    def get_policy(self, obs: Tensor):
-        s = self._get_hashed_state(obs)
-        p = self.policy.get_distribution(s)
-        return p
-
-    def predict(
-        self, obs: Tensor, state=None, episode_start=None, deterministic: bool = False
-    ) -> tuple[Tensor, None]:
-        if not deterministic and np.random.rand() < self.policy.epsilon:
-            return np.array([np.random.randint(self.policy.n_actions)]), None
-
-        s = self._get_hashed_state(obs)
-        p = self.policy.get_distribution(s)
-        return p.get_actions(deterministic=deterministic), None
+    def _init_state(self):
+        return None
 
     def _prep_vae_dataloader(self, batch_size: int):
         r"""
@@ -160,11 +135,6 @@ class ValueIterationAgent(BaselineCompatibleAgent):
         sp = self._get_hashed_state(obs.obsp)[0]
         return s, obs.a, obs.r, sp
 
-    def update_model(self, obs: OaroTuple):
-        s, a, r, sp = self._get_sars_tuples(obs)
-        self.transition_estimator.update(s, a, sp)
-        self.reward_estimator.update(sp, r)
-
     def _precalculate_states_for_batch_training(self) -> Tuple[Tensor, Tensor]:
         # pass all of the observations throught the model (really, twice)
         # for speed. It's much faster in a batch than single observations
@@ -174,15 +144,21 @@ class ValueIterationAgent(BaselineCompatibleAgent):
         sp = self._get_hashed_state(obsp)
         return s, sp
 
-    def retrain_model(self):
-        self.transition_estimator.reset()
-        self.reward_estimator.reset()
+    def _within_batch_update(
+        self, obs: OaroTuple, state: Optional[Tensor], state_prev: Optional[Tensor]
+    ) -> None:
+        # state and state_prev are only used by recurrent models
+        assert state is None
+        assert state_prev is None
 
-        s, sp = self._precalculate_states_for_batch_training()
+        s, a, r, sp = self._get_sars_tuples(obs)
+        self.update_qvalues(s, a, r, sp)
 
-        for idx, obs in enumerate(self.rollout_buffer.get_all()):
-            self.transition_estimator.update(s[idx], obs.a, sp[idx])
-            self.reward_estimator.update(sp[idx], obs.r)
+    def _init_index(self):
+        if self.rollout_buffer.len() == 0:
+            return 0
+        last_obs = self.rollout_buffer.get_all()[-1]
+        return last_obs.index + 1
 
     def _batch_estimate(
         self, step: int, last_step: bool, progress_bar: Optional[bool] = False
@@ -208,6 +184,40 @@ class ValueIterationAgent(BaselineCompatibleAgent):
         )
         self.value_function = value_function
 
+    def get_env(self):
+        ## used for compatibility with stablebaseline code,
+        return BaseAlgorithm._wrap_env(self.task, verbose=False, monitor_wrapper=True)
+
+    def get_policy(self, obs: Tensor):
+        s = self._get_hashed_state(obs)
+        p = self.policy.get_distribution(s)
+        return p
+
+    def predict(
+        self, obs: Tensor, state=None, episode_start=None, deterministic: bool = False
+    ) -> tuple[Tensor, None]:
+        if not deterministic and np.random.rand() < self.policy.epsilon:
+            return np.array([np.random.randint(self.policy.n_actions)]), None
+
+        s = self._get_hashed_state(obs)
+        p = self.policy.get_distribution(s)
+        return p.get_actions(deterministic=deterministic), None
+
+    def update_model(self, obs: OaroTuple):
+        s, a, r, sp = self._get_sars_tuples(obs)
+        self.transition_estimator.update(s, a, sp)
+        self.reward_estimator.update(sp, r)
+
+    def retrain_model(self):
+        self.transition_estimator.reset()
+        self.reward_estimator.reset()
+
+        s, sp = self._precalculate_states_for_batch_training()
+
+        for idx, obs in enumerate(self.rollout_buffer.get_all()):
+            self.transition_estimator.update(s[idx], obs.a, sp[idx])
+            self.reward_estimator.update(sp[idx], obs.r)
+
     def update_qvalues(self, s, a, r, sp) -> None:
         self.policy.maybe_init_q_values(s)
         q_s_a = self.policy.q_values[s][a]
@@ -218,12 +228,64 @@ class ValueIterationAgent(BaselineCompatibleAgent):
         q_s_a = (1 - self.alpha) * q_s_a + self.alpha * (r + self.gamma * V_sp)
         self.policy.q_values[s][a] = q_s_a
 
-    def _within_batch_update(
-        self, obs: OaroTuple, state: Optional[Tensor], state_prev: Optional[Tensor]
+    def learn(
+        self,
+        total_timesteps: int,
+        estimate_batch: bool = True,
+        progress_bar: bool = False,
+        **kwargs,
     ) -> None:
-        # state and state_prev are only used by recurrent models
-        assert state is None
-        assert state_prev is None
+        # Use the current policy to explore
+        obs_prev = self.task.reset()[0]
 
-        s, a, r, sp = self._get_sars_tuples(obs)
-        self.update_qvalues(s, a, r, sp)
+        episode_start = True
+        state_prev = self._init_state()
+        idx = self._init_index()
+
+        if progress_bar:
+            iterator = trange(total_timesteps, desc="Steps")
+        else:
+            iterator = range(total_timesteps)
+        for step in iterator:
+            action, state = self.predict(obs_prev, state_prev, episode_start)
+            episode_start = False
+
+            obs, rew, terminated, _, _ = self.task.step(action.item())
+            assert hasattr(obs, "shape")
+
+            obs_tuple = OaroTuple(
+                obs=torch.tensor(obs_prev),
+                a=action.item(),
+                r=rew,
+                obsp=torch.tensor(obs),
+                index=idx,
+            )
+
+            self._within_batch_update(obs_tuple, state, state_prev)
+
+            self.rollout_buffer.add(obs_tuple)
+
+            obs_prev = obs
+            state_prev = state
+            if terminated:
+                obs_prev = self.task.reset()[0]
+                idx += 1
+                assert hasattr(obs, "shape")
+                assert not isinstance(obs_prev, tuple)
+
+        if estimate_batch:
+            self._batch_estimate(
+                step, step == total_timesteps - 1, progress_bar=progress_bar
+            )
+
+    @classmethod
+    def make_from_configs(
+        cls,
+        task,
+        agent_config: Dict[str, Any],
+        vae_config: Dict[str, Any],
+        env_kwargs: Dict[str, Any],
+    ):
+        VaeClass = getattr(state_inference.model.vae, agent_config["vae_model_class"])
+        vae = VaeClass.make_from_configs(vae_config, env_kwargs)
+        return cls(task, vae, **agent_config["state_inference_model"])
