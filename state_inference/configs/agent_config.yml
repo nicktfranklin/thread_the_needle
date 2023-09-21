@@ -13,11 +13,6 @@ q_learning_kwargs:
   alpha: 0.05
 
 state_inference_model:
-  set_action:
-    - 0
-    - 1
-    - 2
-    - 3
   batch_size: 16
   n_epochs: 20
   grad_clip: True
