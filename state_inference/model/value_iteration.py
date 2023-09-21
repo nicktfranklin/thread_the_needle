@@ -119,7 +119,7 @@ class ValueIterationAgent(BaselineCompatibleAgent):
         Args:
             batch_size (int): The number of samples per batch
         """
-        obs = torch.stack([o.obs for o in self.cached_obs])
+        obs = torch.stack([o.obs for o in self.rollout_buffer])
         obs = convert_8bit_to_float(obs).to(DEVICE)
         obs = obs.permute(0, 3, 1, 2)  # -> NxCxHxW
 
@@ -173,8 +173,8 @@ class ValueIterationAgent(BaselineCompatibleAgent):
     def _precalculate_states_for_batch_training(self) -> Tuple[Tensor, Tensor]:
         # pass all of the observations throught the model (really, twice)
         # for speed. It's much faster in a batch than single observations
-        obs = torch.stack([o.obs for o in self.cached_obs])
-        obsp = torch.stack([o.obsp for o in self.cached_obs])
+        obs = torch.stack([o.obs for o in self.rollout_buffer])
+        obsp = torch.stack([o.obsp for o in self.rollout_buffer])
         s = self._get_hashed_state(obs)
         sp = self._get_hashed_state(obsp)
         return s, sp
@@ -185,7 +185,7 @@ class ValueIterationAgent(BaselineCompatibleAgent):
 
         s, sp = self._precalculate_states_for_batch_training()
 
-        for idx, obs in enumerate(self.cached_obs):
+        for idx, obs in enumerate(self.rollout_buffer):
             self.transition_estimator.update(s[idx], obs.a, sp[idx])
             self.reward_estimator.update(sp[idx], obs.r)
 

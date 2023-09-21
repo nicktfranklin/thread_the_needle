@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 import torch
 import yaml
-from tqdm import trange
 
 from state_inference.gridworld_env import CnnWrapper, ThreadTheNeedleEnv
 from state_inference.model.agents import ViAgentWithExploration
@@ -68,7 +67,7 @@ def get_value_function(model, task):
 
 def simulate_agent(task, agent_config, vae_config, env_kwargs, get_pmf_fn: callable):
     agent = AgentClass.make_from_configs(task, agent_config, vae_config, env_kwargs)
-    agent.learn(total_timesteps=agent_config["n_train_steps"], progress_bar=False)
+    agent.learn(total_timesteps=agent_config["n_train_steps"], progress_bar=True)
 
     pmf = get_policy_prob(
         agent,
@@ -79,6 +78,12 @@ def simulate_agent(task, agent_config, vae_config, env_kwargs, get_pmf_fn: calla
     )
 
     v = get_value_function(agent, task)
+
+    # remove the model from memory
+    for param in agent.state_inference_model.parameters():
+        param.detach()
+    agent.state_inference_model = None
+    torch.cuda.empty_cache()
 
     return pmf, v
 
@@ -105,7 +110,10 @@ def train_batches():
     scores = []
     value_functions = []
 
-    for idx in trange(agent_config["n_batches"]):
+    n_batches = agent_config["n_batches"]
+
+    for idx in range(n_batches):
+        print(f"Training Model {idx+1} of {n_batches}")
         pmf, v = simulate_agent(task, agent_config, vae_config, env_kwargs, vae_get_pmf)
 
         score_room_1 = np.sum(pi[room_1_mask] * pmf[room_1_mask], axis=1).mean()

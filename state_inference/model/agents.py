@@ -33,10 +33,10 @@ from state_inference.utils.pytorch_utils import (
 
 class ViControlableStateInf(ValueIterationAgent):
     def _prep_vae_dataloader(self, batch_size: int = BATCH_SIZE):
-        obs = torch.stack([obs.obs for obs in self.cached_obs])
-        obsp = torch.stack([obs.obsp for obs in self.cached_obs])
+        obs = torch.stack([obs.obs for obs in self.rollout_buffer])
+        obsp = torch.stack([obs.obsp for obs in self.rollout_buffer])
         a = F.one_hot(
-            torch.tensor([obs.a for obs in self.cached_obs]), num_classes=4
+            torch.tensor([obs.a for obs in self.rollout_buffer]), num_classes=4
         ).float()
 
         dataset = TransitionVaeDataset(obs, a, obsp)
@@ -59,9 +59,9 @@ class ViDynaAgent(ValueIterationAgent):
         # dyna updates (note: this assumes a deterministic enviornment,
         # and this code differes from dyna as we are only using resampled
         # values and not seperately sampling rewards and sucessor states
-        if self.cached_obs:
+        if self.rollout_buffer:
             for _ in range(self.k):
-                obs = choice(self.cached_obs)
+                obs = choice(self.rollout_buffer)
                 s, a, r, sp = self._get_sars_tuples(obs)
                 self.update_qvalues(s, a, r, sp)
 
@@ -123,7 +123,7 @@ class RecurrentViAgent(ValueIterationAgent):
             batch_size (int): The number of samples per batch
         """
         return RecurrentViAgent.construct_dataloader_from_obs(
-            batch_size, self.cached_obs, self.max_sequence_len
+            batch_size, self.rollout_buffer, self.max_sequence_len
         )
 
     def contruct_validation_dataloader(self, sample_size, seq_len):

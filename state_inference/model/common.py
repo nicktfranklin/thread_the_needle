@@ -35,7 +35,7 @@ class BaselineCompatibleAgent:
         self.task = task
         self.state_inference_model = state_inference_model.to(DEVICE)
         self.set_action = set_action
-        self.cached_obs = list()
+        self.rollout_buffer = list()
 
     def get_env(self):
         ## used for compatibility with stablebaseline code,
@@ -66,9 +66,9 @@ class BaselineCompatibleAgent:
         return None
 
     def _init_index(self):
-        if len(self.cached_obs) == 0:
+        if len(self.rollout_buffer) == 0:
             return 0
-        last_obs = self.cached_obs[-1]
+        last_obs = self.rollout_buffer[-1]
         return last_obs.index + 1
 
     def learn(
@@ -106,7 +106,7 @@ class BaselineCompatibleAgent:
 
             self._within_batch_update(obs_tuple, state, state_prev)
 
-            self.cached_obs.append(obs_tuple)
+            self.rollout_buffer.append(obs_tuple)
 
             obs_prev = obs
             state_prev = state
