@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import torch
@@ -42,8 +42,8 @@ class ValueIterationAgent:
         n_iter: int = 1000,
         softmax_gain: float = 1.0,
         epsilon: float = 0.05,
-        n_steps: Optional[int] = None,  # None => only update at the end,
-        n_epochs: int = 20,
+        n_steps: Optional[int] = 2048,  # None => only update at the end,
+        n_epochs: int = 10,
         alpha: float = 0.05,
     ) -> None:
         """
@@ -52,6 +52,7 @@ class ValueIterationAgent:
         self.task = task
         self.state_inference_model = state_inference_model.to(DEVICE)
         self.rollout_buffer = RolloutBuffer()
+        self.allobs = list()
 
         self.optim = self.state_inference_model.configure_optimizers(optim_kwargs)
         self.grad_clip = grad_clip
@@ -85,32 +86,14 @@ class ValueIterationAgent:
     def _init_state(self):
         return None
 
-    def _prep_vae_dataloader(self, batch_size: int):
-        r"""
-        preps the dataloader for training the State Inference VAE
-
-        Args:
-            batch_size (int): The number of samples per batch
-        """
-        obs = self.rollout_buffer.get_tensor("obs")
-        obs = convert_8bit_to_float(obs).to(DEVICE)
-        obs = obs.permute(0, 3, 1, 2)  # -> NxCxHxW
-
-        return DataLoader(
-            obs,
-            batch_size=batch_size,
-            shuffle=True,
-            drop_last=True,
-        )
-
     def _train_vae_batch(self, progress_bar: Optional[bool] = False):
-        dataloader = self._prep_vae_dataloader(self.batch_size)
+        dataloader = self.rollout_buffer.get_vae_dataloader(self.batch_size)
         if progress_bar:
             iterator = trange(self.n_epochs, desc="Vae Batches")
         else:
             iterator = range(self.n_epochs)
 
-        for _ in iterator:
+        for _ in range(self.n_epochs):
             self.state_inference_model.train()
             train(self.state_inference_model, dataloader, self.optim, self.grad_clip)
             self.state_inference_model.prep_next_batch()
@@ -147,7 +130,7 @@ class ValueIterationAgent:
         sp = self._get_hashed_state(obsp)
         return s, sp
 
-    def _within_batch_update(
+    def _update_rollout_policy(
         self, obs: OaroTuple, state: Optional[Tensor], state_prev: Optional[Tensor]
     ) -> None:
         # state and state_prev are only used by recurrent models
@@ -168,7 +151,7 @@ class ValueIterationAgent:
         self._train_vae_batch(progress_bar=progress_bar)
 
         # construct a devono model-based learner from the new states
-        self.retrain_model()
+        self.reestimate_mdp()
 
         # use value iteration to estimate the rewards
         self.policy.q_values, value_function = value_iteration(
@@ -203,7 +186,7 @@ class ValueIterationAgent:
         self.transition_estimator.update(s, a, sp)
         self.reward_estimator.update(sp, r)
 
-    def retrain_model(self):
+    def reestimate_mdp(self):
         self.transition_estimator.reset()
         self.reward_estimator.reset()
 
@@ -223,7 +206,7 @@ class ValueIterationAgent:
         q_s_a = (1 - self.alpha) * q_s_a + self.alpha * (r + self.gamma * V_sp)
         self.policy.q_values[s][a] = q_s_a
 
-    def collect_rollouts(self, n_rollout_steps, progress_bar=None):
+    def collect_rollouts(self, n_rollout_steps, progress_bar=None, eval_only=False):
         # Use the current policy to explore
         obs_prev = self.task.reset()[0]
 
@@ -254,7 +237,8 @@ class ValueIterationAgent:
                 index=idx,
             )
 
-            self._within_batch_update(obs_tuple, state, state_prev)
+            if not eval_only:
+                self._update_rollout_policy(obs_tuple, state, state_prev)
 
             self.rollout_buffer.add(obs_tuple)
 
@@ -283,12 +267,15 @@ class ValueIterationAgent:
         # alternate between collecting rollouts and batch updates
         n_rollout_steps = self.n_steps if self.n_steps is not None else total_timesteps
         while self.num_timesteps < total_timesteps:
-            self.collect_rollouts(n_rollout_steps, progress_bar)
+            self.collect_rollouts(n_rollout_steps, progress_bar, eval_only)
 
-            if not eval_only:
-                if progress_bar is not None:
-                    progress_bar.set_description("Updating Batch")
-                self.batch_update(progress_bar=None)
+            if eval_only:
+                continue
+
+            if progress_bar is not None:
+                progress_bar.set_description("Updating Batch")
+
+            self.batch_update(progress_bar=None)
 
         if progress_bar is not None:
             progress_bar.close()

@@ -178,7 +178,7 @@ class RecurrentViAgent(ValueIterationAgent):
 
         return a, next_state
 
-    def _within_batch_update(
+    def _update_rollout_policy(
         self, obs: OaroTuple, state: None, state_prev: None
     ) -> None:
         # prep the observations for the RNN

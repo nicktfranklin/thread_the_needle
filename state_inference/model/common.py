@@ -3,8 +3,10 @@ from dataclasses import dataclass
 import torch
 from stable_baselines3.common.distributions import CategoricalDistribution
 from torch import Tensor
+from torch.utils.data import DataLoader
 
 from state_inference.gridworld_env import ActType, RewType
+from state_inference.utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
 
 @dataclass
@@ -24,7 +26,7 @@ class RolloutBuffer:
         self.cached_obs.append(item)
 
     def reset(self):
-        self.cached_obs = ()
+        self.cached_obs = list()
 
     def len(self):
         return len(self.cached_obs)
@@ -34,6 +36,18 @@ class RolloutBuffer:
 
     def get_tensor(self, item="obs"):
         return torch.stack([getattr(o, item) for o in self.cached_obs])
+
+    def get_vae_dataloader(self, batch_size: int):
+        obs = self.get_tensor("obs")
+        obs = convert_8bit_to_float(obs).to(DEVICE)
+        obs = obs.permute(0, 3, 1, 2)  # -> NxCxHxW
+
+        return DataLoader(
+            obs,
+            batch_size=batch_size,
+            shuffle=True,
+            drop_last=True,
+        )
 
 
 class SoftmaxPolicy:
