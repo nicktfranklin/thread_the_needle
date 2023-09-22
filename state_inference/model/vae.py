@@ -1,3 +1,4 @@
+import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
@@ -17,7 +18,7 @@ from state_inference.utils.pytorch_utils import (
 OPTIM_KWARGS = dict(lr=3e-4)
 VAE_BETA = 1.0
 VAE_TAU = 1.0
-VAE_GAMMA = 1.0
+VAE_TAU_ANNEALING_RATE = 1.0
 INPUT_SHAPE = (1, 40, 40)
 
 
@@ -27,7 +28,6 @@ class MLP(nn.Module):
         input_size: int,
         hidden_sizes: List[int],
         output_size: int,
-        dropout: float = 0.1,
     ):
         super().__init__()
         self.nin = input_size
@@ -42,8 +42,7 @@ class MLP(nn.Module):
                 [
                     nn.Linear(d_in, d_out),
                     nn.BatchNorm1d(d_out),
-                    nn.Dropout(p=dropout),
-                    nn.ReLU(),
+                    nn.ELU(),
                 ]
             )
             d_in = d_out
@@ -64,25 +63,38 @@ class BaseEncoder(nn.Module):
 class MlpEncoder(BaseEncoder):
     def __init__(
         self,
-        input_size: int,
+        input_shape: int | Tuple[int],
         hidden_sizes: List[int],
-        output_size: int,
-        dropout: float = 0.01,
+        embedding_dim: int,
     ):
         super().__init__()
-        self.net = MLP(input_size, hidden_sizes, output_size, dropout)
+        if isinstance(input_shape, tuple):
+            input_shape = torch.tensor(input_shape).prod().item()
+
+        self.net = MLP(input_shape, hidden_sizes, embedding_dim)
 
     def forward(self, x: Tensor) -> Tensor:
         return self.net(x.view(x.shape[0], -1))
+
+
+class ConvBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=1):
+        super().__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
+        self.act = nn.ELU()
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = self.conv(x)
+        x = self.act(x)
+        return x
 
 
 class CnnEncoder(BaseEncoder):
     def __init__(
         self,
         in_channels: int,
-        output_size: int,
-        height: int = 40,
-        width: int = 40,
+        embedding_dim: int,
+        input_shape: Tuple[int, int, int],
         channels: Optional[List[int]] = None,
     ):
         super().__init__()
@@ -93,30 +105,27 @@ class CnnEncoder(BaseEncoder):
         modules = []
         h_in = in_channels
         for h_dim in channels:
-            modules.append(
-                nn.Sequential(
-                    nn.Conv2d(
-                        in_channels=h_in,
-                        out_channels=h_dim,
-                        kernel_size=3,
-                        stride=2,
-                        padding=1,
-                    ),
-                    nn.BatchNorm2d(h_dim),
-                    nn.LeakyReLU(),
-                )
-            )
+            modules.append(ConvBlock(h_in, h_dim, 3, stride=2, padding=1))
             h_in = h_dim
         self.cnn = nn.Sequential(*modules)
-        self.fc_z = nn.Linear(channels[-1] * 4, output_size)
+        self.mlp = nn.Sequential(
+            nn.LayerNorm(channels[-1] * 4),
+            nn.Linear(channels[-1] * 4, channels[-1] * 4),
+            nn.ELU(),
+            nn.Linear(channels[-1] * 4, embedding_dim),
+        )
 
-        self.input_shape = (in_channels, height, width)
+        assert in_channels == input_shape[0], "Input channels do not match shape!"
+
+        self.input_shape = input_shape
 
     def forward(self, x):
         # Assume NxCxHxW input or CxHxW input
         assert_correct_end_shape(x, self.input_shape)
         x = maybe_expand_batch(x, self.input_shape)
-        return self.fc_z(torch.flatten(self.cnn(x), start_dim=1))
+        x = self.cnn(x)
+        x = self.mlp(torch.flatten(x, start_dim=1))
+        return x
 
     def encode_sequence(self, x: Tensor, batch_first: bool = True) -> Tensor:
         assert x.ndim == 5
@@ -137,47 +146,73 @@ class BaseDecoder(nn.Module):
 class MlpDecoder(BaseDecoder):
     def __init__(
         self,
-        input_size: int,
+        embedding_dim: int,
         hidden_sizes: List[int],
-        output_size: int,
-        dropout: float = 0.01,
+        output_shape: int | Tuple[int, int, int],
     ):
         super().__init__()
-        self.net = MLP(input_size, hidden_sizes, output_size, dropout)
+
+        if isinstance(output_shape, tuple):
+            d_out = torch.tensor(output_shape).prod().item()
+        else:
+            d_out = output_shape
+
+        self.net = MLP(embedding_dim, hidden_sizes, d_out)
+        self.output_shape = output_shape
 
     def forward(self, x):
-        return F.sigmoid(self.net(x))
+        output = F.sigmoid(self.net(x))
+        return output.view(output.shape[0], *self.output_shape)
+
+
+class ConvTransposeBlock(nn.Module):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size,
+        stride=1,
+        padding=1,
+        output_padding=0,
+    ):
+        super().__init__()
+        self.conv_t = nn.ConvTranspose2d(
+            in_channels, out_channels, kernel_size, stride, padding, output_padding
+        )
+        self.act = nn.ELU()
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = self.conv_t(x)
+        x = self.act(x)
+        return x
 
 
 class CnnDecoder(BaseDecoder):
     def __init__(
         self,
-        input_size: int,
+        embedding_dim: int,
         channel_out: int,
         channels: Optional[List[int]] = None,
+        output_shape=None,  # not used
     ):
         super().__init__()
 
         if channels is None:
             channels = [32, 64, 128, 256, 512][::-1]
 
-        self.fc = nn.Linear(input_size, 4 * channels[0])
+        self.fc = nn.Linear(embedding_dim, 4 * channels[0])
         self.first_channel_size = channels[0]
 
         modules = []
         for ii in range(len(channels) - 1):
             modules.append(
-                nn.Sequential(
-                    nn.ConvTranspose2d(
-                        channels[ii],
-                        channels[ii + 1],
-                        kernel_size=3,
-                        stride=2,
-                        padding=1,
-                        output_padding=1,
-                    ),
-                    nn.BatchNorm2d(channels[ii + 1]),
-                    nn.LeakyReLU(),
+                ConvTransposeBlock(
+                    channels[ii],
+                    channels[ii + 1],
+                    3,
+                    stride=2,
+                    padding=1,
+                    output_padding=1,
                 )
             )
         self.deconv = nn.Sequential(*modules)
@@ -192,7 +227,7 @@ class CnnDecoder(BaseDecoder):
                 output_padding=1,
             ),
             nn.BatchNorm2d(channels[-1]),
-            nn.LeakyReLU(),
+            nn.GELU(),
             nn.Conv2d(channels[-1], out_channels=channel_out, kernel_size=3, padding=1),
             nn.Sigmoid(),
         )
@@ -230,8 +265,9 @@ class StateVae(nn.Module):
         z_layers: int,
         beta: float = VAE_BETA,
         tau: float = VAE_TAU,
-        gamma: float = VAE_GAMMA,
+        tau_annealing_rate: float = VAE_TAU_ANNEALING_RATE,
         input_shape: Tuple[int, int, int] = INPUT_SHAPE,
+        tau_is_parameter: bool = False,
     ):
         """
         Note: larger values of beta result in more independent state values
@@ -243,8 +279,14 @@ class StateVae(nn.Module):
         self.z_dim = z_dim
         self.beta = beta
         self.tau = tau
-        self.gamma = gamma
+        self.tau_annealing_rate = tau_annealing_rate
         self.input_shape = input_shape
+
+        if tau_is_parameter:
+            self.tau = torch.nn.Parameter(torch.tensor([tau]), requires_grad=True)
+            assert (
+                self.tau_annealing_rate == 1.0
+            ), "Must set tau annealing to 1 for learnable tau"
 
         unit_test_vae_reconstruction(self, input_shape)
 
@@ -258,31 +300,28 @@ class StateVae(nn.Module):
         return optimizer
 
     @classmethod
-    def make_from_configs(
-        cls, model_config: Dict[str, Any], env_kwargs: Dict[str, Any]
-    ):
+    def make_from_configs(cls, vae_config: Dict[str, Any], env_kwargs: Dict[str, Any]):
         h = env_kwargs["map_height"]
-        observation_dim = h**2
+        input_shape = (1, h, h)
 
-        vae_kwargs = model_config["vae_kwargs"]
-        vae_kwargs.update(dict(input_shape=(1, h, h)))
+        vae_kwargs = vae_config["vae_kwargs"]
+        vae_kwargs["input_shape"] = input_shape
 
-        encoder_hidden_layers = [observation_dim // 5, observation_dim // 10]
-        decoder_hidden_layers = [observation_dim // 10, observation_dim // 5]
+        Encoder = getattr(sys.modules[__name__], vae_config["encoder_class"])
+        Decoder = getattr(sys.modules[__name__], vae_config["decoder_class"])
+
+        encoder_kwargs = vae_config["encoder_kwargs"]
+        decoder_kwargs = vae_config["decoder_kwargs"]
 
         embedding_dim = vae_kwargs["z_dim"] * vae_kwargs["z_layers"]
-        encoder = MlpEncoder(
-            observation_dim,
-            encoder_hidden_layers,
-            embedding_dim,
-            dropout=model_config["mlp_encoder"]["dropout"],
-        )
-        decoder = MlpDecoder(
-            embedding_dim,
-            decoder_hidden_layers,
-            observation_dim,
-            dropout=model_config["mlp_decoder"]["dropout"],
-        )
+        encoder_kwargs["embedding_dim"] = embedding_dim
+        decoder_kwargs["embedding_dim"] = embedding_dim
+
+        encoder_kwargs["input_shape"] = input_shape
+        decoder_kwargs["output_shape"] = input_shape
+
+        encoder = Encoder(**encoder_kwargs)
+        decoder = Decoder(**decoder_kwargs)
 
         return cls(encoder, decoder, **vae_kwargs)
 
@@ -392,69 +431,12 @@ class StateVae(nn.Module):
             return self.decode(z).detach().cpu().numpy()
 
     def anneal_tau(self):
-        self.tau *= self.gamma
+        if self.tau_annealing_rate - 1 < 1e-4:
+            return
+        self.tau *= self.tau_annealing_rate
 
     def prep_next_batch(self):
         self.anneal_tau()
-
-
-class CnnVae(StateVae):
-    def __init__(
-        self,
-        encoder: BaseEncoder,
-        decoder: BaseDecoder,
-        z_dim: int,
-        z_layers: int,
-        beta: float = VAE_BETA,
-        tau: float = VAE_TAU,
-        gamma: float = VAE_GAMMA,
-        input_shape: Tuple[int, int, int] = INPUT_SHAPE,
-    ):
-        super().__init__(
-            encoder, decoder, z_dim, z_layers, beta, tau, gamma, input_shape
-        )
-
-        self.beta = beta
-
-    @classmethod
-    def make_from_configs(
-        cls, model_config: Dict[str, Any], env_kwargs: Dict[str, Any]
-    ):
-        h = env_kwargs["map_height"]
-
-        vae_kwargs = model_config["vae_kwargs"]
-        vae_kwargs.update(dict(input_shape=(1, h, h)))
-
-        embedding_dim = vae_kwargs["z_dim"] * vae_kwargs["z_layers"]
-
-        encoder_kwargs = dict(output_size=embedding_dim, height=h, width=h)
-        encoder_kwargs.update(model_config["cnn_encoder"])
-
-        decoder_kwargs = dict(input_size=embedding_dim)
-        decoder_kwargs.update(model_config["cnn_decoder"])
-
-        encoder = CnnEncoder(**encoder_kwargs)
-        decoder = CnnDecoder(**decoder_kwargs)
-
-        return cls(encoder, decoder, **vae_kwargs)
-
-
-class StateVaeLearnedTau(StateVae):
-    def __init__(
-        self,
-        encoder: BaseEncoder,
-        decoder: BaseDecoder,
-        z_dim: int,
-        z_layers: int = 2,
-        beta: float = 1,
-        tau: float = 1,
-        gamma: float = 1,
-    ):
-        super().__init__(encoder, decoder, z_dim, z_layers, beta, tau, gamma)
-        self.tau = torch.nn.Parameter(torch.tensor([tau]), requires_grad=True)
-
-    def anneal_tau(self):
-        pass
 
 
 class DecoderWithActions(BaseDecoder):
@@ -464,10 +446,13 @@ class DecoderWithActions(BaseDecoder):
         n_actions: int,
         hidden_sizes: List[int],
         ouput_size: int,
-        dropout: float = 0.01,
     ):
         super().__init__()
-        self.mlp = MlpDecoder(embedding_size, hidden_sizes, ouput_size, dropout)
+        self.mlp = MlpDecoder(
+            embedding_size,
+            hidden_sizes,
+            ouput_size,
+        )
         self.latent_embedding = nn.Linear(embedding_size, embedding_size)
         self.action_embedding = nn.Linear(n_actions, embedding_size)
 
@@ -527,11 +512,10 @@ class GruEncoder(nn.Module):
         n_actions: int,
         gru_kwargs: Optional[Dict[str, Any]] = None,
         batch_first: bool = True,
-        dropout: float = 0.1,
     ):
         super().__init__()
         gru_kwargs = gru_kwargs if gru_kwargs is not None else dict()
-        self.feature_extracter = MLP(input_size, hidden_sizes, embedding_dims, dropout)
+        self.feature_extracter = MLP(input_size, hidden_sizes, embedding_dims)
         self.gru_cell = nn.GRUCell(embedding_dims, embedding_dims, **gru_kwargs)
         self.hidden_encoder = nn.Linear(embedding_dims + n_actions, embedding_dims)
         self.action_encoder = nn.Linear(n_actions, n_actions)

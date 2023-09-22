@@ -140,7 +140,7 @@ def train_epochs(
         optimizer = model.configure_optimizers(dict(lr=lr))
     else:
         assert lr_decay is None, "LR Decay only supported for Model Base"
-        optimizer = optim.AdamW(lr=lr)
+        optimizer = optim.AdamW(model.parameters(), lr=lr)
 
     if scheduler is not None:
         assert scheduler_kwargs is not None, "must specify kwargs for scheduler!"
