@@ -6,6 +6,7 @@ import torch.distributions as dist
 import torch.nn.functional as F
 from torch import Tensor, nn
 from torch.distributions.categorical import Categorical
+from tqdm import trange
 
 from state_inference.utils.pytorch_utils import (
     DEVICE,
@@ -13,6 +14,7 @@ from state_inference.utils.pytorch_utils import (
     check_shape_match,
     gumbel_softmax,
     maybe_expand_batch,
+    train,
 )
 
 OPTIM_KWARGS = dict(lr=3e-4)
@@ -437,6 +439,25 @@ class StateVae(nn.Module):
 
     def prep_next_batch(self):
         self.anneal_tau()
+
+    def train_epochs(
+        self,
+        n_epochs,
+        data_loader,
+        optim,
+        grad_clip: bool = False,
+        progress_bar: bool = False,
+    ):
+        self.train()
+
+        if progress_bar:
+            iterator = trange(n_epochs, desc="Vae Epochs")
+        else:
+            iterator = range(n_epochs)
+
+        for _ in iterator:
+            train(self, data_loader, optim, grad_clip)
+            self.prep_next_batch()
 
 
 class DecoderWithActions(BaseDecoder):

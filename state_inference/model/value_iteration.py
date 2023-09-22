@@ -4,7 +4,6 @@ import numpy as np
 import torch
 from stable_baselines3.common.base_class import BaseAlgorithm
 from torch import Tensor
-from torch.utils.data import DataLoader
 from tqdm import trange
 
 import state_inference.model.vae
@@ -86,21 +85,6 @@ class ValueIterationAgent:
     def _init_state(self):
         return None
 
-    def _train_vae_batch(self, progress_bar: Optional[bool] = False):
-        dataloader = self.rollout_buffer.get_vae_dataloader(self.batch_size)
-        if progress_bar:
-            iterator = trange(self.n_epochs, desc="Vae Batches")
-        else:
-            iterator = range(self.n_epochs)
-
-        for _ in range(self.n_epochs):
-            self.state_inference_model.train()
-            train(self.state_inference_model, dataloader, self.optim, self.grad_clip)
-            self.state_inference_model.prep_next_batch()
-
-        # clear memory
-        torch.cuda.empty_cache()
-
     def _preprocess_obs(self, obs: Tensor) -> Tensor:
         # take in 8bit with shape NxHxWxC
         # convert to float with shape NxCxHxW
@@ -145,22 +129,6 @@ class ValueIterationAgent:
             return 0
         last_obs = self.rollout_buffer.get_all()[-1]
         return last_obs.index + 1
-
-    def batch_update(self, progress_bar: Optional[bool] = False) -> None:
-        # update the state model
-        self._train_vae_batch(progress_bar=progress_bar)
-
-        # construct a devono model-based learner from the new states
-        self.reestimate_mdp()
-
-        # use value iteration to estimate the rewards
-        self.policy.q_values, value_function = value_iteration(
-            t=self.transition_estimator.get_transition_functions(),
-            r=self.reward_estimator,
-            gamma=self.gamma,
-            iterations=self.n_iter,
-        )
-        self.value_function = value_function
 
     def get_env(self):
         ## used for compatibility with stablebaseline code,
@@ -275,7 +243,31 @@ class ValueIterationAgent:
             if progress_bar is not None:
                 progress_bar.set_description("Updating Batch")
 
-            self.batch_update(progress_bar=None)
+            # train the VAE on the rollouts
+            dataloader = self.rollout_buffer.get_vae_dataloader(self.batch_size)
+
+            self.state_inference_model.train_epochs(
+                self.n_epochs,
+                dataloader,
+                self.optim,
+                self.grad_clip,
+                progress_bar=False,
+            )
+
+            # clear memory
+            torch.cuda.empty_cache()
+
+            # construct a devono model-based learner from the new states
+            self.reestimate_mdp()
+
+            # use value iteration to estimate the rewards
+            self.policy.q_values, value_function = value_iteration(
+                t=self.transition_estimator.get_transition_functions(),
+                r=self.reward_estimator,
+                gamma=self.gamma,
+                iterations=self.n_iter,
+            )
+            self.value_function = value_function
 
         if progress_bar is not None:
             progress_bar.close()
