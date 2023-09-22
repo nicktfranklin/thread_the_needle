@@ -79,6 +79,9 @@ class ValueIterationAgent:
             ]
         )
 
+        self.num_timesteps = 0
+        self.value_function = None
+
     def _init_state(self):
         return None
 
@@ -160,15 +163,7 @@ class ValueIterationAgent:
         last_obs = self.rollout_buffer.get_all()[-1]
         return last_obs.index + 1
 
-    def _batch_estimate(
-        self, step: int, last_step: bool, progress_bar: Optional[bool] = False
-    ) -> None:
-        # update only periodically
-        if (not last_step) and (
-            self.n_steps is None or step == 0 or step % self.n_steps != 0
-        ):
-            return
-
+    def batch_update(self, progress_bar: Optional[bool] = False) -> None:
         # update the state model
         self._train_vae_batch(progress_bar=progress_bar)
 
@@ -228,13 +223,7 @@ class ValueIterationAgent:
         q_s_a = (1 - self.alpha) * q_s_a + self.alpha * (r + self.gamma * V_sp)
         self.policy.q_values[s][a] = q_s_a
 
-    def learn(
-        self,
-        total_timesteps: int,
-        estimate_batch: bool = True,
-        progress_bar: bool = False,
-        **kwargs,
-    ) -> None:
+    def collect_rollouts(self, n_rollout_steps, progress_bar=None):
         # Use the current policy to explore
         obs_prev = self.task.reset()[0]
 
@@ -242,11 +231,15 @@ class ValueIterationAgent:
         state_prev = self._init_state()
         idx = self._init_index()
 
-        if progress_bar:
-            iterator = trange(total_timesteps, desc="Steps")
-        else:
-            iterator = range(total_timesteps)
-        for step in iterator:
+        if progress_bar is not None:
+            progress_bar.set_description("Collecting Rollouts")
+
+        self.rollout_buffer.reset()
+
+        n_steps = 0
+        while n_steps < n_rollout_steps:
+            if progress_bar is not None:
+                progress_bar.update(1)
             action, state = self.predict(obs_prev, state_prev, episode_start)
             episode_start = False
 
@@ -265,6 +258,9 @@ class ValueIterationAgent:
 
             self.rollout_buffer.add(obs_tuple)
 
+            n_steps += 1
+            self.num_timesteps += 1
+
             obs_prev = obs
             state_prev = state
             if terminated:
@@ -272,11 +268,30 @@ class ValueIterationAgent:
                 idx += 1
                 assert hasattr(obs, "shape")
                 assert not isinstance(obs_prev, tuple)
+        return
 
-        if estimate_batch:
-            self._batch_estimate(
-                step, step == total_timesteps - 1, progress_bar=progress_bar
-            )
+    def learn(
+        self,
+        total_timesteps: int,
+        eval_only: bool = False,
+        progress_bar: bool = False,
+        **kwargs,
+    ) -> None:
+        if progress_bar is not None:
+            progress_bar = trange(total_timesteps, position=0, leave=True)
+
+        # alternate between collecting rollouts and batch updates
+        n_rollout_steps = self.n_steps if self.n_steps is not None else total_timesteps
+        while self.num_timesteps < total_timesteps:
+            self.collect_rollouts(n_rollout_steps, progress_bar)
+
+            if not eval_only:
+                if progress_bar is not None:
+                    progress_bar.set_description("Updating Batch")
+                self.batch_update(progress_bar=None)
+
+        if progress_bar is not None:
+            progress_bar.close()
 
     @classmethod
     def make_from_configs(
