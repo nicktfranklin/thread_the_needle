@@ -67,6 +67,11 @@ class SoftmaxPolicy:
         self.q_init = {a: q_init for a in range(self.n_actions)}
 
     def maybe_init_q_values(self, s: int) -> None:
+        """
+        Initialize a set of q_values if they don't exist, setting them to
+        a default value
+        """
+
         if s not in self.q_values:
             if self.q_values:
                 q_init = {
