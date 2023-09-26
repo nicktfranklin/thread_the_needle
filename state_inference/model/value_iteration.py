@@ -1,3 +1,4 @@
+from random import choice
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
@@ -44,6 +45,7 @@ class ValueIterationAgent:
         n_steps: Optional[int] = 2048,  # None => only update at the end,
         n_epochs: int = 10,
         alpha: float = 0.05,
+        dyna_updates: int = 5,
     ) -> None:
         """
         :param n_steps: The number of steps to run for each environment per update
@@ -81,6 +83,7 @@ class ValueIterationAgent:
 
         self.num_timesteps = 0
         self.value_function = None
+        self.dyna_updates = dyna_updates
 
     def _init_state(self):
         return None
@@ -123,6 +126,16 @@ class ValueIterationAgent:
 
         s, a, r, sp = self._get_sars_tuples(obs)
         self.update_qvalues(s, a, r, sp)
+
+        #### Dyna updates ####
+        # dyna updates (note: this assumes a deterministic enviornment,
+        # and this code differes from dyna as we are only using resampled
+        # values and not seperately sampling rewards and sucessor states
+        if self.rollout_buffer.len() > 0:
+            for _ in range(self.dyna_updates):
+                obs = choice(self.rollout_buffer.get_all())
+                s, a, r, sp = self._get_sars_tuples(obs)
+                self.update_qvalues(s, a, r, sp)
 
     def _init_index(self):
         if self.rollout_buffer.len() == 0:
