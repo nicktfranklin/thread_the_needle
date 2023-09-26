@@ -50,6 +50,7 @@ thread_the_needle:
       - 380
     movement_penalty: -0.1
     n_states: 400
+    max_steps: 100
   test_start_state: 215
 
 
