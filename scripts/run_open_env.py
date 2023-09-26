@@ -1,14 +1,14 @@
 import pandas as pd
 from stable_baselines3 import PPO
 
-from state_inference.gridworld_env import CnnWrapper, ThreadTheNeedleEnv
-from state_inference.utils.config_utils import parse_task_config
-from state_inference.utils.training_utils import train_model
+from task.gridworld import CnnWrapper, OpenEnv
+from utils.config_utils import parse_task_config
+from utils.training_utils import train_model
 
 CONFIG_FILE = "state_inference/env_config.yml"
-TASK_NAME = "thread_the_needle"
-TASK_CLASS = ThreadTheNeedleEnv
-OUTPUT_FILE_NAME = "ThreadTheNeedleSims.csv"
+TASK_NAME = "open_env"
+TASK_CLASS = OpenEnv
+OUTPUT_FILE_NAME = "OpenEnvSims.csv"
 
 
 def train():

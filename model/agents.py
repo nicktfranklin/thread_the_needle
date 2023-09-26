@@ -7,16 +7,12 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.utils.data import DataLoader
 
-from state_inference.gridworld_env import ActType
-from state_inference.model.common import OaroTuple
-from state_inference.model.vae import RecurrentVae
-from state_inference.model.value_iteration import ValueIterationAgent
-from state_inference.utils.data import RecurrentVaeDataset, TransitionVaeDataset
-from state_inference.utils.pytorch_utils import (
-    DEVICE,
-    convert_8bit_to_float,
-    maybe_convert_to_tensor,
-)
+from model.common import OaroTuple
+from model.vae import RecurrentVae
+from model.value_iteration import ValueIterationAgent
+from task.gridworld import ActType
+from utils.data import RecurrentVaeDataset, TransitionVaeDataset
+from utils.pytorch_utils import DEVICE, convert_8bit_to_float, maybe_convert_to_tensor
 
 BATCH_SIZE = 64
 N_EPOCHS = 20
@@ -178,7 +174,7 @@ class RecurrentViAgent(ValueIterationAgent):
 
         return a, next_state
 
-    def _within_batch_update(
+    def _update_rollout_policy(
         self, obs: OaroTuple, state: None, state_prev: None
     ) -> None:
         # prep the observations for the RNN

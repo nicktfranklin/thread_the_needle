@@ -4,7 +4,12 @@ import numpy as np
 import scipy.sparse
 from scipy.special import logsumexp
 
-from state_inference.utils.utils import inverse_cmf_sampler
+
+def inverse_cmf_sampler(pmf: Union[np.ndarray, scipy.sparse.csr_matrix]) -> int:
+    if type(pmf) == scipy.sparse.csr_matrix:
+        pmf = pmf.toarray()
+
+    return np.array(np.cumsum(np.array(pmf)) < np.random.rand(), dtype=int).sum()
 
 
 def sample_trajectory_until_goal(

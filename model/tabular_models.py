@@ -10,17 +10,9 @@ from matplotlib import pyplot as plt
 from scipy.special import logsumexp
 from sklearn.neighbors import KNeighborsClassifier
 
-from state_inference.gridworld_env import (
-    ActType,
-    GridWorldEnv,
-    ObservationModel,
-    ObsType,
-)
-from state_inference.model.vae import StateVae
-from state_inference.utils.pytorch_utils import (
-    DEVICE,
-    convert_8bit_array_to_float_tensor,
-)
+from model.vae import StateVae
+from task.gridworld import ActType, GridWorldEnv, ObservationModel, ObsType
+from utils.pytorch_utils import DEVICE, convert_8bit_array_to_float_tensor
 
 
 class RandomAgent:
