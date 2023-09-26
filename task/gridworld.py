@@ -8,8 +8,8 @@ import numpy as np
 import torch
 from scipy.signal import fftconvolve
 
-from state_inference.utils.pytorch_utils import make_tensor, normalize
-from state_inference.utils.utils import one_hot
+from utils.pytorch_utils import make_tensor, normalize
+from utils.utils import one_hot
 from value_iteration.environments.thread_the_needle import (
     GridWorld,
     make_thread_the_needle_walls,
