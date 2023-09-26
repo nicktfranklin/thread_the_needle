@@ -6,20 +6,12 @@ import pandas as pd
 import torch
 import yaml
 
-from state_inference.gridworld_env import CnnWrapper, ThreadTheNeedleEnv
-from state_inference.model.agents import ViAgentWithExploration
-from state_inference.model.vae import MlpDecoder, MlpEncoder, StateVae
-from state_inference.utils.config_utils import (
-    load_config,
-    parse_model_config,
-    parse_task_config,
-)
-from state_inference.utils.pytorch_utils import (
-    DEVICE,
-    convert_8bit_to_float,
-    make_tensor,
-)
-from state_inference.utils.training_utils import get_policy_prob, vae_get_pmf
+from model.agents import ViAgentWithExploration
+from model.vae import MlpDecoder, MlpEncoder, StateVae
+from task.gridworlds import CnnWrapper, ThreadTheNeedleEnv
+from utils.config_utils import load_config, parse_model_config, parse_task_config
+from utils.pytorch_utils import DEVICE, convert_8bit_to_float, make_tensor
+from utils.training_utils import get_policy_prob, vae_get_pmf
 
 ######## File Names and Configs ########
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#

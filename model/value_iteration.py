@@ -4,18 +4,18 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 import torch
 from stable_baselines3.common.base_class import BaseAlgorithm
+from state_inference.model.vae import StateVae
+from state_inference.utils.pytorch_utils import DEVICE, convert_8bit_to_float, train
 from torch import Tensor
 from tqdm import trange
 
-import state_inference.model.vae
-from state_inference.model.common import OaroTuple, RolloutBuffer, SoftmaxPolicy
-from state_inference.model.tabular_models import (
+import model.vae
+from model.common import OaroTuple, RolloutBuffer, SoftmaxPolicy
+from model.tabular_models import (
     TabularRewardEstimator,
     TabularStateActionTransitionEstimator,
     value_iteration,
 )
-from state_inference.model.vae import StateVae
-from state_inference.utils.pytorch_utils import DEVICE, convert_8bit_to_float, train
 
 
 class ValueIterationAgent:

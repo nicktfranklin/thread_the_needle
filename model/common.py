@@ -5,8 +5,8 @@ from stable_baselines3.common.distributions import CategoricalDistribution
 from torch import Tensor
 from torch.utils.data import DataLoader
 
-from state_inference.gridworld_env import ActType, RewType
-from state_inference.utils.pytorch_utils import DEVICE, convert_8bit_to_float
+from task.gridworld import ActType, RewType
+from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
 
 @dataclass

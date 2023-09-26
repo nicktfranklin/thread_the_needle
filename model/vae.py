@@ -8,7 +8,7 @@ from torch import Tensor, nn
 from torch.distributions.categorical import Categorical
 from tqdm import trange
 
-from state_inference.utils.pytorch_utils import (
+from utils.pytorch_utils import (
     DEVICE,
     assert_correct_end_shape,
     check_shape_match,

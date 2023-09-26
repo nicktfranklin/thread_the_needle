@@ -6,8 +6,8 @@ import numpy as np
 import pandas as pd
 from stable_baselines3 import A2C, DQN, PPO
 
-from state_inference.gridworld_env import CnnWrapper, OpenEnv
-from state_inference.utils.training_utils import train_model
+from task.gridworld import CnnWrapper, OpenEnv
+from utils.training_utils import train_model
 
 # Discritized states: a 20x20 grid of states, which we embed by spacing
 # evenly in a nXn space
@@ -37,6 +37,7 @@ OBS_KWARGS = dict(
     noise_corruption_prob=0.005,
 )
 
+
 def play():
     plt.ion()
     args = [HEIGHT, WIDTH, MAP_HEIGHT, STATE_REWARDS, OBS_KWARGS]
@@ -49,21 +50,19 @@ def play():
     obs = task.reset()
     print(obs)
     plt.imshow(obs[0])
-    plt.pause(.5)
+    plt.pause(0.5)
 
     done = False
     while not done:
         # action = int(input('0: up, 1: down, 2: left, 3: right?'))
-        action = choice([0, 1,2,3])
-        key = {0: 'up', 1: 'down', 2: "left", 3: "right"}
+        action = choice([0, 1, 2, 3])
+        key = {0: "up", 1: "down", 2: "left", 3: "right"}
         obs, rew, done, info, _ = task.step(action)
-        print(f'Action: {key[action]}, reward: {rew}')
+        print(f"Action: {key[action]}, reward: {rew}")
         plt.imshow(obs)
         plt.pause(0.1)
 
-
     # time.sleep(10)
-
 
 
 if __name__ == "__main__":
