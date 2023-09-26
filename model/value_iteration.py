@@ -4,8 +4,6 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 import torch
 from stable_baselines3.common.base_class import BaseAlgorithm
-from state_inference.model.vae import StateVae
-from state_inference.utils.pytorch_utils import DEVICE, convert_8bit_to_float, train
 from torch import Tensor
 from tqdm import trange
 
@@ -16,6 +14,8 @@ from model.tabular_models import (
     TabularStateActionTransitionEstimator,
     value_iteration,
 )
+from model.vae import StateVae
+from utils.pytorch_utils import DEVICE, convert_8bit_to_float, train
 
 
 class ValueIterationAgent:
@@ -42,7 +42,7 @@ class ValueIterationAgent:
         n_iter: int = 1000,
         softmax_gain: float = 1.0,
         epsilon: float = 0.05,
-        n_steps: Optional[int] = 2048,  # None => only update at the end,
+        n_steps: Optional[int] = None,  # None => only update at the end,
         n_epochs: int = 10,
         alpha: float = 0.05,
         dyna_updates: int = 5,
@@ -293,6 +293,6 @@ class ValueIterationAgent:
         vae_config: Dict[str, Any],
         env_kwargs: Dict[str, Any],
     ):
-        VaeClass = getattr(state_inference.model.vae, agent_config["vae_model_class"])
+        VaeClass = getattr(model.vae, agent_config["vae_model_class"])
         vae = VaeClass.make_from_configs(vae_config, env_kwargs)
         return cls(task, vae, **agent_config["state_inference_model"])
