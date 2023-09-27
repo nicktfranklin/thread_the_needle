@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import fftconvolve
 
-from task.gridworld import ObsType, StateType
+from task.utils import ObsType, StateType
 from utils.pytorch_utils import normalize
 
 

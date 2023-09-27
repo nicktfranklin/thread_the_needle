@@ -2,7 +2,7 @@ from typing import Dict
 
 import numpy as np
 
-from task.gridworld import RewType, StateType
+from task.utils import RewType, StateType
 
 
 class RewardModel:

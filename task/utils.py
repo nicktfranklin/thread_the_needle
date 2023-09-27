@@ -1,19 +1,21 @@
 from random import choices
-from typing import Optional, Tuple
+from typing import Tuple, TypeVar
 
 import numpy as np
 import torch
 
-from task.gridworld import StateType
-from task.observation_model import ObservationModel
-from task.transition_model import TransitionModel
 from utils.pytorch_utils import make_tensor
+
+ObsType = TypeVar("ObsType")
+ActType = TypeVar("ActType")
+StateType = TypeVar("StateType")
+RewType = TypeVar("RewType")
 
 
 def sample_random_walk_states(
-    transition_model: TransitionModel,
-    walk_length: int,
-    initial_state: Optional[int] = None,
+    transition_model,
+    walk_length,
+    initial_state=None,
 ) -> list[StateType]:
     random_walk = []
     if initial_state is not None:
@@ -30,10 +32,7 @@ def sample_random_walk_states(
 
 
 def sample_random_walk(
-    length: int,
-    transition_model: TransitionModel,
-    observation_model: ObservationModel,
-    initial_state: Optional[int] = None,
+    length: int, transition_model, observation_model, initial_state=None
 ) -> torch.tensor:
     states = sample_random_walk_states(
         transition_model, length, initial_state=initial_state
@@ -52,8 +51,5 @@ def get_position_from_state(state: int, n_columns: int) -> Tuple[int, int]:
     return row, column
 
 
-def sample_states(
-    transition_model: TransitionModel,
-    n: int,
-) -> np.ndarray:
+def sample_states(transition_model, n) -> np.ndarray:
     return np.random.choice(len(transition_model.adjecency_list), n).tolist()

@@ -4,8 +4,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
-from task.gridworld import ActType, StateType
-from task.utils import get_position_from_state
+from task.utils import ActType, StateType, get_position_from_state
 from utils.utils import one_hot
 
 
