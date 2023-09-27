@@ -11,7 +11,8 @@ from scipy.special import logsumexp
 from sklearn.neighbors import KNeighborsClassifier
 
 from model.vae import StateVae
-from task.gridworld import ActType, GridWorldEnv, ObservationModel, ObsType
+from task.gridworld import ActType, GridWorldEnv, ObsType
+from task.observation_model import ObservationModel
 from utils.pytorch_utils import DEVICE, convert_8bit_array_to_float_tensor
 
 
