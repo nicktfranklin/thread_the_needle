@@ -238,32 +238,3 @@ def maybe_expand_batch(
     if check_shape_match(x, target_shape):
         return x[None, ...]
     return x
-
-
-def split_into_batches(x: Tensor, batch_size: int, dim: int = 0) -> List[Tensor]:
-    """
-    Function that takes in an tensor and splits it into batches of size
-    b along specified dimension (default dim=0).  If the tensor isn't evenly
-    divisable, the last batch will be smaller than batch_size.
-
-    Returns a list of tensors
-    """
-    n = x.shape[dim]
-    if n <= batch_size:
-        return x
-
-    full_batches = n // batch_size
-    last_batch = n % batch_size
-
-    if last_batch > 0:
-        last_tensor = tuple([x[-last_batch:]])
-    else:
-        last_tensor = tuple([])
-
-    # split the batches
-    tensors = x[:-last_batch].reshape(full_batches, batch_size, -1).split(1, dim=0)
-
-    # drop the extra dim
-    tensors = tuple([x0.squeeze(0) for x0 in tensors])
-
-    return tensors + last_tensor
