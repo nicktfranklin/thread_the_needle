@@ -15,7 +15,7 @@ from model.tabular_models import (
     value_iteration,
 )
 from model.vae import StateVae
-from utils.pytorch_utils import DEVICE, convert_8bit_to_float, train
+from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
 
 class ValueIterationAgent:
@@ -235,6 +235,19 @@ class ValueIterationAgent:
                 assert not isinstance(obs_prev, tuple)
         return
 
+    def estimate_offline(self):
+        # construct a devono model-based learner from the new states
+        self.reestimate_mdp()
+
+        # use value iteration to estimate the rewards
+        self.policy.q_values, value_function = value_iteration(
+            t=self.transition_estimator.get_transition_functions(),
+            r=self.reward_estimator,
+            gamma=self.gamma,
+            iterations=self.n_iter,
+        )
+        self.value_function = value_function
+
     def learn(
         self,
         total_timesteps: int,
@@ -270,17 +283,8 @@ class ValueIterationAgent:
             # clear memory
             torch.cuda.empty_cache()
 
-            # construct a devono model-based learner from the new states
-            self.reestimate_mdp()
-
-            # use value iteration to estimate the rewards
-            self.policy.q_values, value_function = value_iteration(
-                t=self.transition_estimator.get_transition_functions(),
-                r=self.reward_estimator,
-                gamma=self.gamma,
-                iterations=self.n_iter,
-            )
-            self.value_function = value_function
+            # re-estimate the model with the new steps
+            self.estimate_offline()
 
         if progress_bar is not None:
             progress_bar.close()
