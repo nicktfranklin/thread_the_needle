@@ -195,10 +195,9 @@ class ValueIterationAgent:
         self.policy.maybe_init_q_values(sp)
 
         q_s_a = self.policy.q_values[s][a]
-        V_s = max(self.policy.q_values[s].values())
         V_sp = max(self.policy.q_values[sp].values())
 
-        q_s_a += self.alpha * (r + self.gamma * V_sp - V_s)
+        q_s_a += self.alpha * (r + self.gamma * V_sp - q_s_a)
         self.policy.q_values[s][a] = q_s_a
 
     def collect_rollouts(self, n_rollout_steps, progress_bar=None, eval_only=False):
