@@ -55,4 +55,6 @@ def inverse_cmf_sampler(pmf: Union[np.ndarray, scipy.sparse.csr_matrix]) -> int:
     if type(pmf) == scipy.sparse.csr_matrix:
         pmf = pmf.toarray()
 
+    assert isinstance(pmf, np.ndarray)
+
     return np.array(np.cumsum(np.array(pmf)) < np.random.rand(), dtype=int).sum()

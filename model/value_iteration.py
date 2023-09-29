@@ -124,8 +124,15 @@ class ValueIterationAgent:
         # values and not seperately sampling rewards and sucessor states
         if self.rollout_buffer.len() > 0:
             for _ in range(n_updates):
+                # select a random observation from experience
                 obs = choice(self.rollout_buffer.get_all())
-                s, a, r, sp = self._get_sars_tuples(obs)
+                s = self._get_hashed_state(obs.obs)[0]
+                a = obs.a
+
+                # draw r, sp from the model
+                sp = self.transition_estimator.sample(s, a)
+                r = self.reward_estimator.sample(sp)
+
                 self.update_qvalues(s, a, r, sp)
 
     def _update_rollout_policy(

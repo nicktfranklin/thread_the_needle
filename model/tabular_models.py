@@ -152,7 +152,13 @@ class TabularTransitionEstimator:
 
     def sample(self, state: Hashable) -> Hashable:
         pmf = self.get_transition_probs(state)
-        return inverse_cmf_sampler(pmf)
+
+        sucessor_states = list(pmf.keys())
+        pmf = np.array(list(pmf.values()))
+
+        idx = inverse_cmf_sampler(pmf)
+
+        return sucessor_states[idx]
 
 
 class TabularStateActionTransitionEstimator:
@@ -172,6 +178,9 @@ class TabularStateActionTransitionEstimator:
 
     def get_transition_functions(self):
         return self.models
+
+    def sample(self, s: Hashable, a: ActType) -> None:
+        return self.models[a].sample(s)
 
 
 class TabularRewardEstimator:
@@ -200,13 +209,13 @@ class TabularRewardEstimator:
     def get_avg_reward(self, state):
         # get the weighted average
         r = np.array(list(self.counts[state].keys()))
-        n = np.array([self.counts[state].values()])
+        n = np.array(list(self.counts[state].values()))
         vs = r @ n / n.sum()
         return vs
 
-    def sample_reward(self, state):
+    def sample(self, state):
         r = np.array(list(self.counts[state].keys()))
-        n = np.array([self.counts[state].values()])
+        n = np.array(list(self.counts[state].values()))
         return choices(r, n / n.sum())[0]
 
 
