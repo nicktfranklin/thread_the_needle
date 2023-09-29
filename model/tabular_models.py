@@ -193,8 +193,11 @@ class TabularRewardEstimator:
     def get_states(self):
         return list(self.state_reward_function.keys())
 
-    def get_reward(self, state):
+    def get_avg_reward(self, state):
         return self.state_reward_function.get(state, np.nan)
+
+    def sample_reward(self, state):
+        pass
 
 
 def value_iteration(
@@ -217,7 +220,7 @@ def value_iteration(
     def _expected_reward(s, a):
         _sum = 0
         for sp, p in t[a].get_transition_probs(s).items():
-            _sum += p * r.get_reward(sp)
+            _sum += p * r.get_avg_reward(sp)
         return _sum
 
     for _ in range(iterations):
