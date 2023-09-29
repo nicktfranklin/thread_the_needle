@@ -1,7 +1,8 @@
 from random import choices
-from typing import Optional
+from typing import Optional, Union
 
 import numpy as np
+import scipy.sparse
 import torch
 
 from task.observation_model import ObservationModel
@@ -44,3 +45,14 @@ def sample_random_walk(
     )
     obs = torch.stack([make_tensor(observation_model(s)) for s in states])
     return obs
+
+
+def inverse_cmf_sampler(pmf: Union[np.ndarray, scipy.sparse.csr_matrix]) -> int:
+    """
+    Takes in a PMF of length N and returns a sample from [0, N-1]
+    """
+
+    if type(pmf) == scipy.sparse.csr_matrix:
+        pmf = pmf.toarray()
+
+    return np.array(np.cumsum(np.array(pmf)) < np.random.rand(), dtype=int).sum()

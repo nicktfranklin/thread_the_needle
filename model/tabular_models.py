@@ -14,6 +14,7 @@ from model.vae import StateVae
 from task.gridworld import ActType, GridWorldEnv, ObsType
 from task.observation_model import ObservationModel
 from utils.pytorch_utils import DEVICE, convert_8bit_array_to_float_tensor
+from utils.sampling_functions import inverse_cmf_sampler
 
 
 class RandomAgent:
@@ -149,6 +150,10 @@ class TabularTransitionEstimator:
             return {s: 1.0}
         return self.pmf[s]
 
+    def sample(self, state: Hashable) -> Hashable:
+        pmf = self.get_transition_probs(state)
+        return inverse_cmf_sampler(pmf)
+
 
 class TabularStateActionTransitionEstimator:
     def __init__(self, n_actions: int = 4):
@@ -180,11 +185,10 @@ class TabularRewardEstimator:
 
     def update(self, s: Hashable, r: float):
         if s in self.counts.keys():  # pylint: disable=consider-iterating-dictionary
-            self.counts[s] += np.array([float(r), 1.0])
+            n = self.counts[s].get(float(r), 0)
+            self.counts[s][float(r)] = n + 1
         else:
-            self.counts[s] = np.array([float(r), 1.0])
-
-        self.state_reward_function[s] = self.counts[s][0] / self.counts[s][1]
+            self.counts[s] = {float(r): 1.0}
 
     def batch_update(self, s: List[Hashable], r: List[float]):
         for s0, r0 in zip(s, r):
@@ -194,10 +198,16 @@ class TabularRewardEstimator:
         return list(self.state_reward_function.keys())
 
     def get_avg_reward(self, state):
-        return self.state_reward_function.get(state, np.nan)
+        # get the weighted average
+        r = np.array(list(self.counts[state].keys()))
+        n = np.array([self.counts[state].values()])
+        vs = r @ n / n.sum()
+        return vs
 
     def sample_reward(self, state):
-        pass
+        r = np.array(list(self.counts[state].keys()))
+        n = np.array([self.counts[state].values()])
+        return choices(r, n / n.sum())[0]
 
 
 def value_iteration(

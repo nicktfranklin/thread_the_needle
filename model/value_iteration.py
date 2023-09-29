@@ -83,7 +83,7 @@ class ValueIterationAgent:
 
         self.num_timesteps = 0
         self.value_function = None
-        self.dyna_updates = dyna_updates
+        self.n_dyna_updates = dyna_updates
 
     def _init_state(self):
         return None
@@ -117,25 +117,37 @@ class ValueIterationAgent:
         sp = self._get_hashed_state(obsp)
         return s, sp
 
-    def _update_rollout_policy(
-        self, obs: OaroTuple, state: Optional[Tensor], state_prev: Optional[Tensor]
-    ) -> None:
-        # state and state_prev are only used by recurrent models
-        assert state is None
-        assert state_prev is None
-
-        s, a, r, sp = self._get_sars_tuples(obs)
-        self.update_qvalues(s, a, r, sp)
-
+    def _dyna_updates(self, n_updates: int) -> None:
         #### Dyna updates ####
         # dyna updates (note: this assumes a deterministic enviornment,
         # and this code differes from dyna as we are only using resampled
         # values and not seperately sampling rewards and sucessor states
         if self.rollout_buffer.len() > 0:
-            for _ in range(self.dyna_updates):
+            for _ in range(n_updates):
                 obs = choice(self.rollout_buffer.get_all())
                 s, a, r, sp = self._get_sars_tuples(obs)
                 self.update_qvalues(s, a, r, sp)
+
+    def _update_rollout_policy(
+        self, obs: OaroTuple, state: Optional[Tensor], state_prev: Optional[Tensor]
+    ) -> None:
+        # the rollout policy is DYNA
+
+        # state and state_prev are only used by recurrent models
+        assert state is None
+        assert state_prev is None
+
+        # pass the obseration tuple through the state-inference network
+        s, a, r, sp = self._get_sars_tuples(obs)
+
+        # update the model
+        self.transition_estimator.update(s, a, sp)
+        self.reward_estimator.update(sp, r)
+
+        # update q-values
+        self.update_qvalues(s, a, r, sp)
+
+        self._dyna_updates(self.n_dyna_updates)
 
     def _init_index(self):
         if self.rollout_buffer.len() == 0:
@@ -167,24 +179,19 @@ class ValueIterationAgent:
         self.transition_estimator.update(s, a, sp)
         self.reward_estimator.update(sp, r)
 
-    def reestimate_mdp(self):
-        self.transition_estimator.reset()
-        self.reward_estimator.reset()
-
-        s, sp = self._precalculate_states_for_batch_training()
-
-        for idx, obs in enumerate(self.rollout_buffer.get_all()):
-            self.transition_estimator.update(s[idx], obs.a, sp[idx])
-            self.reward_estimator.update(sp[idx], obs.r)
-
     def update_qvalues(self, s, a, r, sp) -> None:
-        self.policy.maybe_init_q_values(s)
-        q_s_a = self.policy.q_values[s][a]
+        """
+        This is the Dyna-Q update rule. From Sutton and Barto (2020), ch 8
+        """
 
+        self.policy.maybe_init_q_values(s)
         self.policy.maybe_init_q_values(sp)
+
+        q_s_a = self.policy.q_values[s][a]
+        V_s = max(self.policy.q_values[s].values())
         V_sp = max(self.policy.q_values[sp].values())
 
-        q_s_a = (1 - self.alpha) * q_s_a + self.alpha * (r + self.gamma * V_sp)
+        q_s_a += self.alpha * (r + self.gamma * V_sp - V_s)
         self.policy.q_values[s][a] = q_s_a
 
     def collect_rollouts(self, n_rollout_steps, progress_bar=None, eval_only=False):
@@ -236,8 +243,15 @@ class ValueIterationAgent:
         return
 
     def estimate_offline(self):
-        # construct a devono model-based learner from the new states
-        self.reestimate_mdp()
+        # resetimate the model from the new states
+        self.transition_estimator.reset()
+        self.reward_estimator.reset()
+
+        s, sp = self._precalculate_states_for_batch_training()
+
+        for idx, obs in enumerate(self.rollout_buffer.get_all()):
+            self.transition_estimator.update(s[idx], obs.a, sp[idx])
+            self.reward_estimator.update(sp[idx], obs.r)
 
         # use value iteration to estimate the rewards
         self.policy.q_values, value_function = value_iteration(
@@ -261,6 +275,7 @@ class ValueIterationAgent:
         # alternate between collecting rollouts and batch updates
         n_rollout_steps = self.n_steps if self.n_steps is not None else total_timesteps
         while self.num_timesteps < total_timesteps:
+            # collect rollouts to train the VAE
             self.collect_rollouts(n_rollout_steps, progress_bar, eval_only)
 
             if eval_only:
@@ -271,7 +286,6 @@ class ValueIterationAgent:
 
             # train the VAE on the rollouts
             dataloader = self.rollout_buffer.get_vae_dataloader(self.batch_size)
-
             self.state_inference_model.train_epochs(
                 self.n_epochs,
                 dataloader,
