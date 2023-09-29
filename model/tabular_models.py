@@ -208,6 +208,9 @@ class TabularRewardEstimator:
 
     def get_avg_reward(self, state):
         # get the weighted average
+        reward_dict = self.counts.get(state, None)
+        if reward_dict is None:
+            return np.nan
         r = np.array(list(self.counts[state].keys()))
         n = np.array(list(self.counts[state].values()))
         vs = r @ n / n.sum()
