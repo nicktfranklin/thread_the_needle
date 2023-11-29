@@ -159,3 +159,59 @@ class ValueIterationNetwork(PlanningModel):
         return np.random.normal(loc=0, scale=noise, size=(n_rows, n_columns)).reshape(
             -1
         )
+
+
+class UntiledValueIterationNetwork(ValueIterationNetwork):
+    @staticmethod
+    def value_iteration(
+        transition_functions: List[Union[np.ndarray, sparse.csr_matrix]],
+        reward_functions: List[Union[np.ndarray, sparse.csr_matrix]],
+        n_rows: int,
+        n_columns: int,
+        gamma: float = 0.8,
+        iterations: int = 10,
+        initialization_noise: float = 0.01,  # in standard deviation
+        return_interim_estimates: bool = False,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        For the reward, transition matrix, list indicies correspond to actions.  E.g.
+        the 0th action will have the 0the transition/reward function.
+
+        This assumes a square-grid structure
+        """
+
+        n_states = n_rows * n_columns
+        n_actions = len(reward_functions)
+
+        # initialize the value functions
+        value_function = ValueIterationNetwork._initialize_value_function(
+            n_rows, n_columns, initialization_noise
+        )
+        value = value_function
+
+        state_action_values = np.zeros((n_states, n_actions))  # q(s, a)
+        q = [np.empty((n_states, n_actions))] * n_actions
+
+        if return_interim_estimates:
+            state_action_values = np.zeros((iterations, n_states, n_actions))
+            value_function = np.zeros((iterations, n_states))
+
+        # dynamic programing algorithm
+        for ii in tnrange(0, iterations):
+            # calculate values
+            for a, (r_a, t_a) in enumerate(zip(reward_functions, transition_functions)):
+                q[a] = r_a + gamma * t_a.dot(value)
+            value = np.max(q, axis=0)
+
+            if return_interim_estimates:
+                value_function[ii, :] = value
+                state_action_values[ii, ...] = np.array(q).T
+
+        if return_interim_estimates:
+            return state_action_values, value_function
+
+        value_function = value
+
+        state_action_values = np.array(q).T
+
+        return state_action_values, value_function
