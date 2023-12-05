@@ -1,9 +1,0 @@
-pytorch
-torchvision
-torchaudio
-scikit-learn
-numpy
-seaborn
-jupyter
-stable-baselines3
-gymnasium

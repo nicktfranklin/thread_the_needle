@@ -1,0 +1,13 @@
+name: state_inference
+channels:
+  - defaults
+dependencies:
+  - python>=3.11
+  - pip
+  - pip:
+    - torch
+    - torchvision
+    - tqdm
+    - notebook
+    - seaborn
+    - sklearn
