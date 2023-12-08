@@ -1,4 +1,4 @@
-from model.value_iteration import ValueIterationAgent
+from model.agents.value_iteration import ValueIterationAgent
 
 
 class DynaAgent(ValueIterationAgent):

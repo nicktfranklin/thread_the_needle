@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 
 from model.common import OaroTuple
 from model.vae import RecurrentVae
-from model.value_iteration import ValueIterationAgent
+from model.agents.value_iteration import ValueIterationAgent
 from task.gridworld import ActType
 from utils.data import RecurrentVaeDataset, TransitionVaeDataset
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float, maybe_convert_to_tensor

@@ -10,7 +10,7 @@ import torch
 from stable_baselines3.common.monitor import Monitor, load_results
 
 from model.vae import MlpDecoder, MlpEncoder, StateVae
-from model.value_iteration import ValueIterationAgent
+from model.agents.value_iteration import ValueIterationAgent
 from task.gridworld import CnnWrapper, ThreadTheNeedleEnv
 from utils.config_utils import parse_configs
 from utils.pytorch_utils import DEVICE

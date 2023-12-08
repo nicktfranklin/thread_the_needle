@@ -2,7 +2,7 @@ name: state_inference
 channels:
   - defaults
 dependencies:
-  - python>=3.11
+  - python==3.11.5
   - pip
   - pip:
     - torch
@@ -11,3 +11,4 @@ dependencies:
     - notebook
     - seaborn
     - sklearn
+    - jupyter

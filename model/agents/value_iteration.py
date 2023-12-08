@@ -9,7 +9,7 @@ from tqdm import trange
 
 import model.vae
 from model.common import OaroTuple, RolloutBuffer, SoftmaxPolicy
-from model.tabular_models import (
+from model.agents.tabular_models import (
     TabularRewardEstimator,
     TabularStateActionTransitionEstimator,
     value_iteration,
