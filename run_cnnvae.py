@@ -3,15 +3,12 @@ import os
 import sys
 from datetime import date
 
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
 import torch
-from stable_baselines3.common.monitor import Monitor, load_results
+from stable_baselines3.common.monitor import Monitor
 
-from model.vae import MlpDecoder, MlpEncoder, StateVae
-from model.agents.value_iteration import ValueIterationAgent
-from task.gridworld import CnnWrapper, ThreadTheNeedleEnv
+from model.agents.value_iteration import ValueIterationAgent as Agent
+from task.gridworld import CnnWrapper
+from task.gridworld import ThreadTheNeedleEnv as Environment
 from utils.config_utils import parse_configs
 from utils.pytorch_utils import DEVICE
 
@@ -23,54 +20,63 @@ print(f"device = {DEVICE}")
 ### Configuration files
 parser = argparse.ArgumentParser()
 
-parser.add_argument("--vae_config", default="configs/vae_config.yaml")
-parser.add_argument("--task_config", default="config/env_config.yaml")
-parser.add_argument("--agent_config", default="config/agent_config.yaml")
+parser.add_argument("--vae_config", default="configs/vae_config.yml")
+parser.add_argument("--task_config", default="configs/env_config.yml")
+parser.add_argument("--agent_config", default="configs/agent_config.yml")
 parser.add_argument("--task_name", default="thread_the_needle")
 parser.add_argument("--model_name", default="cnn_vae")
-
-# Create log dir
-LOG_DIR = "tmp/"
-os.makedirs(LOG_DIR, exist_ok=True)
-
-TASK_CLASS = ThreadTheNeedleEnv
-AgentClass = ValueIterationAgent
-
-## Load Configs
-config = parse_configs(parser.parse_args())
-
-# create the task and get the optimal policy
-task = CnnWrapper(TASK_CLASS.create_env(**config["env_kwargs"]))
-pi, _ = task.get_optimal_policy()
-
-SAVE_FILE_NAME = f"simulations/thread_the_needle_viagent_{date.today()}.csv"
+parser.add_argument(
+    "--save_file", default=f"simulations/thread_the_needle_vi_agent_{date.today()}.csv"
+)
+parser.add_argument("--log_dir", default="logs/")
 
 
-# create the task and get the optimal policy
-task = TASK_CLASS.create_env(**config["env_kwargs"])
-task = CnnWrapper(task)
+def make_env(configs):
+    # create the task and get the optimal policy
+    task = CnnWrapper(Environment.create_env(**configs["env_kwargs"]))
+    pi, _ = task.get_optimal_policy()
 
-# create the monitor
-task = Monitor(task, LOG_DIR)
+    # create the task and get the optimal policy
+    task = Environment.create_env(**configs["env_kwargs"])
+    task = CnnWrapper(task)
 
-pi, _ = task.get_optimal_policy()
+    # create the monitor
+    task = Monitor(task, args.log_dir)
+
+    return task
+
+    # pi, _ = task.get_optimal_policy()
 
 
 ### Model + Training Parameters
 
 
-def make_model():
-    agent = AgentClass.make_from_configs(
-        task, config["agent_config"], config["vae_config"], config["env_kwargs"]
+def make_model(task, configs):
+    agent = Agent.make_from_configs(
+        task, configs["agent_config"], configs["vae_config"], configs["env_kwargs"]
     )
     return agent
 
 
-agent = make_model()
-total_params = sum(p.numel() for p in agent.state_inference_model.parameters())
-print(f"Number of parameters: {total_params}")
+def main():
+    args = parser.parse_args()
+    configs = parse_configs(args)
+    print(args)
+    print(configs)
+
+    # Create log dir
+    os.makedirs(args.log_dir, exist_ok=True)
 
 
-agent = make_model()
-# agent.learn(2048, estimate_batch=True, progress_bar=True)
-agent.learn(10000, estimate_batch=True, progress_bar=True)
+if __name__ == "__main__":
+    main()
+
+
+# agent = make_model()
+# total_params = sum(p.numel() for p in agent.state_inference_model.parameters())
+# print(f"Number of parameters: {total_params}")
+
+
+# agent = make_model()
+# # agent.learn(2048, estimate_batch=True, progress_bar=True)
+# agent.learn(10000, estimate_batch=True, progress_bar=True)

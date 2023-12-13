@@ -9,6 +9,7 @@
 simulations/*.yml
 tmp
 *.npy
+logs
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

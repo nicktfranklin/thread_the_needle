@@ -1,4 +1,5 @@
 from argparse import Namespace
+import os
 from typing import Any, Dict
 import yaml
 
@@ -19,10 +20,13 @@ def parse_task_config(task_name: str, config_file: str) -> Dict[str, Any]:
     return config[task_name]["env_kwargs"]
 
 
-def parse_configs(args: Namespace):
-    env_kwargs = parse_task_config(args.task_name, args.task_config)
-    vae_config = parse_model_config(args.model_name, args.vae_config)
-    agent_config = load_config(args.agent_config)
+def parse_configs(args: Namespace, base_path: str = ""):
+    def _wrap_path(path: str) -> str:
+        return os.path.join(base_path, path)
+
+    env_kwargs = parse_task_config(args.task_name, _wrap_path(args.task_config))
+    vae_config = parse_model_config(args.model_name, _wrap_path(args.vae_config))
+    agent_config = load_config(_wrap_path(args.agent_config))
 
     return {
         "model_name": args.model_name,
