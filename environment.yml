@@ -1,14 +1,16 @@
 name: state_inference
 channels:
   - defaults
+  - pytorch
 dependencies:
-  - python==3.11.5
+  - python>=3.11
+  - pytorch
+  - torchvision
   - pip
   - pip:
-    - torch
-    - torchvision
     - tqdm
     - notebook
     - seaborn
-    - sklearn
-    - jupyter
+    - scikit-learn
+    - stable-baselines3[extra]
+    - ipywidgets
