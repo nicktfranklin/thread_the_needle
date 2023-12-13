@@ -1,7 +1,9 @@
 import argparse
+from dataclasses import dataclass
 import os
 import sys
 from datetime import date
+from typing import Any, Dict
 
 import torch
 from stable_baselines3.common.monitor import Monitor
@@ -31,41 +33,52 @@ parser.add_argument(
 parser.add_argument("--log_dir", default="logs/")
 
 
-def make_env(configs):
+@dataclass
+class Config:
+    log_dir: str
+    env_kwargs: Dict[str, Any]
+    agent_config: Dict[str, Any]
+    vae_config: Dict[str, Any]
+
+    @classmethod
+    def construct(cls, args: argparse.Namespace):
+        configs = parse_configs(args)
+        return cls(
+            log_dir=args.log_dir,
+            env_kwargs=configs["env_kwargs"],
+            vae_config=configs["vae_config"],
+            agent_config=configs["agent_config"],
+        )
+
+
+def make_env(configs: Config):
     # create the task and get the optimal policy
-    task = CnnWrapper(Environment.create_env(**configs["env_kwargs"]))
+    task = CnnWrapper(Environment.create_env(**configs.env_kwargs))
     pi, _ = task.get_optimal_policy()
 
     # create the task and get the optimal policy
-    task = Environment.create_env(**configs["env_kwargs"])
+    task = Environment.create_env(**configs.env_kwargs)
     task = CnnWrapper(task)
 
     # create the monitor
-    task = Monitor(task, args.log_dir)
+    task = Monitor(task, configs.log_dir)
+    # pi, _ = task.get_optimal_policy()
 
     return task
 
-    # pi, _ = task.get_optimal_policy()
-
-
-### Model + Training Parameters
-
-
-def make_model(task, configs):
-    agent = Agent.make_from_configs(
-        task, configs["agent_config"], configs["vae_config"], configs["env_kwargs"]
-    )
-    return agent
-
 
 def main():
-    args = parser.parse_args()
-    configs = parse_configs(args)
-    print(args)
-    print(configs)
+    configs = Config.construct(parser.parse_args())
 
     # Create log dir
-    os.makedirs(args.log_dir, exist_ok=True)
+    os.makedirs(configs.log_dir, exist_ok=True)
+
+    ### Model + Training Parameters
+    task = make_env(configs)
+    agent = Agent.make_from_configs(
+        task, configs.agent_config, configs.vae_config, configs.env_kwargs
+    )
+    print(agent.state_inference_model)
 
 
 if __name__ == "__main__":
