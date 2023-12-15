@@ -1,5 +1,6 @@
 from typing import List, Optional, Tuple
 
+import torch
 from torch import Tensor, nn
 
 from utils.pytorch_utils import assert_correct_end_shape, maybe_expand_batch

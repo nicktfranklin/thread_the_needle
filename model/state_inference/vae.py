@@ -1,4 +1,5 @@
 import sys
+from importlib import import_module
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
@@ -15,7 +16,7 @@ from model.state_inference.constants import (
     VAE_TAU,
     VAE_TAU_ANNEALING_RATE,
 )
-from model.state_inference.mlp import MlpDecoderWithActions
+from model.state_inference.nets.mlp import MlpDecoderWithActions
 from utils.pytorch_utils import (
     DEVICE,
     assert_correct_end_shape,
@@ -23,6 +24,8 @@ from utils.pytorch_utils import (
     gumbel_softmax,
     train,
 )
+
+from .nets import *
 
 
 def unit_test_vae_reconstruction(model, input_shape):

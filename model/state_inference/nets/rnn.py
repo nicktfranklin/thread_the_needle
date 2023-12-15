@@ -3,8 +3,9 @@ from typing import Any, Dict, List, Optional
 import torch
 from torch import Tensor, nn
 
-from model.state_inference.mlp import MLP
 from utils.pytorch_utils import DEVICE
+
+from .mlp import MLP
 
 
 class GruEncoder(nn.Module):
