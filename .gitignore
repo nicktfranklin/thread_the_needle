@@ -10,6 +10,7 @@ simulations/*.yml
 tmp
 *.npy
 logs
+Sandbox.ipynb
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

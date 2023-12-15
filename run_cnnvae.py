@@ -4,12 +4,13 @@ import os
 import sys
 from datetime import date
 from typing import Any, Dict
+from stable_baselines3 import PPO
 
 import torch
 from stable_baselines3.common.monitor import Monitor
 
 from model.agents.value_iteration import ValueIterationAgent as Agent
-from task.gridworld import CnnWrapper
+from task.gridworld import CnnWrapper, GridWorldEnv
 from task.gridworld import ThreadTheNeedleEnv as Environment
 from utils.config_utils import parse_configs
 from utils.pytorch_utils import DEVICE
@@ -31,6 +32,7 @@ parser.add_argument(
     "--save_file", default=f"simulations/thread_the_needle_vi_agent_{date.today()}.csv"
 )
 parser.add_argument("--log_dir", default="logs/")
+parser.add_argument("--n_training_samples", default=10000)
 
 
 @dataclass
@@ -40,6 +42,8 @@ class Config:
     agent_config: Dict[str, Any]
     vae_config: Dict[str, Any]
 
+    n_training_samples: int
+
     @classmethod
     def construct(cls, args: argparse.Namespace):
         configs = parse_configs(args)
@@ -48,17 +52,13 @@ class Config:
             env_kwargs=configs["env_kwargs"],
             vae_config=configs["vae_config"],
             agent_config=configs["agent_config"],
+            n_training_samples=args.n_training_samples,
         )
 
 
-def make_env(configs: Config):
-    # create the task and get the optimal policy
+def make_env(configs: Config) -> GridWorldEnv:
+    # create the task
     task = CnnWrapper(Environment.create_env(**configs.env_kwargs))
-    pi, _ = task.get_optimal_policy()
-
-    # create the task and get the optimal policy
-    task = Environment.create_env(**configs.env_kwargs)
-    task = CnnWrapper(task)
 
     # create the monitor
     task = Monitor(task, configs.log_dir)
@@ -67,18 +67,34 @@ def make_env(configs: Config):
     return task
 
 
+def train_ppo(configs: Config, task: GridWorldEnv):
+    ppo = PPO("CnnPolicy", task, verbose=0)
+    ppo.learn(total_timesteps=configs.n_training_samples, progress_bar=True)
+
+    return ppo
+
+
+def collect_buffer(model: nn.Module):
+    pass
+
+
 def main():
     configs = Config.construct(parser.parse_args())
 
     # Create log dir
     os.makedirs(configs.log_dir, exist_ok=True)
 
-    ### Model + Training Parameters
+    # create task
     task = make_env(configs)
-    agent = Agent.make_from_configs(
-        task, configs.agent_config, configs.vae_config, configs.env_kwargs
-    )
-    print(agent.state_inference_model)
+
+    # train ppo
+    ppo = train_ppo(configs, task)
+
+    ### Model + Training Parameters
+    # agent = Agent.make_from_configs(
+    #     task, configs.agent_config, configs.vae_config, configs.env_kwargs
+    # )
+    # print(agent.state_inference_model)
 
 
 if __name__ == "__main__":

@@ -4,21 +4,22 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 import torch
 from stable_baselines3.common.base_class import BaseAlgorithm
-from torch import Tensor
+from torch import FloatTensor, Tensor
 from tqdm import trange
 
-import model.vae
-from model.common import OaroTuple, RolloutBuffer, SoftmaxPolicy
+import model.state_inference.vae
+from model.agents.base_agent import BaseAgent
 from model.agents.tabular_models import (
     TabularRewardEstimator,
     TabularStateActionTransitionEstimator,
     value_iteration,
 )
-from model.vae import StateVae
+from model.common import OaroTuple, RolloutBuffer, SoftmaxPolicy
+from model.state_inference.vae import StateVae
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
 
-class ValueIterationAgent:
+class ValueIterationAgent(BaseAgent):
     TRANSITION_MODEL_CLASS = TabularStateActionTransitionEstimator
     REWARD_MODEL_CLASS = TabularRewardEstimator
     POLICY_CLASS = SoftmaxPolicy
@@ -171,6 +172,9 @@ class ValueIterationAgent:
         p = self.policy.get_distribution(s)
         return p
 
+    def get_pmf(self, obs: FloatTensor) -> np.ndarray:
+        return model.get_policy(obs).distribution.probs.clone().detach().numpy()
+
     def predict(
         self, obs: Tensor, state=None, episode_start=None, deterministic: bool = False
     ) -> tuple[Tensor, None]:
@@ -317,6 +321,6 @@ class ValueIterationAgent:
         vae_config: Dict[str, Any],
         env_kwargs: Dict[str, Any],
     ):
-        VaeClass = getattr(model.vae, agent_config["vae_model_class"])
+        VaeClass = getattr(model.state_inference.vae, agent_config["vae_model_class"])
         vae = VaeClass.make_from_configs(vae_config, env_kwargs)
         return cls(task, vae, **agent_config["state_inference_model"])

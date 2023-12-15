@@ -4,246 +4,25 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 import torch.distributions as dist
 import torch.nn.functional as F
-from torch import Tensor, nn
+from torch import FloatTensor, Tensor, nn
 from torch.distributions.categorical import Categorical
 from tqdm import trange
 
+from model.state_inference.constants import (
+    INPUT_SHAPE,
+    OPTIM_KWARGS,
+    VAE_BETA,
+    VAE_TAU,
+    VAE_TAU_ANNEALING_RATE,
+)
+from model.state_inference.mlp import MlpDecoderWithActions
 from utils.pytorch_utils import (
     DEVICE,
     assert_correct_end_shape,
     check_shape_match,
     gumbel_softmax,
-    maybe_expand_batch,
     train,
 )
-
-OPTIM_KWARGS = dict(lr=3e-4)
-VAE_BETA = 1.0
-VAE_TAU = 1.0
-VAE_TAU_ANNEALING_RATE = 1.0
-INPUT_SHAPE = (1, 40, 40)
-
-
-class MLP(nn.Module):
-    def __init__(
-        self,
-        input_size: int,
-        hidden_sizes: List[int],
-        output_size: int,
-    ):
-        super().__init__()
-        self.nin = input_size
-        self.nout = output_size
-
-        # define a simple MLP neural net
-        self.net = []
-
-        d_in = self.nin
-        for d_out in hidden_sizes:
-            self.net.extend(
-                [
-                    nn.Linear(d_in, d_out),
-                    nn.BatchNorm1d(d_out),
-                    nn.ELU(),
-                ]
-            )
-            d_in = d_out
-
-        # final linear layer
-        self.net.append(nn.Linear(d_out, self.nout))
-
-        self.net = nn.Sequential(*self.net)
-
-    def forward(self, x: Tensor) -> Tensor:
-        return self.net(x)
-
-
-class BaseEncoder(nn.Module):
-    pass
-
-
-class MlpEncoder(BaseEncoder):
-    def __init__(
-        self,
-        input_shape: int | Tuple[int],
-        hidden_sizes: List[int],
-        embedding_dim: int,
-    ):
-        super().__init__()
-        if isinstance(input_shape, tuple):
-            input_shape = torch.tensor(input_shape).prod().item()
-
-        self.net = MLP(input_shape, hidden_sizes, embedding_dim)
-
-    def forward(self, x: Tensor) -> Tensor:
-        return self.net(x.view(x.shape[0], -1))
-
-
-class ConvBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=1):
-        super().__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
-        self.act = nn.ELU()
-
-    def forward(self, x: Tensor) -> Tensor:
-        x = self.conv(x)
-        x = self.act(x)
-        return x
-
-
-class CnnEncoder(BaseEncoder):
-    def __init__(
-        self,
-        in_channels: int,
-        embedding_dim: int,
-        input_shape: Tuple[int, int, int],
-        channels: Optional[List[int]] = None,
-    ):
-        super().__init__()
-
-        if channels is None:
-            channels = [32, 64, 128, 256, 512]
-
-        modules = []
-        h_in = in_channels
-        for h_dim in channels:
-            modules.append(ConvBlock(h_in, h_dim, 3, stride=2, padding=1))
-            h_in = h_dim
-        self.cnn = nn.Sequential(*modules)
-        self.mlp = nn.Sequential(
-            nn.LayerNorm(channels[-1] * 4),
-            nn.Linear(channels[-1] * 4, channels[-1] * 4),
-            nn.ELU(),
-            nn.Linear(channels[-1] * 4, embedding_dim),
-        )
-
-        assert in_channels == input_shape[0], "Input channels do not match shape!"
-
-        self.input_shape = input_shape
-
-    def forward(self, x):
-        # Assume NxCxHxW input or CxHxW input
-        assert_correct_end_shape(x, self.input_shape)
-        x = maybe_expand_batch(x, self.input_shape)
-        x = self.cnn(x)
-        x = self.mlp(torch.flatten(x, start_dim=1))
-        return x
-
-    def encode_sequence(self, x: Tensor, batch_first: bool = True) -> Tensor:
-        assert x.ndim == 5
-        if batch_first:
-            x = x.permute(1, 0, 2, 3, 4)
-        x = torch.stack([self(xt) for xt in x])
-        if batch_first:
-            x = x.permute(1, 0, 2, 3, 4)
-        return x
-
-
-class BaseDecoder(nn.Module):
-    def loss(self, x, target):
-        y_hat = self(x)
-        return F.mse_loss(y_hat, torch.flatten(target, start_dim=1))
-
-
-class MlpDecoder(BaseDecoder):
-    def __init__(
-        self,
-        embedding_dim: int,
-        hidden_sizes: List[int],
-        output_shape: int | Tuple[int, int, int],
-    ):
-        super().__init__()
-
-        if isinstance(output_shape, tuple):
-            d_out = torch.tensor(output_shape).prod().item()
-        else:
-            d_out = output_shape
-
-        self.net = MLP(embedding_dim, hidden_sizes, d_out)
-        self.output_shape = output_shape
-
-    def forward(self, x):
-        output = F.sigmoid(self.net(x))
-        return output.view(output.shape[0], *self.output_shape)
-
-
-class ConvTransposeBlock(nn.Module):
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size,
-        stride=1,
-        padding=1,
-        output_padding=0,
-    ):
-        super().__init__()
-        self.conv_t = nn.ConvTranspose2d(
-            in_channels, out_channels, kernel_size, stride, padding, output_padding
-        )
-        self.act = nn.ELU()
-
-    def forward(self, x: Tensor) -> Tensor:
-        x = self.conv_t(x)
-        x = self.act(x)
-        return x
-
-
-class CnnDecoder(BaseDecoder):
-    def __init__(
-        self,
-        embedding_dim: int,
-        channel_out: int,
-        channels: Optional[List[int]] = None,
-        output_shape=None,  # not used
-    ):
-        super().__init__()
-
-        if channels is None:
-            channels = [32, 64, 128, 256, 512][::-1]
-
-        self.fc = nn.Linear(embedding_dim, 4 * channels[0])
-        self.first_channel_size = channels[0]
-
-        modules = []
-        for ii in range(len(channels) - 1):
-            modules.append(
-                ConvTransposeBlock(
-                    channels[ii],
-                    channels[ii + 1],
-                    3,
-                    stride=2,
-                    padding=1,
-                    output_padding=1,
-                )
-            )
-        self.deconv = nn.Sequential(*modules)
-
-        self.final_layer = nn.Sequential(
-            nn.ConvTranspose2d(
-                channels[-1],
-                channels[-1],
-                3,
-                stride=2,
-                padding=1,
-                output_padding=1,
-            ),
-            nn.BatchNorm2d(channels[-1]),
-            nn.GELU(),
-            nn.Conv2d(channels[-1], out_channels=channel_out, kernel_size=3, padding=1),
-            nn.Sigmoid(),
-        )
-
-    def forward(self, z):
-        hidden = self.fc(z)
-        hidden = hidden.view(
-            -1, self.first_channel_size, 2, 2
-        )  # does not effect batching
-        hidden = self.deconv(hidden)
-        observation = self.final_layer(hidden)
-        if observation.shape[0] == 1:
-            return observation.squeeze(0)
-        return observation
 
 
 def unit_test_vae_reconstruction(model, input_shape):
@@ -261,8 +40,8 @@ def unit_test_vae_reconstruction(model, input_shape):
 class StateVae(nn.Module):
     def __init__(
         self,
-        encoder: BaseEncoder,
-        decoder: BaseDecoder,
+        encoder: nn.Module,
+        decoder: nn.Module,
         z_dim: int,
         z_layers: int,
         beta: float = VAE_BETA,
@@ -383,6 +162,10 @@ class StateVae(nn.Module):
         # sum loss over dimensions in each example, average over batch
         return mse_loss.view(x.shape[0], -1).sum(1).mean()
 
+    def decoder_loss(self, z: Tensor, target: FloatTensor) -> FloatTensor:
+        y_hat = self.decoder(z)
+        return F.mse_loss(y_hat, torch.flatten(target, start_dim=1))
+
     def loss(self, x: Tensor) -> Tensor:
         x = x.to(DEVICE).float()
         (logits, _), x_hat = self(x)
@@ -460,41 +243,12 @@ class StateVae(nn.Module):
             self.prep_next_batch()
 
 
-class DecoderWithActions(BaseDecoder):
-    def __init__(
-        self,
-        embedding_size: int,
-        n_actions: int,
-        hidden_sizes: List[int],
-        ouput_size: int,
-    ):
-        super().__init__()
-        self.mlp = MlpDecoder(
-            embedding_size,
-            hidden_sizes,
-            ouput_size,
-        )
-        self.latent_embedding = nn.Linear(embedding_size, embedding_size)
-        self.action_embedding = nn.Linear(n_actions, embedding_size)
-
-    def forward(self, latents, action):
-        x = self.latent_embedding(latents) + self.action_embedding(action)
-        x = F.relu(x)
-        x = self.mlp(x)
-        return x
-
-    def loss(self, latents, actions, targets):
-        y_hat = self(latents, actions)
-        # return y_hat
-        return F.mse_loss(y_hat, torch.flatten(targets, start_dim=1))
-
-
 class TransitionStateVae(StateVae):
     def __init__(
         self,
-        encoder: BaseEncoder,
-        decoder: BaseDecoder,
-        next_obs_decoder: DecoderWithActions,
+        encoder: nn.Module,
+        decoder: nn.Module,
+        next_obs_decoder: MlpDecoderWithActions,
         z_dim: int,
         z_layers: int = 2,
         beta: float = 1,
@@ -518,73 +272,18 @@ class TransitionStateVae(StateVae):
 
         # get the two components of the ELBO loss
         kl_loss = self.kl_loss(logits)
-        recon_loss = self.decoder.loss(z, obs)
+        recon_loss = self.recontruction_loss(z, obs)
+        recon_loss = self.decoder_loss(z, obs)
         next_obs_loss = self.next_obs_decoder.loss(z, actions, obsp)
 
         return recon_loss + next_obs_loss + kl_loss * self.beta
 
 
-class GruEncoder(nn.Module):
-    def __init__(
-        self,
-        input_size: int,
-        hidden_sizes: List[int],
-        embedding_dims: int,
-        n_actions: int,
-        gru_kwargs: Optional[Dict[str, Any]] = None,
-        batch_first: bool = True,
-    ):
-        super().__init__()
-        gru_kwargs = gru_kwargs if gru_kwargs is not None else dict()
-        self.feature_extracter = MLP(input_size, hidden_sizes, embedding_dims)
-        self.gru_cell = nn.GRUCell(embedding_dims, embedding_dims, **gru_kwargs)
-        self.hidden_encoder = nn.Linear(embedding_dims + n_actions, embedding_dims)
-        self.action_encoder = nn.Linear(n_actions, n_actions)
-        self.batch_first = batch_first
-        self.hidden_size = embedding_dims
-        self.n_actions = n_actions
-        self.nin = input_size
-
-    def rnn(self, obs: Tensor, h: Tensor) -> Tensor:
-        print(obs.shape, h.shape)
-        x = self.feature_extracter(obs)
-        return self.gru_cell(x, h)
-
-    def forward(
-        self,
-        obs: Tensor,
-        actions: Tensor,
-    ):
-        obs = torch.flatten(obs, start_dim=2)
-        if self.batch_first:
-            obs = torch.permute(obs, (1, 0, 2))
-            actions = torch.permute(actions, (1, 0, 2))
-
-        n_batch = obs.shape[1]
-
-        # initialize the hidden state and action
-        h = torch.zeros(n_batch, self.hidden_size)
-        a_prev = torch.zeros(n_batch, self.n_actions)
-
-        # loop through the sequence of observations
-        for o, a in zip(obs, actions):
-            # encode the hidden state with the previous actions
-            h = self.hidden_encoder(torch.concat([h, a_prev], dim=1).to(DEVICE))
-
-            # encode the action for the next step
-            a_prev = self.action_encoder(a)
-
-            # pass the observation through the rnn (+ encoder)
-            h = self.rnn(o, h)
-
-        return h
-
-
 class RecurrentVae(StateVae):
     def __init__(
         self,
-        encoder: BaseEncoder,
-        decoder: BaseDecoder,
+        encoder: nn.Module,
+        decoder: nn.Module,
         z_dim: int,
         z_layers: int = 2,
         beta: float = 1,
@@ -651,6 +350,6 @@ class RecurrentVae(StateVae):
 
         # get the two components of the ELBO loss
         kl_loss = self.kl_loss(logits)
-        recon_loss = self.decoder.loss(z, obs[:, -1, ...])
+        recon_loss = self.decoder_loss(z, obs[:, -1, ...])
 
         return recon_loss + kl_loss * self.beta

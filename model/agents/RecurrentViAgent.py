@@ -7,40 +7,23 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.utils.data import DataLoader
 
-from model.common import OaroTuple
-from model.vae import RecurrentVae
+from model.agents.constants import (
+    ALPHA,
+    BATCH_LENGTH,
+    BATCH_SIZE,
+    EPSILON,
+    GAMMA,
+    GRAD_CLIP,
+    MAX_SEQUENCE_LEN,
+    N_EPOCHS,
+    N_ITER_VALUE_ITERATION,
+    SOFTMAX_GAIN,
+)
 from model.agents.value_iteration import ValueIterationAgent
-from task.gridworld import ActType
+from model.common import OaroTuple
+from model.state_inference.vae import RecurrentVae
 from utils.data import RecurrentVaeDataset, TransitionVaeDataset
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float, maybe_convert_to_tensor
-
-BATCH_SIZE = 64
-N_EPOCHS = 20
-GRAD_CLIP = True
-N_ITER_VALUE_ITERATION = 1000
-SOFTMAX_GAIN = 1.0
-EPSILON = 0.05
-GAMMA = 0.99
-BATCH_LENGTH = None  # only update at end
-ALPHA = 0.05
-
-
-class ViControlableStateInf(ValueIterationAgent):
-    def _prep_vae_dataloader(self, batch_size: int = BATCH_SIZE):
-        obs = self.rollout_buffer.get_tensor("obs")
-        obsp = self.rollout_buffer.get_tensor("obsp")
-        a = F.one_hot(self.rollout_buffer.get_tensor("a"), num_classes=4).float()
-
-        dataset = TransitionVaeDataset(obs, a, obsp)
-
-        return DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=True,
-        )
-
-
-MAX_SEQUENCE_LEN = 4
 
 
 class RecurrentViAgent(ValueIterationAgent):
@@ -195,3 +178,18 @@ class RecurrentViAgent(ValueIterationAgent):
         s = s.dot(self.hash_vector)
         sp = sp.dot(self.hash_vector)
         self.update_qvalues(s, obs.a, obs.r, sp)
+
+
+class ViControlableStateInf(ValueIterationAgent):
+    def _prep_vae_dataloader(self, batch_size: int = BATCH_SIZE):
+        obs = self.rollout_buffer.get_tensor("obs")
+        obsp = self.rollout_buffer.get_tensor("obsp")
+        a = F.one_hot(self.rollout_buffer.get_tensor("a"), num_classes=4).float()
+
+        dataset = TransitionVaeDataset(obs, a, obsp)
+
+        return DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=True,
+        )
