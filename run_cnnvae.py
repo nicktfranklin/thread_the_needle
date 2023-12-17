@@ -1,14 +1,15 @@
 import argparse
-from dataclasses import dataclass
 import os
 import sys
+from dataclasses import dataclass
 from datetime import date
 from typing import Any, Dict
-from stable_baselines3 import PPO
 
 import torch
+import torch.nn as nn
 from stable_baselines3.common.monitor import Monitor
 
+from model.agents.ppo import PPO
 from model.agents.value_iteration import ValueIterationAgent as Agent
 from task.gridworld import CnnWrapper, GridWorldEnv
 from task.gridworld import ThreadTheNeedleEnv as Environment

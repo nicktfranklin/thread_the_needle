@@ -3,6 +3,8 @@ from typing import Callable
 import numpy as np
 import torch
 
+from model.agents.base_agent import BaseAgent
+
 
 def eval_model(model, n, start_state=None):
     env = model.get_env()
@@ -25,14 +27,13 @@ def eval_model(model, n, start_state=None):
 
 
 def score_policy(
-    model,
-    fn_get_pmf,
+    model: BaseAgent,
     optimal_policy,
     n_states=400,
     map_height=60,
     cnn=True,
 ):
-    pmf = get_policy_prob(model, fn_get_pmf, n_states, map_height, cnn)
+    pmf = model.get_policy_prob(model.get_env(), n_states, map_height, cnn)
     return np.sum(optimal_policy * pmf, axis=1).mean()
 
 
