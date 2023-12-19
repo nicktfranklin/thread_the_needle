@@ -7,8 +7,10 @@ from typing import Any, Dict
 
 import torch
 import torch.nn as nn
+from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.monitor import Monitor
 
+from model.agents.common import RolloutBuffer
 from model.agents.ppo import PPO
 from model.agents.value_iteration import ValueIterationAgent as Agent
 from task.gridworld import CnnWrapper, GridWorldEnv
@@ -33,7 +35,7 @@ parser.add_argument(
     "--save_file", default=f"simulations/thread_the_needle_vi_agent_{date.today()}.csv"
 )
 parser.add_argument("--log_dir", default="logs/")
-parser.add_argument("--n_training_samples", default=10000)
+parser.add_argument("--n_training_samples", default=200)
 
 
 @dataclass
@@ -44,6 +46,8 @@ class Config:
     vae_config: Dict[str, Any]
 
     n_training_samples: int
+
+    n_rollout_samples: int = 1000
 
     @classmethod
     def construct(cls, args: argparse.Namespace):
@@ -69,7 +73,14 @@ def make_env(configs: Config) -> GridWorldEnv:
 
 
 def train_ppo(configs: Config, task: GridWorldEnv):
-    ppo = PPO("CnnPolicy", task, verbose=0)
+    ppo = PPO(
+        "CnnPolicy",
+        task,
+        verbose=0,
+        n_steps=min(configs.n_training_samples, 2048),
+        batch_size=64,
+        n_epochs=10,
+    )
     ppo.learn(total_timesteps=configs.n_training_samples, progress_bar=True)
 
     return ppo
@@ -90,6 +101,8 @@ def main():
 
     # train ppo
     ppo = train_ppo(configs, task)
+
+    rollout_buffer = RolloutBuffer()
 
     ### Model + Training Parameters
     # agent = Agent.make_from_configs(

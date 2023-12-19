@@ -9,12 +9,13 @@ from tqdm import trange
 
 import model.state_inference.vae
 from model.agents.base_agent import BaseAgent
+from model.agents.policy import SoftmaxPolicy
 from model.agents.tabular_models import (
     TabularRewardEstimator,
     TabularStateActionTransitionEstimator,
     value_iteration,
 )
-from model.common import OaroTuple, RolloutBuffer, SoftmaxPolicy
+from model.data import OaroTuple, RolloutBuffer
 from model.state_inference.vae import StateVae
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
