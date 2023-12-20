@@ -3,7 +3,7 @@ channels:
   - defaults
   - pytorch
 dependencies:
-  - python>=3.11
+  - python==3.11.5
   - pytorch
   - torchvision
   - pip
@@ -14,3 +14,4 @@ dependencies:
     - scikit-learn
     - stable-baselines3[extra]
     - ipywidgets
+    - git+https://github.com/Farama-Foundation/d4rl@master#egg=d4rlwhic
