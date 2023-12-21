@@ -3,15 +3,16 @@ channels:
   - defaults
   - pytorch
 dependencies:
-  - python==3.11.5
+  - python==3.10.13
   - pytorch
   - torchvision
+  - scikit-learn
+  - tqdm
+  - seaborn
+  - notebook
   - pip
   - pip:
-    - tqdm
-    - notebook
-    - seaborn
-    - scikit-learn
-    - stable-baselines3[extra]
+    - stable-baselines3
     - ipywidgets
-    - git+https://github.com/Farama-Foundation/d4rl@master#egg=d4rlwhic
+    - rich
+    - git+https://github.com/Farama-Foundation/d4rl@master#egg=d4rl

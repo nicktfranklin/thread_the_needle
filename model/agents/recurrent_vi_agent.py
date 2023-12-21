@@ -101,7 +101,7 @@ class RecurrentViAgent(ValueIterationAgent):
                     obs=torch.tensor(obs_prev),
                     a=action,
                     r=rew,
-                    obsp=torch.tensor(obs),
+                    next_obs=torch.tensor(obs),
                     index=t,
                 )
                 validation_obs.append(obs_tuple)
@@ -162,7 +162,7 @@ class RecurrentViAgent(ValueIterationAgent):
     ) -> None:
         # prep the observations for the RNN
         o = convert_8bit_to_float(obs.obs[None, ...]).to(DEVICE)
-        op = convert_8bit_to_float(obs.obsp[None, ...]).to(DEVICE)
+        op = convert_8bit_to_float(obs.next_obs[None, ...]).to(DEVICE)
 
         state = state.view(1, -1).to(DEVICE)
         state_prev = state_prev.view(1, -1).to(DEVICE)

@@ -10,9 +10,9 @@ import torch.nn as nn
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.monitor import Monitor
 
-from model.agents.common import RolloutBuffer
 from model.agents.ppo import PPO
 from model.agents.value_iteration import ValueIterationAgent as Agent
+from model.data import D4rlDataset as Buffer
 from task.gridworld import CnnWrapper, GridWorldEnv
 from task.gridworld import ThreadTheNeedleEnv as Environment
 from utils.config_utils import parse_configs
@@ -47,7 +47,7 @@ class Config:
 
     n_training_samples: int
 
-    n_rollout_samples: int = 1000
+    n_rollout_samples: int = 200
 
     @classmethod
     def construct(cls, args: argparse.Namespace):
@@ -86,8 +86,27 @@ def train_ppo(configs: Config, task: GridWorldEnv):
     return ppo
 
 
-def collect_buffer(model: nn.Module):
-    pass
+def collect_buffer(
+    model: nn.Module,
+    task: GridWorldEnv,
+    buffer: Buffer,
+):
+    # collect data
+    obs = task.reset()[0]
+    done = False
+    while not done:
+
+        action, _ = model.predict(obs, deterministic=True)
+        outcome_tuple = task.step(action)
+        buffer.add(obs, action, outcome_tuple)
+
+        obs = outcome_tuple[0]
+        done = outcome_tuple[2]
+
+        if done:
+            obs = task.reset()[0]
+
+    return buffer
 
 
 def main():
@@ -102,7 +121,9 @@ def main():
     # train ppo
     ppo = train_ppo(configs, task)
 
-    rollout_buffer = RolloutBuffer()
+    rollout_buffer = Buffer()
+    collect_buffer(ppo.policy, task, rollout_buffer)
+    print(rollout_buffer.get_dataset())
 
     ### Model + Training Parameters
     # agent = Agent.make_from_configs(

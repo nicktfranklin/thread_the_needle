@@ -9,12 +9,12 @@ from tqdm import trange
 
 import model.state_inference.vae
 from model.agents.base_agent import BaseAgent
-from model.agents.policy import SoftmaxPolicy
-from model.agents.tabular_models import (
+from model.agents.mdp import (
     TabularRewardEstimator,
     TabularStateActionTransitionEstimator,
     value_iteration,
 )
+from model.agents.policy import SoftmaxPolicy
 from model.data import OaroTuple, RolloutBuffer
 from model.state_inference.vae import StateVae
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
@@ -107,7 +107,7 @@ class ValueIterationAgent(BaseAgent):
 
     def _get_sars_tuples(self, obs: OaroTuple):
         s = self._get_hashed_state(obs.obs)[0]
-        sp = self._get_hashed_state(obs.obsp)[0]
+        sp = self._get_hashed_state(obs.next_obs)[0]
         return s, obs.a, obs.r, sp
 
     def _precalculate_states_for_batch_training(self) -> Tuple[Tensor, Tensor]:
@@ -232,7 +232,7 @@ class ValueIterationAgent(BaseAgent):
                 obs=torch.tensor(obs_prev),
                 a=action.item(),
                 r=rew,
-                obsp=torch.tensor(obs),
+                next_obs=torch.tensor(obs),
                 index=idx,
             )
 

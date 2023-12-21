@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, SupportsFloat
 
 import gymnasium as gym
 import matplotlib
@@ -12,6 +12,7 @@ from task.utils import ActType, ObsType, RewType, StateType
 from value_iteration.environments.thread_the_needle import make_thread_the_needle_walls
 from value_iteration.models.value_iteration_network import ValueIterationNetwork
 
+OutcomeTuple = tuple[ObsType, SupportsFloat, bool, bool, Dict[str, Any]]
 
 class GridWorldEnv(gym.Env):
     def __init__(
@@ -128,8 +129,7 @@ class GridWorldEnv(gym.Env):
         return self.generate_observation(self.current_state), dict()
 
     def step(
-        self, action: ActType
-    ) -> tuple[ObsType, float, bool, bool, Dict[str, Any]]:
+        self, action: ActType) -> OutcomeTuple:
         self.step_counter += 1
 
         pdf_s = self.transition_model.get_sucessor_distribution(
