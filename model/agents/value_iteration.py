@@ -164,10 +164,6 @@ class ValueIterationAgent(BaseAgent):
         last_obs = self.rollout_buffer.get_all()[-1]
         return last_obs.index + 1
 
-    def get_env(self):
-        ## used for compatibility with stablebaseline code,
-        return BaseAlgorithm._wrap_env(self.task, verbose=False, monitor_wrapper=True)
-
     def get_policy(self, obs: Tensor):
         s = self._get_hashed_state(obs)
         p = self.policy.get_distribution(s)
