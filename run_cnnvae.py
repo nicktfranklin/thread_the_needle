@@ -6,12 +6,11 @@ from datetime import date
 from typing import Any, Dict
 
 import torch
-import torch.nn as nn
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.monitor import Monitor
 
+from model.agents.base_agent import collect_buffer
 from model.agents.ppo import PPO
-from model.agents.value_iteration import ValueIterationAgent as Agent
 from model.data import D4rlDataset as Buffer
 from task.gridworld import CnnWrapper, GridWorldEnv
 from task.gridworld import ThreadTheNeedleEnv as Environment
@@ -86,29 +85,6 @@ def train_ppo(configs: Config, task: GridWorldEnv):
     return ppo
 
 
-def collect_buffer(
-    model: nn.Module,
-    task: GridWorldEnv,
-    buffer: Buffer,
-):
-    # collect data
-    obs = task.reset()[0]
-    done = False
-    while not done:
-
-        action, _ = model.predict(obs, deterministic=True)
-        outcome_tuple = task.step(action)
-        buffer.add(obs, action, outcome_tuple)
-
-        obs = outcome_tuple[0]
-        done = outcome_tuple[2]
-
-        if done:
-            obs = task.reset()[0]
-
-    return buffer
-
-
 def main():
     configs = Config.construct(parser.parse_args())
 
@@ -123,7 +99,7 @@ def main():
 
     rollout_buffer = Buffer()
     collect_buffer(ppo.policy, task, rollout_buffer)
-    print(rollout_buffer.get_dataset())
+    # print(rollout_buffer.get_dataset())
 
     ### Model + Training Parameters
     # agent = Agent.make_from_configs(
