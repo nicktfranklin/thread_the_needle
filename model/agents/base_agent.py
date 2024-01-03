@@ -3,6 +3,8 @@ from abc import ABC, abstractmethod
 import torch
 from stable_baselines3.common.vec_env import VecEnv
 from torch import FloatTensor
+from stable_baselines3.common.base_class import BaseAlgorithm
+from model.data import D4rlDataset
 
 from task.gridworld import ActType
 
@@ -12,47 +14,41 @@ class BaseAgent(ABC):
     def get_pmf(self, x: FloatTensor) -> FloatTensor:
         ...
 
-    @abstractmethod
     def get_env(self) -> VecEnv:
+        ## used for compatibility with stablebaseline code,
+        return BaseAlgorithm._wrap_env(self.task, verbose=False, monitor_wrapper=True)
+
+
+    @abstractmethod
+    def predict(self, obs: FloatTensor, deterministic: bool = True) -> ActType:
         ...
 
-    def predict_egreedy(self, obs: FloatTensor, epsilon: float) -> ActType:
-        """
-        Get an epsilon-greedy action from the agent's policy.
+    def collect_rollouts(self, n_rollouts: int, rollout_buffer: D4rlDataset,  max_steps: int,):
 
-        :param obs:
-        :param epsilon:
-        :return:
-        """
-        if torch.rand(1) < epsilon:
-            return torch.randint(0, self.n_actions, (1,)).item()
-        else:
-            return self.predict(obs, deterministic=False)
-
-    def collect_rollouts(self, n_rollouts: int, max_steps: int, epsilon: float = 0.0):
-        """
-        Collect rollouts from the environment using the agent's policy.
-
-        :param env:
-        :param n_rollouts:
-        :param max_steps:
-        :param epsilon:
-        :return:
-        """
         env = self.get_env()
-        rollouts = []
+
         for _ in range(n_rollouts):
-            obs = env.reset()
+            obs = env.reset()[0]
             rollout = []
             for _ in range(max_steps):
-                action = self.predict_egreedy(obs, epsilon)
-                next_obs, reward, done, info = env.step(action)
-                rollout.append((obs, action, next_obs, reward))
-                obs = next_obs
-                if done:
+                action = self.predict(obs)
+                outcome_tuple = env.step(action)
+                rollout.add(obs, action, outcome_tuple)
+                
+                obs = outcome_tuple[0]
+                done = outcome_tuple[2]
+                truncated = outcome_tuple[3]
+
+
+                if done or truncated:
                     break
-            rollouts.append(rollout)
-        return rollouts
+
+
+        return rollout_buffer
+    
+
+    def learn(self, total_timesteps: int, progress_bar: bool=False, **kwargs):
+        pass
 
     def get_policy_prob(
         self, env, n_states: int, map_height: int, cnn=True
