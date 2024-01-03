@@ -10,6 +10,7 @@ from task.gridworld import ActType, ObsType, OutcomeTuple
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
 
+# TODO: Refactor and delete this class.  Mixes data and model
 class RolloutBuffer:
     def __init__(self):
         self.cached_obs = list()

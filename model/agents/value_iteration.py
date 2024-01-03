@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from stable_baselines3.common.base_class import BaseAlgorithm
 from torch import FloatTensor, Tensor
+from torch.utils import DataLoader
 from tqdm import trange
 
 import model.state_inference.vae
@@ -15,7 +16,7 @@ from model.agents.mdp import (
     value_iteration,
 )
 from model.agents.policy import SoftmaxPolicy
-from model.data import OaroTuple, RolloutBuffer
+from model.data import D4rlDataset, OaroTuple, RolloutBuffer
 from model.state_inference.vae import StateVae
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
@@ -248,6 +249,19 @@ class ValueIterationAgent(BaseAgent):
                 assert hasattr(obs, "shape")
                 assert not isinstance(obs_prev, tuple)
         return
+
+    def update_on_batch(self, buffer: D4rlDataset):
+        self.reward_estimator.reset()
+        self.transition_estimator.reset()
+
+        # prepare the dataset for training the VAE
+        dataset = buffer.get_dataset()
+        obs = convert_8bit_to_float(dataset[obs]).to(DEVICE)
+        obs = obs = obs.permute(0, 3, 1, 2)  # -> NxCxHxW
+
+        dataloader = DataLoader(
+            obs, batch_size=self.batch_size, shuffle=True, drop_last=True
+        )
 
     def estimate_offline(self):
         # resetimate the model from the new states

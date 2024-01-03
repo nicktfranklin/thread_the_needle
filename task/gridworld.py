@@ -14,6 +14,7 @@ from value_iteration.models.value_iteration_network import ValueIterationNetwork
 
 OutcomeTuple = tuple[ObsType, SupportsFloat, bool, bool, Dict[str, Any]]
 
+
 class GridWorldEnv(gym.Env):
     def __init__(
         self,
@@ -128,8 +129,7 @@ class GridWorldEnv(gym.Env):
 
         return self.generate_observation(self.current_state), dict()
 
-    def step(
-        self, action: ActType) -> OutcomeTuple:
+    def step(self, action: ActType) -> OutcomeTuple:
         self.step_counter += 1
 
         pdf_s = self.transition_model.get_sucessor_distribution(
