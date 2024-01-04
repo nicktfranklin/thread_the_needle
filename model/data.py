@@ -85,6 +85,7 @@ class D4rlDataset:
         self.info = []
 
 
+# TODO: Remove this class
 @dataclass
 class OaroTuple:
     obs: ObsType

@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-from torch import Tensor, nn, optim
+from torch import FloatTensor, LongTensor, nn, optim
 from torch.utils.data import DataLoader
 
 QUIET = False
@@ -19,11 +19,11 @@ else:
 # where a valide distribution will return nans, preventing training.  Fix from
 # https://gist.github.com/GongXinyuu/3536da55639bd9bfdd5a905ebf3ab88e
 def gumbel_softmax(
-    logits: Tensor,
+    logits: FloatTensor,
     tau: float = 1,
     hard: bool = False,
     dim: int = -1,
-) -> Tensor:
+) -> FloatTensor:
     r"""
     Samples from the `Gumbel-Softmax distribution`_ and optionally discretizes.
     You can use this function to replace "F.gumbel_softmax".
@@ -85,7 +85,7 @@ def train(
     optimizer: torch.optim.Optimizer,
     clip_grad: bool = None,
     preprocess: Optional[callable] = None,
-) -> List[Tensor]:
+) -> List[FloatTensor]:
     model.train()
 
     train_losses = []
@@ -110,7 +110,7 @@ def eval_loss(
     model: nn.Module,
     data_loader: DataLoader,
     preprocess: Optional[callable] = None,
-) -> Tensor:
+) -> FloatTensor:
     model.eval()
     total_loss = 0
     with torch.no_grad():
@@ -169,17 +169,17 @@ def train_epochs(
     return train_losses, test_losses
 
 
-def make_tensor(x: np.ndarray) -> Tensor:
+def make_tensor(x: np.ndarray) -> FloatTensor:
     return torch.tensor(x, dtype=float)
 
 
 def normalize(
-    x: Union[np.ndarray, Tensor], min_val: int = 0, max_val: int = 1
-) -> Union[np.ndarray, Tensor]:
+    x: Union[np.ndarray, FloatTensor], min_val: int = 0, max_val: int = 1
+) -> Union[np.ndarray, FloatTensor]:
     return (x - x.min()) / (x.max() - x.min()) * (max_val - min_val) + min_val
 
 
-def convert_float_to_8bit(x: Union[List[Tensor], Tensor]) -> torch.IntTensor:
+def convert_float_to_8bit(x: Union[List[FloatTensor], FloatTensor]) -> LongTensor:
     if isinstance(x, List):
         return [convert_float_to_8bit(x0) for x0 in x]
     assert x.max() <= 1.0
@@ -188,11 +188,13 @@ def convert_float_to_8bit(x: Union[List[Tensor], Tensor]) -> torch.IntTensor:
     return (x * 255).type(torch.int)
 
 
-def convert_8bit_to_float(x: Union[List[Tensor], Tensor]) -> Tensor:
+def convert_8bit_to_float(
+    x: Union[List[Union[LongTensor, np.ndarray]], Union[LongTensor, np.ndarray]]
+) -> FloatTensor:
     if isinstance(x, List):
         return [convert_8bit_to_float(x0) for x0 in x]
 
-    assert isinstance(x, Tensor)
+    assert isinstance(x, LongTensor)
     assert x.max() <= 255
     assert x.min() >= 0
 
@@ -201,23 +203,23 @@ def convert_8bit_to_float(x: Union[List[Tensor], Tensor]) -> Tensor:
 
 def convert_8bit_array_to_float_tensor(
     x: Union[List[np.ndarray], np.ndarray]
-) -> Tensor:
+) -> FloatTensor:
     if isinstance(x, list):
         return torch.stack([convert_8bit_array_to_float_tensor(x0) for x0 in x])
 
     return convert_8bit_to_float(make_tensor(x))
 
 
-def maybe_convert_to_tensor(x: Union[Tensor, np.ndarray]) -> Tensor:
-    return x if isinstance(x, Tensor) else torch.tensor(x)
+def maybe_convert_to_tensor(x: Union[FloatTensor, np.ndarray]) -> FloatTensor:
+    return x if isinstance(x, FloatTensor) else torch.tensor(x)
 
 
-def check_shape_match(x: Tensor, shape: Tuple[int]):
+def check_shape_match(x: FloatTensor, shape: Tuple[int]):
     return x.view(-1).shape[0] == torch.prod(torch.tensor(shape))
 
 
 def assert_correct_end_shape(
-    x: Tensor, shape: Tuple[int, int] | Tuple[int, int, int]
+    x: torch.tensor, shape: Tuple[int, int] | Tuple[int, int, int]
 ) -> bool:
     if len(shape) == 2:
         assert (
@@ -232,8 +234,8 @@ def assert_correct_end_shape(
 
 
 def maybe_expand_batch(
-    x: Tensor, target_shape: Tuple[int, int] | Tuple[int, int, int]
-) -> Tensor:
+    x: torch.tensor, target_shape: Tuple[int, int] | Tuple[int, int, int]
+) -> torch.tensor:
     # expand if unbatched
     if check_shape_match(x, target_shape):
         return x[None, ...]

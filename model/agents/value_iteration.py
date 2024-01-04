@@ -202,6 +202,7 @@ class ValueIterationAgent(BaseAgent):
         q_s_a += self.alpha * (r + self.gamma * V_sp - q_s_a)
         self.policy.q_values[s][a] = q_s_a
 
+    # TODO: refactor and delete
     def collect_rollouts(self, n_rollout_steps, progress_bar=None, eval_only=False):
         # Use the current policy to explore
         obs_prev = self.task.reset()[0]
@@ -253,8 +254,9 @@ class ValueIterationAgent(BaseAgent):
     def update_from_batch(self, buffer: D4rlDataset, progress_bar: bool = False):
         # prepare the dataset for training the VAE
         dataset = buffer.get_dataset()
-        obs = convert_8bit_to_float(dataset["observations"]).to(DEVICE)
-        obs = obs = obs.permute(0, 3, 1, 2)  # -> NxCxHxW
+        obs = convert_8bit_to_float(torch.tensor(dataset["observations"])).to(DEVICE)
+        obs = obs.permute(0, 3, 1, 2)  # -> NxCxHxW
+        print("check 2")
 
         dataloader = DataLoader(
             obs, batch_size=self.batch_size, shuffle=True, drop_last=True
@@ -272,6 +274,8 @@ class ValueIterationAgent(BaseAgent):
         # re-estimate the reward and transition functions
         self.reward_estimator.reset()
         self.transition_estimator.reset()
+
+        #### CODE WORKS UP TO HERE ?####
 
         obsp = convert_8bit_to_float(dataset["next_observations"]).to(DEVICE)
         obsp = obsp.permute(0, 3, 1, 2)  # -> NxCxHxW

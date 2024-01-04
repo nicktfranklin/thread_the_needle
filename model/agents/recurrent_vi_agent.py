@@ -31,7 +31,7 @@ class RecurrentViAgent(ValueIterationAgent):
         self,
         task,
         state_inference_model: RecurrentVae,
-        set_action: Set[ActType],
+        set_action: Set[int],
         optim_kwargs: Dict[str, Any] | None = None,
         grad_clip: bool = GRAD_CLIP,
         batch_size: int = BATCH_SIZE,
