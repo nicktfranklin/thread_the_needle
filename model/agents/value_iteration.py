@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from stable_baselines3.common.base_class import BaseAlgorithm
 from torch import FloatTensor, Tensor
-from torch.utils import DataLoader
+from torch.utils.data import DataLoader
 from tqdm import trange
 
 import model.state_inference.vae
@@ -250,18 +250,38 @@ class ValueIterationAgent(BaseAgent):
                 assert not isinstance(obs_prev, tuple)
         return
 
-    def update_on_batch(self, buffer: D4rlDataset):
-        self.reward_estimator.reset()
-        self.transition_estimator.reset()
-
+    def update_from_batch(self, buffer: D4rlDataset, progress_bar: bool = False):
         # prepare the dataset for training the VAE
         dataset = buffer.get_dataset()
-        obs = convert_8bit_to_float(dataset[obs]).to(DEVICE)
+        obs = convert_8bit_to_float(dataset["observations"]).to(DEVICE)
         obs = obs = obs.permute(0, 3, 1, 2)  # -> NxCxHxW
 
         dataloader = DataLoader(
             obs, batch_size=self.batch_size, shuffle=True, drop_last=True
         )
+
+        # train the VAE on the rollouts
+        self.state_inference_model.train_epochs(
+            self.n_epochs,
+            dataloader,
+            self.optim,
+            self.grad_clip,
+            progress_bar=progress_bar,
+        )
+
+        # re-estimate the reward and transition functions
+        self.reward_estimator.reset()
+        self.transition_estimator.reset()
+
+        obsp = convert_8bit_to_float(dataset["next_observations"]).to(DEVICE)
+        obsp = obsp.permute(0, 3, 1, 2)  # -> NxCxHxW
+
+        s = self._get_hashed_state(obs)
+        sp = self._get_hashed_state(obsp)
+
+        print(s, sp)
+
+        raise Exception("stop here")
 
     def estimate_offline(self):
         # resetimate the model from the new states

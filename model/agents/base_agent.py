@@ -78,7 +78,7 @@ class BaseAgent(ABC):
         return rollout_buffer
 
     @abstractmethod
-    def update_on_batch(self, batch: D4rlDataset):
+    def update_from_batch(self, batch: D4rlDataset):
         ...
 
     def learn(self, total_timesteps: int, progress_bar: bool = False, **kwargs):

@@ -107,7 +107,7 @@ def main():
     agent = ViAgent.make_from_configs(
         task, configs.agent_config, configs.vae_config, configs.env_kwargs
     )
-    print(agent.state_inference_model)
+    agent.update_from_batch(rollout_buffer)
 
 
 if __name__ == "__main__":
