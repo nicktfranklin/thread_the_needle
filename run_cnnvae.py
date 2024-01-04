@@ -6,11 +6,13 @@ from datetime import date
 from typing import Any, Dict
 
 import torch
+import yaml
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.monitor import Monitor
 
-from model.agents.base_agent import collect_buffer
+from model.agents.base_agent import BaseAgent, collect_buffer
 from model.agents.ppo import PPO
+from model.agents.value_iteration import ValueIterationAgent as ViAgent
 from model.data import D4rlDataset as Buffer
 from task.gridworld import CnnWrapper, GridWorldEnv
 from task.gridworld import ThreadTheNeedleEnv as Environment
@@ -87,6 +89,7 @@ def train_ppo(configs: Config, task: GridWorldEnv):
 
 def main():
     configs = Config.construct(parser.parse_args())
+    print(yaml.dump(configs.__dict__))
 
     # Create log dir
     os.makedirs(configs.log_dir, exist_ok=True)
@@ -99,13 +102,12 @@ def main():
 
     rollout_buffer = Buffer()
     collect_buffer(ppo.policy, task, rollout_buffer)
-    # print(rollout_buffer.get_dataset())
 
-    ### Model + Training Parameters
-    # agent = Agent.make_from_configs(
-    #     task, configs.agent_config, configs.vae_config, configs.env_kwargs
-    # )
-    # print(agent.state_inference_model)
+    ## Model + Training Parameters
+    agent = ViAgent.make_from_configs(
+        task, configs.agent_config, configs.vae_config, configs.env_kwargs
+    )
+    print(agent.state_inference_model)
 
 
 if __name__ == "__main__":
