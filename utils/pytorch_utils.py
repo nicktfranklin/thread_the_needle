@@ -195,7 +195,6 @@ def convert_8bit_to_float(
         return [convert_8bit_to_float(x0) for x0 in x]
 
     x = maybe_convert_to_long_tensor(x)
-    assert isinstance(x, LongTensor)
     assert x.max() <= 255
     assert x.min() >= 0
 
@@ -214,8 +213,8 @@ def convert_8bit_array_to_float_tensor(
 def maybe_convert_to_long_tensor(x: Union[LongTensor, np.ndarray]) -> LongTensor:
     if isinstance(x, np.ndarray) and x.dtype == np.int_:
         return torch.tensor(x, dtype=torch.long)
-    elif isinstance(x, LongTensor):
-        return x
+    elif torch.is_tensor(x) and not torch.is_floating_point(x):
+        return x.to(torch.long)
     raise ValueError(f"Cannot convert {x} to LongTensor")
 
 
