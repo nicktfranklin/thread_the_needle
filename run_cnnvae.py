@@ -108,7 +108,13 @@ def main():
     agent = ViAgent.make_from_configs(
         task, configs.agent_config, configs.vae_config, configs.env_kwargs
     )
-    agent.update_from_batch(rollout_buffer, progress_bar=True)
+    # agent.update_from_batch(rollout_buffer, progress_bar=True)
+
+    # train the VI agent
+    agent.learn(
+        configs.n_training_samples,
+        progress_bar=True,
+    )
 
 
 if __name__ == "__main__":
