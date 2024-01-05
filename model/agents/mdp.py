@@ -76,11 +76,9 @@ class TabularStateActionTransitionEstimator:
 class TabularRewardEstimator:
     def __init__(self):
         self.counts = {}
-        self.state_reward_function = {}
 
     def reset(self):
         self.counts = {}
-        self.state_reward_function = {}
 
     def update(self, s: Hashable, r: float):
         if s in self.counts.keys():  # pylint: disable=consider-iterating-dictionary
@@ -94,7 +92,7 @@ class TabularRewardEstimator:
             self.update(s0, r0)
 
     def get_states(self):
-        return list(self.state_reward_function.keys())
+        return list(self.counts.keys())
 
     def get_avg_reward(self, state):
         # get the weighted average
@@ -122,6 +120,7 @@ def value_iteration(
     list_actions = list(t.keys())
     q_values = {s: {a: 0 for a in list_actions} for s in list_states}
     v = {s: 0 for s in list_states}
+    print(list_states)
 
     def _successor_value(s, a):
         _sum = 0
