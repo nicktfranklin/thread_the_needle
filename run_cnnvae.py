@@ -37,6 +37,7 @@ parser.add_argument(
 )
 parser.add_argument("--log_dir", default="logs/")
 parser.add_argument("--n_training_samples", default=200)
+parser.add_argument("--n_rollout_samples", default=200)
 
 
 @dataclass
@@ -47,8 +48,7 @@ class Config:
     vae_config: Dict[str, Any]
 
     n_training_samples: int
-
-    n_rollout_samples: int = 200
+    n_rollout_samples: int
 
     @classmethod
     def construct(cls, args: argparse.Namespace):
@@ -59,6 +59,7 @@ class Config:
             vae_config=configs["vae_config"],
             agent_config=configs["agent_config"],
             n_training_samples=args.n_training_samples,
+            n_rollout_samples=args.n_rollout_samples,
         )
 
 

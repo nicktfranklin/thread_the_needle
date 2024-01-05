@@ -275,17 +275,30 @@ class ValueIterationAgent(BaseAgent):
         self.reward_estimator.reset()
         self.transition_estimator.reset()
 
-        #### CODE WORKS UP TO HERE ?####
+        # _get_hashed_state takes care of preprocessing
+        s = self._get_hashed_state(dataset["observations"])
+        sp = self._get_hashed_state(dataset["next_observations"])
+        a = dataset["actions"]
+        r = dataset["rewards"]
 
-        obsp = convert_8bit_to_float(dataset["next_observations"]).to(DEVICE)
-        obsp = obsp.permute(0, 3, 1, 2)  # -> NxCxHxW
+        for idx in range(len(s)):
+            print(idx)
+            self.transition_estimator.update(s[idx], a[idx], sp[idx])
+            self.reward_estimator.update(sp[idx], r[idx])
 
-        s = self._get_hashed_state(obs)
-        sp = self._get_hashed_state(obsp)
+        print(self.reward_estimator.counts)
 
-        print(s, sp)
+        # use value iteration to estimate the rewards
+        self.policy.q_values, value_function = value_iteration(
+            t=self.transition_estimator.get_transition_functions(),
+            r=self.reward_estimator,
+            gamma=self.gamma,
+            iterations=self.n_iter,
+        )
+        self.value_function = value_function
 
-        raise Exception("stop here")
+        print(self.transition_estimator.get_transition_functions())
+        print(self.value_function)
 
     def estimate_offline(self):
         # resetimate the model from the new states
