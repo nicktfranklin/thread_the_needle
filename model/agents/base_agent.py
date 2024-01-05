@@ -42,7 +42,7 @@ class BaseAgent(ABC):
         ...
 
     def get_env(self) -> VecEnv:
-        ## used for compatibility with stablebaseline code,
+        ## used for compatibility with stablebaseline code, use with caution
         return BaseAlgorithm._wrap_env(self.task, verbose=False, monitor_wrapper=True)
 
     @abstractmethod
@@ -64,18 +64,17 @@ class BaseAgent(ABC):
         rollout_buffer: D4rlDataset,
         progress_bar: Optional[Iterable] = None,
     ):
-        env = self.get_env()
+        # iterator = progress_bar if progress_bar is not None else range(n_rollout_steps)
 
-        iterator = progress_bar if progress_bar is not None else range(n_rollout_steps)
-
-        obs = env.reset()[0]
+        task = self.task
+        obs = task.reset()[0]
         state = self._init_state()
         episode_start = True
-        for _ in iterator:
+        for _ in range(n_rollout_steps):
             action, state = self.predict(obs, state, episode_start, deterministic=False)
             episode_start = False
 
-            outcome_tuple = env.step(action)
+            outcome_tuple = task.step(action)
             rollout_buffer.add(obs, action, outcome_tuple)
 
             obs = outcome_tuple[0]
@@ -83,7 +82,9 @@ class BaseAgent(ABC):
             truncated = outcome_tuple[3]
 
             if done or truncated:
-                obs = env.reset()[0]
+                obs = task.reset()[0]
+            if progress_bar is not None:
+                progress_bar.update(1)
 
         return rollout_buffer
 
@@ -99,15 +100,22 @@ class BaseAgent(ABC):
 
         # alternate between collecting rollouts and batch updates
         n_rollout_steps = self.n_steps if self.n_steps is not None else total_timesteps
-        while self.num_timesteps < total_timesteps:
+
+        num_timesteps = 0
+        while num_timesteps < total_timesteps:
             self.rollout_buffer.reset_buffer()
+            if progress_bar is not None:
+                progress_bar.set_description("Collecting Rollouts")
+
             self.rollout_buffer = self.collect_rollouts(
-                n_rollout_steps,
-                self.rollout_buffer,
+                n_rollout_steps, self.rollout_buffer, progress_bar=progress_bar
             )
+            num_timesteps += n_rollout_steps
 
             if progress_bar is not None:
                 progress_bar.set_description("Updating Batch")
+
+            self.update_from_batch(self.rollout_buffer, progress_bar=True)
 
         if progress_bar is not None:
             progress_bar.close()

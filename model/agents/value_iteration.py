@@ -18,6 +18,7 @@ from model.agents.mdp import (
 from model.agents.policy import SoftmaxPolicy
 from model.data import D4rlDataset, OaroTuple, RolloutBuffer
 from model.state_inference.vae import StateVae
+from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
 
@@ -175,13 +176,13 @@ class ValueIterationAgent(BaseAgent):
 
     def predict(
         self, obs: Tensor, state=None, episode_start=None, deterministic: bool = False
-    ) -> tuple[Tensor, None]:
+    ) -> tuple[ActType, None]:
         if not deterministic and np.random.rand() < self.policy.epsilon:
-            return np.array([np.random.randint(self.policy.n_actions)]), None
+            return np.random.randint(self.policy.n_actions), None
 
         s = self._get_hashed_state(obs)
         p = self.policy.get_distribution(s)
-        return p.get_actions(deterministic=deterministic), None
+        return p.get_actions(deterministic=deterministic).item(), None
 
     def update_model(self, obs: OaroTuple):
         s, a, r, sp = self._get_sars_tuples(obs)
@@ -256,7 +257,6 @@ class ValueIterationAgent(BaseAgent):
         dataset = buffer.get_dataset()
         obs = convert_8bit_to_float(torch.tensor(dataset["observations"])).to(DEVICE)
         obs = obs.permute(0, 3, 1, 2)  # -> NxCxHxW
-        print("check 2")
 
         dataloader = DataLoader(
             obs, batch_size=self.batch_size, shuffle=True, drop_last=True

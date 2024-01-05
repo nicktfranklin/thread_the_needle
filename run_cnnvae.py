@@ -36,8 +36,8 @@ parser.add_argument(
     "--save_file", default=f"simulations/thread_the_needle_vi_agent_{date.today()}.csv"
 )
 parser.add_argument("--log_dir", default="logs/")
-parser.add_argument("--n_training_samples", default=200)
-parser.add_argument("--n_rollout_samples", default=200)
+parser.add_argument("--n_training_samples", default=2048)
+parser.add_argument("--n_rollout_samples", default=2048)
 
 
 @dataclass
@@ -69,7 +69,6 @@ def make_env(configs: Config) -> GridWorldEnv:
 
     # create the monitor
     task = Monitor(task, configs.log_dir)
-    # pi, _ = task.get_optimal_policy()
 
     return task
 
