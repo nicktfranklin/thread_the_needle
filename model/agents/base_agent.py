@@ -46,34 +46,44 @@ class BaseAgent(ABC):
         return BaseAlgorithm._wrap_env(self.task, verbose=False, monitor_wrapper=True)
 
     @abstractmethod
-    def predict(self, obs: FloatTensor, deterministic: bool = True) -> ActType:
+    def predict(
+        self,
+        obs: FloatTensor,
+        state: Optional[FloatTensor] = None,
+        episode_start: Optional[bool] = None,
+        deterministic: bool = False,
+    ) -> tuple[ActType, Optional[FloatTensor]]:
         ...
+
+    def _init_state(self) -> Optional[FloatTensor]:
+        return None
 
     def collect_rollouts(
         self,
-        n_rollouts: int,
+        n_rollout_steps: int,
         rollout_buffer: D4rlDataset,
-        max_steps: int,
         progress_bar: Optional[Iterable] = None,
     ):
         env = self.get_env()
 
-        iterator = progress_bar if progress_bar is not None else range(n_rollouts)
+        iterator = progress_bar if progress_bar is not None else range(n_rollout_steps)
 
+        obs = env.reset()[0]
+        state = self._init_state()
+        episode_start = True
         for _ in iterator:
-            obs = env.reset()[0]
+            action, state = self.predict(obs, state, episode_start, deterministic=False)
+            episode_start = False
 
-            for _ in range(max_steps):
-                action = self.predict(obs)
-                outcome_tuple = env.step(action)
-                rollout_buffer.add(obs, action, outcome_tuple)
+            outcome_tuple = env.step(action)
+            rollout_buffer.add(obs, action, outcome_tuple)
 
-                obs = outcome_tuple[0]
-                done = outcome_tuple[2]
-                truncated = outcome_tuple[3]
+            obs = outcome_tuple[0]
+            done = outcome_tuple[2]
+            truncated = outcome_tuple[3]
 
-                if done or truncated:
-                    break
+            if done or truncated:
+                obs = env.reset()[0]
 
         return rollout_buffer
 

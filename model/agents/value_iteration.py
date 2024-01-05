@@ -202,54 +202,54 @@ class ValueIterationAgent(BaseAgent):
         q_s_a += self.alpha * (r + self.gamma * V_sp - q_s_a)
         self.policy.q_values[s][a] = q_s_a
 
-    # TODO: refactor and delete
-    def collect_rollouts(self, n_rollout_steps, progress_bar=None, eval_only=False):
-        # Use the current policy to explore
-        obs_prev = self.task.reset()[0]
+    # # TODO: refactor and delete
+    # def collect_rollouts(self, n_rollout_steps, progress_bar=None, eval_only=False):
+    #     # Use the current policy to explore
+    #     obs_prev = self.task.reset()[0]
 
-        episode_start = True
-        state_prev = self._init_state()
-        idx = self._init_index()
+    #     episode_start = True
+    #     state_prev = self._init_state()
+    #     idx = self._init_index()
 
-        if progress_bar is not None:
-            progress_bar.set_description("Collecting Rollouts")
+    #     if progress_bar is not None:
+    #         progress_bar.set_description("Collecting Rollouts")
 
-        self.rollout_buffer.reset()
+    #     self.rollout_buffer.reset()
 
-        n_steps = 0
-        while n_steps < n_rollout_steps:
-            if progress_bar is not None:
-                progress_bar.update(1)
-            action, state = self.predict(obs_prev, state_prev, episode_start)
-            episode_start = False
+    #     n_steps = 0
+    #     while n_steps < n_rollout_steps:
+    #         if progress_bar is not None:
+    #             progress_bar.update(1)
+    #         action, state = self.predict(obs_prev, state_prev, episode_start)
+    #         episode_start = False
 
-            obs, rew, terminated, _, _ = self.task.step(action.item())
-            assert hasattr(obs, "shape")
+    #         obs, rew, terminated, _, _ = self.task.step(action.item())
+    #         assert hasattr(obs, "shape")
 
-            obs_tuple = OaroTuple(
-                obs=torch.tensor(obs_prev),
-                a=action.item(),
-                r=rew,
-                next_obs=torch.tensor(obs),
-                index=idx,
-            )
+    #         obs_tuple = OaroTuple(
+    #             obs=torch.tensor(obs_prev),
+    #             a=action.item(),
+    #             r=rew,
+    #             next_obs=torch.tensor(obs),
+    #             index=idx,
+    #         )
 
-            if not eval_only:
-                self._update_rollout_policy(obs_tuple, state, state_prev)
+    #         if not eval_only:
+    #             self._update_rollout_policy(obs_tuple, state, state_prev)
 
-            self.rollout_buffer.add(obs_tuple)
+    #         self.rollout_buffer.add(obs_tuple)
 
-            n_steps += 1
-            self.num_timesteps += 1
+    #         n_steps += 1
+    #         self.num_timesteps += 1
 
-            obs_prev = obs
-            state_prev = state
-            if terminated:
-                obs_prev = self.task.reset()[0]
-                idx += 1
-                assert hasattr(obs, "shape")
-                assert not isinstance(obs_prev, tuple)
-        return
+    #         obs_prev = obs
+    #         state_prev = state
+    #         if terminated:
+    #             obs_prev = self.task.reset()[0]
+    #             idx += 1
+    #             assert hasattr(obs, "shape")
+    #             assert not isinstance(obs_prev, tuple)
+    #     return
 
     def update_from_batch(self, buffer: D4rlDataset, progress_bar: bool = False):
         # prepare the dataset for training the VAE
@@ -282,12 +282,9 @@ class ValueIterationAgent(BaseAgent):
         r = dataset["rewards"]
 
         for idx in range(len(s)):
-            print(idx)
             self.transition_estimator.update(s[idx], a[idx], sp[idx])
             self.reward_estimator.update(sp[idx], r[idx])
 
-        print(self.reward_estimator.counts)
-
         # use value iteration to estimate the rewards
         self.policy.q_values, value_function = value_iteration(
             t=self.transition_estimator.get_transition_functions(),
@@ -296,70 +293,6 @@ class ValueIterationAgent(BaseAgent):
             iterations=self.n_iter,
         )
         self.value_function = value_function
-
-        print(self.transition_estimator.get_transition_functions())
-        print(self.value_function)
-
-    def estimate_offline(self):
-        # resetimate the model from the new states
-        self.transition_estimator.reset()
-        self.reward_estimator.reset()
-
-        s, sp = self._precalculate_states_for_batch_training()
-
-        for idx, obs in enumerate(self.rollout_buffer.get_all()):
-            self.transition_estimator.update(s[idx], obs.a, sp[idx])
-            self.reward_estimator.update(sp[idx], obs.r)
-
-        # use value iteration to estimate the rewards
-        self.policy.q_values, value_function = value_iteration(
-            t=self.transition_estimator.get_transition_functions(),
-            r=self.reward_estimator,
-            gamma=self.gamma,
-            iterations=self.n_iter,
-        )
-        self.value_function = value_function
-
-    def learn(
-        self,
-        total_timesteps: int,
-        eval_only: bool = False,
-        progress_bar: bool = False,
-        **kwargs,
-    ) -> None:
-        if progress_bar is not None:
-            progress_bar = trange(total_timesteps, position=0, leave=True)
-
-        # alternate between collecting rollouts and batch updates
-        n_rollout_steps = self.n_steps if self.n_steps is not None else total_timesteps
-        while self.num_timesteps < total_timesteps:
-            # collect rollouts to train the VAE
-            self.collect_rollouts(n_rollout_steps, progress_bar, eval_only)
-
-            if eval_only:
-                continue
-
-            if progress_bar is not None:
-                progress_bar.set_description("Updating Batch")
-
-            # train the VAE on the rollouts
-            dataloader = self.rollout_buffer.get_vae_dataloader(self.batch_size)
-            self.state_inference_model.train_epochs(
-                self.n_epochs,
-                dataloader,
-                self.optim,
-                self.grad_clip,
-                progress_bar=False,
-            )
-
-            # clear memory
-            torch.cuda.empty_cache()
-
-            # re-estimate the model with the new steps
-            self.estimate_offline()
-
-        if progress_bar is not None:
-            progress_bar.close()
 
     @classmethod
     def make_from_configs(
