@@ -120,7 +120,6 @@ def value_iteration(
     list_actions = list(t.keys())
     q_values = {s: {a: 0 for a in list_actions} for s in list_states}
     v = {s: 0 for s in list_states}
-    print(list_states)
 
     def _successor_value(s, a):
         _sum = 0
