@@ -1,3 +1,4 @@
+import random
 from random import choice
 from typing import Any, Dict, Optional, Tuple
 
@@ -16,7 +17,7 @@ from model.agents.mdp import (
     value_iteration,
 )
 from model.agents.policy import SoftmaxPolicy
-from model.data import D4rlDataset, OaroTuple, RolloutBuffer
+from model.data import D4rlDataset, OaroTuple
 from model.state_inference.vae import StateVae
 from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
@@ -54,9 +55,8 @@ class ValueIterationAgent(BaseAgent):
         """
         :param n_steps: The number of steps to run for each environment per update
         """
-        self.task = task
+        super().__init__(task)
         self.state_inference_model = state_inference_model.to(DEVICE)
-        self.rollout_buffer = RolloutBuffer()
         self.allobs = list()
 
         self.optim = self.state_inference_model.configure_optimizers(optim_kwargs)
@@ -100,56 +100,23 @@ class ValueIterationAgent(BaseAgent):
             return obs.permute(2, 0, 1)
         return obs.permute(0, 3, 1, 2)
 
-    def _get_hashed_state(self, obs: Tensor):
+    def _get_state_hashkey(self, obs: Tensor):
         obs = obs if isinstance(obs, Tensor) else torch.tensor(obs)
         obs_ = self._preprocess_obs(obs)
         with torch.no_grad():
             z = self.state_inference_model.get_state(obs_)
         return z.dot(self.hash_vector)
 
-    def _get_sars_tuples(self, obs: OaroTuple):
-        s = self._get_hashed_state(obs.obs)[0]
-        sp = self._get_hashed_state(obs.next_obs)[0]
-        return s, obs.a, obs.r, sp
-
-    def _precalculate_states_for_batch_training(self) -> Tuple[Tensor, Tensor]:
-        # pass all of the observations throught the model (really, twice)
-        # for speed. It's much faster in a batch than single observations
-        obs = self.rollout_buffer.get_tensor("obs")
-        obsp = self.rollout_buffer.get_tensor("obsp")
-        s = self._get_hashed_state(obs)
-        sp = self._get_hashed_state(obsp)
-        return s, sp
-
-    def _dyna_updates(self, n_updates: int) -> None:
-        #### Dyna updates ####
+    def update_rollout_policy(self, rollout_buffer: D4rlDataset) -> None:
+        # the rollout policy is a DYNA variant
         # dyna updates (note: this assumes a deterministic enviornment,
         # and this code differes from dyna as we are only using resampled
         # values and not seperately sampling rewards and sucessor states
-        if self.rollout_buffer.len() > 0:
-            for _ in range(n_updates):
-                # select a random observation from experience
-                obs = choice(self.rollout_buffer.get_all())
-                s = self._get_hashed_state(obs.obs)[0]
-                a = obs.a
-
-                # draw r, sp from the model
-                sp = self.transition_estimator.sample(s, a)
-                r = self.reward_estimator.sample(sp)
-
-                self.update_qvalues(s, a, r, sp)
-
-    def _update_rollout_policy(
-        self, obs: OaroTuple, state: Optional[Tensor], state_prev: Optional[Tensor]
-    ) -> None:
-        # the rollout policy is DYNA
-
-        # state and state_prev are only used by recurrent models
-        assert state is None
-        assert state_prev is None
 
         # pass the obseration tuple through the state-inference network
-        s, a, r, sp = self._get_sars_tuples(obs)
+        obs, a, r, next_obs = rollout_buffer.get_obs(-1)
+        s = self._get_state_hashkey(obs)[0]
+        sp = self._get_state_hashkey(next_obs)[0]
 
         # update the model
         self.transition_estimator.update(s, a, sp)
@@ -158,16 +125,23 @@ class ValueIterationAgent(BaseAgent):
         # update q-values
         self.update_qvalues(s, a, r, sp)
 
-        self._dyna_updates(self.n_dyna_updates)
+        # resampling (dyna) updates
+        for _ in range(min(len(rollout_buffer), self.n_dyna_updates)):
+            # sample observations and actions with replacement
+            idx = random.randint(0, len(rollout_buffer) - 1)
 
-    def _init_index(self):
-        if self.rollout_buffer.len() == 0:
-            return 0
-        last_obs = self.rollout_buffer.get_all()[-1]
-        return last_obs.index + 1
+            obs, a, _, _ = rollout_buffer.get_obs(idx)
+
+            s = self._get_state_hashkey(obs)[0]
+
+            # draw r, sp from the model
+            sp = self.transition_estimator.sample(s, a)
+            r = self.reward_estimator.sample(sp)
+
+            self.update_qvalues(s, a, r, sp)
 
     def get_policy(self, obs: Tensor):
-        s = self._get_hashed_state(obs)
+        s = self._get_state_hashkey(obs)
         p = self.policy.get_distribution(s)
         return p
 
@@ -180,7 +154,7 @@ class ValueIterationAgent(BaseAgent):
         if not deterministic and np.random.rand() < self.policy.epsilon:
             return np.random.randint(self.policy.n_actions), None
 
-        s = self._get_hashed_state(obs)
+        s = self._get_state_hashkey(obs)
         p = self.policy.get_distribution(s)
         return p.get_actions(deterministic=deterministic).item(), None
 
@@ -202,55 +176,6 @@ class ValueIterationAgent(BaseAgent):
 
         q_s_a += self.alpha * (r + self.gamma * V_sp - q_s_a)
         self.policy.q_values[s][a] = q_s_a
-
-    # # TODO: refactor and delete
-    # def collect_rollouts(self, n_rollout_steps, progress_bar=None, eval_only=False):
-    #     # Use the current policy to explore
-    #     obs_prev = self.task.reset()[0]
-
-    #     episode_start = True
-    #     state_prev = self._init_state()
-    #     idx = self._init_index()
-
-    #     if progress_bar is not None:
-    #         progress_bar.set_description("Collecting Rollouts")
-
-    #     self.rollout_buffer.reset()
-
-    #     n_steps = 0
-    #     while n_steps < n_rollout_steps:
-    #         if progress_bar is not None:
-    #             progress_bar.update(1)
-    #         action, state = self.predict(obs_prev, state_prev, episode_start)
-    #         episode_start = False
-
-    #         obs, rew, terminated, _, _ = self.task.step(action.item())
-    #         assert hasattr(obs, "shape")
-
-    #         obs_tuple = OaroTuple(
-    #             obs=torch.tensor(obs_prev),
-    #             a=action.item(),
-    #             r=rew,
-    #             next_obs=torch.tensor(obs),
-    #             index=idx,
-    #         )
-
-    #         if not eval_only:
-    #             self._update_rollout_policy(obs_tuple, state, state_prev)
-
-    #         self.rollout_buffer.add(obs_tuple)
-
-    #         n_steps += 1
-    #         self.num_timesteps += 1
-
-    #         obs_prev = obs
-    #         state_prev = state
-    #         if terminated:
-    #             obs_prev = self.task.reset()[0]
-    #             idx += 1
-    #             assert hasattr(obs, "shape")
-    #             assert not isinstance(obs_prev, tuple)
-    #     return
 
     def update_from_batch(self, buffer: D4rlDataset, progress_bar: bool = False):
         # prepare the dataset for training the VAE
@@ -276,8 +201,8 @@ class ValueIterationAgent(BaseAgent):
         self.transition_estimator.reset()
 
         # _get_hashed_state takes care of preprocessing
-        s = self._get_hashed_state(dataset["observations"])
-        sp = self._get_hashed_state(dataset["next_observations"])
+        s = self._get_state_hashkey(dataset["observations"])
+        sp = self._get_state_hashkey(dataset["next_observations"])
         a = dataset["actions"]
         r = dataset["rewards"]
 
@@ -305,3 +230,13 @@ class ValueIterationAgent(BaseAgent):
         VaeClass = getattr(model.state_inference.vae, agent_config["vae_model_class"])
         vae = VaeClass.make_from_configs(vae_config, env_kwargs)
         return cls(task, vae, **agent_config["state_inference_model"])
+
+    def save_model(self, file_name: str):
+        weights_file = f"{file_name}_weights.pt"
+        state_dict = self.state_inference_model.state_dict()
+        torch.save(state_dict, weights_file)
+
+        raise NotImplementedError()
+
+    def load_model(self, file_name: str):
+        raise NotImplementedError()

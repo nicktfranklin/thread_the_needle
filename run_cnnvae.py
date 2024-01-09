@@ -88,32 +88,34 @@ def train_ppo(configs: Config, task: GridWorldEnv):
 
 
 def main():
-    configs = Config.construct(parser.parse_args())
-    print(yaml.dump(configs.__dict__))
+    config = Config.construct(parser.parse_args())
+    print(yaml.dump(config.__dict__))
 
     # Create log dir
-    os.makedirs(configs.log_dir, exist_ok=True)
+    os.makedirs(config.log_dir, exist_ok=True)
 
     # create task
-    task = make_env(configs)
+    task = make_env(config)
 
     # train ppo
-    ppo = train_ppo(configs, task)
+    # ppo = train_ppo(config, task)
 
-    rollout_buffer = Buffer()
-    collect_buffer(ppo.policy, task, rollout_buffer)
+    # rollout_buffer = Buffer()
+    # collect_buffer(ppo.policy, task, rollout_buffer)
 
     ## Model + Training Parameters
     agent = ViAgent.make_from_configs(
-        task, configs.agent_config, configs.vae_config, configs.env_kwargs
+        task, config.agent_config, config.vae_config, config.env_kwargs
     )
     # agent.update_from_batch(rollout_buffer, progress_bar=True)
 
     # train the VI agent
     agent.learn(
-        configs.n_training_samples,
+        config.n_training_samples,
         progress_bar=True,
     )
+
+    # save the
 
 
 if __name__ == "__main__":

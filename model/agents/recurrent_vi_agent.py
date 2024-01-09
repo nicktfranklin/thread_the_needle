@@ -121,7 +121,7 @@ class RecurrentViAgent(ValueIterationAgent):
             self.state_inference_model.z_dim * self.state_inference_model.z_layers
         )
 
-    def _get_hashed_state(self, obs: Tensor, state_prev: Optional[Tensor]):
+    def _get_state_hashkey(self, obs: Tensor, state_prev: Optional[Tensor]):
         obs = maybe_convert_to_tensor(obs)
         obs = convert_8bit_to_float(obs)
         with torch.no_grad():
@@ -145,7 +145,7 @@ class RecurrentViAgent(ValueIterationAgent):
         if not deterministic and np.random.rand() < self.policy.epsilon:
             a = torch.tensor([np.random.randint(self.policy.n_actions)])
         else:
-            hashed_sucessor_state = self._get_hashed_state(obs, state)
+            hashed_sucessor_state = self._get_state_hashkey(obs, state)
 
             p = self.policy.get_distribution(hashed_sucessor_state)
 

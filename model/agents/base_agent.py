@@ -9,7 +9,7 @@ from torch import FloatTensor
 from tqdm import trange
 
 from model.data import D4rlDataset
-from task.gridworld import ActType, GridWorldEnv
+from task.gridworld import ActType, GridWorldEnv, ObsType
 
 
 # todo: implement a progressbar, max steps, etc.  Should be an inplace method
@@ -37,6 +37,10 @@ def collect_buffer(
 
 
 class BaseAgent(ABC):
+    def __init__(self, task: GridWorldEnv) -> None:
+        super().__init__()
+        self.task = task
+
     @abstractmethod
     def get_pmf(self, x: FloatTensor) -> FloatTensor:
         ...
@@ -48,7 +52,7 @@ class BaseAgent(ABC):
     @abstractmethod
     def predict(
         self,
-        obs: FloatTensor,
+        obs: ObsType,
         state: Optional[FloatTensor] = None,
         episode_start: Optional[bool] = None,
         deterministic: bool = False,
@@ -58,14 +62,15 @@ class BaseAgent(ABC):
     def _init_state(self) -> Optional[FloatTensor]:
         return None
 
+    def update_rollout_policy(self, rollout_buffer: D4rlDataset) -> None:
+        pass
+
     def collect_rollouts(
         self,
         n_rollout_steps: int,
         rollout_buffer: D4rlDataset,
         progress_bar: Optional[Iterable] = None,
     ):
-        # iterator = progress_bar if progress_bar is not None else range(n_rollout_steps)
-
         task = self.task
         obs = task.reset()[0]
         state = self._init_state()
@@ -77,9 +82,10 @@ class BaseAgent(ABC):
             outcome_tuple = task.step(action)
             rollout_buffer.add(obs, action, outcome_tuple)
 
-            obs = outcome_tuple[0]
-            done = outcome_tuple[2]
-            truncated = outcome_tuple[3]
+            self.update_rollout_policy(rollout_buffer)
+
+            # get the next obs from the observation tuple
+            obs, _, done, truncated, _ = outcome_tuple
 
             if done or truncated:
                 obs = task.reset()[0]

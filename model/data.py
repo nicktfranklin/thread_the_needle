@@ -1,3 +1,4 @@
+from collections import namedtuple
 from dataclasses import dataclass
 from typing import Any, Dict, SupportsFloat, Union
 
@@ -9,38 +10,7 @@ from torch.utils.data import DataLoader
 from task.gridworld import ActType, ObsType, OutcomeTuple
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
-
-# TODO: Refactor and delete this class.  Mixes data and model
-class RolloutBuffer:
-    def __init__(self):
-        self.cached_obs = list()
-
-    def add(self, item):
-        self.cached_obs.append(item)
-
-    def reset(self):
-        self.cached_obs = list()
-
-    def len(self):
-        return len(self.cached_obs)
-
-    def get_all(self):
-        return self.cached_obs
-
-    def get_tensor(self, item="obs"):
-        return torch.stack([getattr(o, item) for o in self.cached_obs])
-
-    def get_vae_dataloader(self, batch_size: int):
-        obs = self.get_tensor("obs")
-        obs = convert_8bit_to_float(obs).to(DEVICE)
-        obs = obs.permute(0, 3, 1, 2)  # -> NxCxHxW
-
-        return DataLoader(
-            obs,
-            batch_size=batch_size,
-            shuffle=True,
-            drop_last=True,
-        )
+ObservationTuple = namedtuple("ObservationTuple", "obs a r next_obs")
 
 
 class D4rlDataset:
@@ -74,6 +44,17 @@ class D4rlDataset:
             "timouts": np.stack(self.truncated),  # timeouts are truncated
             "infos": self.info,
         }
+
+    def get_obs(self, idx: int) -> ObservationTuple:
+        return ObservationTuple(
+            self.obs[idx],
+            self.action[idx],
+            self.reward[idx],
+            self.next_obs[idx],
+        )
+
+    def __len__(self) -> int:
+        return len(self.obs)
 
     def reset_buffer(self):
         self.action = []
