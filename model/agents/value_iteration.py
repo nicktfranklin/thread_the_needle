@@ -1,13 +1,12 @@
+import os
+import pickle
 import random
-from random import choice
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 import numpy as np
 import torch
-from stable_baselines3.common.base_class import BaseAlgorithm
-from torch import FloatTensor, Tensor
+from torch import FloatTensor, Tensor, nn
 from torch.utils.data import DataLoader
-from tqdm import trange
 
 import model.state_inference.vae
 from model.agents.base_agent import BaseAgent
@@ -57,7 +56,6 @@ class ValueIterationAgent(BaseAgent):
         """
         super().__init__(task)
         self.state_inference_model = state_inference_model.to(DEVICE)
-        self.allobs = list()
 
         self.optim = self.state_inference_model.configure_optimizers(optim_kwargs)
         self.grad_clip = grad_clip
@@ -231,12 +229,32 @@ class ValueIterationAgent(BaseAgent):
         vae = VaeClass.make_from_configs(vae_config, env_kwargs)
         return cls(task, vae, **agent_config["state_inference_model"])
 
+    def __getstate__(self):
+        """for pickling"""
+        state = self.__dict__.copy()
+        state.pop("state_inference_model")
+        return state
+
+    def __setstate__(self, state):
+        """for unpickling"""
+        self.__dict__.update(state)
+        self.state_inference_model = None
+
     def save_model(self, file_name: str):
-        weights_file = f"{file_name}_weights.pt"
+        os.makedirs(file_name, exist_ok=True)
+
+        weights_file = f"{file_name}/weights.pt"
         state_dict = self.state_inference_model.state_dict()
         torch.save(state_dict, weights_file)
 
-        raise NotImplementedError()
+        model_file = f"{file_name}/model.pickle"
+        with open(model_file, "wb") as f:
+            pickle.dump(self, f)
 
-    def load_model(self, file_name: str):
-        raise NotImplementedError()
+    @classmethod
+    def load_model(cls, state_inference_model: nn.Module, saved_model_path: str):
+        with open(saved_model_path, "r") as f:
+            loaded_model = pickle.load(f)
+        loaded_model.state_inference_model = state_inference_model
+
+        return loaded_model
