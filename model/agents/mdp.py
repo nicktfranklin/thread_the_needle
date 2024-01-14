@@ -1,5 +1,6 @@
+import json
 from random import choices
-from typing import Dict, Hashable, List
+from typing import Any, Dict, Hashable, List, Optional
 
 import numpy as np
 
@@ -10,13 +11,17 @@ from utils.sampling_functions import inverse_cmf_sampler
 class TabularTransitionEstimator:
     ## Note: does not take in actions
 
-    def __init__(self):
-        self.transitions = {}
-        self.pmf = {}
+    def __init__(
+        self,
+        transitions: Optional[Dict[str, Any]] = None,
+        pmf: Optional[Dict[str, Any]] = None,
+    ):
+        self.transitions = transitions if transitions else {}
+        self.pmf = pmf if pmf else {}
 
     def reset(self):
-        self.transitions = {}
-        self.pmf = {}
+        self.transitions: Dict[Hashable, int] = {}
+        self.pmf: Dict[Hashable, float] = {}
 
     def update(self, s: Hashable, sp: Hashable):
         if s in self.transitions:
@@ -51,11 +56,36 @@ class TabularTransitionEstimator:
         return sucessor_states[idx]
 
 
+def serialize_object(obj):
+    if isinstance(obj, (list, tuple)):
+        return [serialize_object(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {key: serialize_object(value) for key, value in obj.items()}
+    elif hasattr(obj, "__dict__"):  # Check for custom objects
+        data = (
+            obj.__dict__.copy()
+        )  # Create a copy to avoid modifying the original object
+        for key, value in data.items():
+            print(key, type(key))
+            data[key] = serialize_object(value)  # Recursively serialize nested objects
+        return data
+    else:
+        return obj
+
+
 class TabularStateActionTransitionEstimator:
-    def __init__(self, n_actions: int = 4):
+    def __init__(
+        self,
+        n_actions: int = 4,
+        models: Optional[Dict[str, Any]] = None,
+        states: Optional[set] = None,
+    ):
         self.n_actions = n_actions
-        self.models = {a: TabularTransitionEstimator() for a in range(n_actions)}
-        self.set_states = set()
+        if models is not None:
+            self.models = {a: TabularRewardEstimator(**v) for a, v in models.items()}
+        else:
+            self.models = {a: TabularTransitionEstimator() for a in range(n_actions)}
+        self.set_states = states if states else set()
 
     def reset(self):
         for m in self.models.values():
