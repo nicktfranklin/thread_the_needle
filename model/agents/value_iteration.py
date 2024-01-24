@@ -228,33 +228,3 @@ class ValueIterationAgent(BaseAgent):
         VaeClass = getattr(model.state_inference.vae, agent_config["vae_model_class"])
         vae = VaeClass.make_from_configs(vae_config, env_kwargs)
         return cls(task, vae, **agent_config["state_inference_model"])
-
-    def __getstate__(self):
-        """for pickling"""
-        state = self.__dict__.copy()
-        state.pop("state_inference_model")
-        return state
-
-    def __setstate__(self, state):
-        """for unpickling"""
-        self.__dict__.update(state)
-        self.state_inference_model = None
-
-    def save_model(self, file_name: str):
-        os.makedirs(file_name, exist_ok=True)
-
-        weights_file = f"{file_name}/weights.pt"
-        state_dict = self.state_inference_model.state_dict()
-        torch.save(state_dict, weights_file)
-
-        model_file = f"{file_name}/model.pickle"
-        with open(model_file, "wb") as f:
-            pickle.dump(self, f)
-
-    @classmethod
-    def load_model(cls, state_inference_model: nn.Module, saved_model_path: str):
-        with open(saved_model_path, "r") as f:
-            loaded_model = pickle.load(f)
-        loaded_model.state_inference_model = state_inference_model
-
-        return loaded_model
