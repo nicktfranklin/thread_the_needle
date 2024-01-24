@@ -144,7 +144,7 @@ class ValueIterationAgent(BaseAgent):
         return p
 
     def get_pmf(self, obs: FloatTensor) -> np.ndarray:
-        return model.get_policy(obs).distribution.probs.clone().detach().numpy()
+        return self.get_policy(obs).distribution.probs.clone().detach().numpy()
 
     def predict(
         self, obs: Tensor, state=None, episode_start=None, deterministic: bool = False
