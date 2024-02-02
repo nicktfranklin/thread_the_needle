@@ -23,6 +23,8 @@ print(f"torch {torch.__version__}")
 print(f"device = {DEVICE}")
 
 
+BASE_FILE_NAME = "thread_the_needle_cnn_vae"
+
 ### Configuration files
 parser = argparse.ArgumentParser()
 
@@ -32,12 +34,12 @@ parser.add_argument("--agent_config", default="configs/agent_config.yml")
 parser.add_argument("--task_name", default="thread_the_needle")
 parser.add_argument("--model_name", default="cnn_vae")
 parser.add_argument(
-    "--save_file", default=f"simulations/thread_the_needle_vi_agent_{date.today()}.csv"
+    "--results_path",
+    default=f"simulations/{BASE_FILE_NAME}_{date.today()}.json",
 )
-parser.add_argument("--log_dir", default="logs/")
-parser.add_argument("--n_training_samples", default=256)
-parser.add_argument("--n_rollout_samples", default=256)
-parser.add_argument("--results_path", default="tmp/tmp.json")
+parser.add_argument("--log_dir", default=f"logs/{BASE_FILE_NAME}_{date.today()}/")
+parser.add_argument("--n_training_samples", default=124)
+parser.add_argument("--n_rollout_samples", default=124)
 
 
 @dataclass
@@ -89,9 +91,65 @@ def train_ppo(configs: Config, task: GridWorldEnv):
     return ppo
 
 
+def to_list(x):
+    if isinstance(x, np.ndarray):
+        return x.tolist()
+    return x
+
+
+def eval_model(model, config):
+    pi, _ = model.task.get_optimal_policy()  # save for analysis
+
+    pmf = model.get_policy_prob(
+        model.get_env(),
+        n_states=config.env_kwargs["n_states"],
+        map_height=config.env_kwargs["map_height"],
+        cnn=True,
+    )
+    obs = convert_8bit_to_float(
+        torch.stack(
+            [
+                torch.tensor(model.task.observation_model(s), dtype=torch.long)
+                for s in range(model.task.transition_model.n_states)
+                for _ in range(1)
+            ]
+        )
+    )[:, None, ...].to(DEVICE)
+    z = model.state_inference_model.get_state(obs)
+    z = z.dot(model.hash_vector)  # save this output
+
+    state_rewards = np.array(
+        [model.reward_estimator.get_avg_reward(z0) for z0 in z]
+    ).reshape(
+        20, 20
+    )  # save this output
+
+    state_value_function = np.array(
+        [model.value_function.get(z0, np.nan) for z0 in z]
+    ).reshape(20, 20)
+
+    room_1_mask = (np.arange(400) < 200) * (np.arange(400) % 20 < 10)
+    room_2_mask = (np.arange(400) >= 200) * (np.arange(400) % 20 < 10)
+    room_3_mask = np.arange(400) % 20 >= 10
+
+    return {
+        "policy_pmf": pmf,
+        "state_embeddings": z,
+        "state_rewards": state_rewards,
+        "state_values": state_value_function,
+        "score": np.sum(pi * pmf, axis=1).mean(),
+        "score_room1": np.sum(pi[room_1_mask] * pmf[room_1_mask], axis=1).mean(),
+        "score_room2": np.sum(pi[room_2_mask] * pmf[room_2_mask], axis=1).mean(),
+        "score_room3": np.sum(pi[room_3_mask] * pmf[room_3_mask], axis=1).mean(),
+    }
+
+
 def main():
     config = Config.construct(parser.parse_args())
-    print(yaml.dump(config.__dict__))
+
+    config_record = f"logs/{BASE_FILE_NAME}_config_{date.today()}.yaml"
+    with open(config_record, "w") as f:
+        yaml.dump(config.__dict__, f)
 
     # Create log dir
     os.makedirs(config.log_dir, exist_ok=True)
@@ -99,9 +157,8 @@ def main():
     # create task
     task = make_env(config)
     task = Monitor(task, config.log_dir)
-    pi, _ = task.get_optimal_policy()  # save for analysis
 
-    # train ppo
+    # train ppo``
     # ppo = train_ppo(config, task)
 
     # rollout_buffer = Buffer()
@@ -119,55 +176,7 @@ def main():
         progress_bar=True,
     )
 
-    # save this output
-    pmf = agent.get_policy_prob(
-        agent.get_env(),
-        n_states=config.env_kwargs["n_states"],
-        map_height=config.env_kwargs["map_height"],
-        cnn=True,
-    )
-
-    obs = convert_8bit_to_float(
-        torch.stack(
-            [
-                torch.tensor(task.observation_model(s), dtype=torch.long)
-                for s in range(task.transition_model.n_states)
-                for _ in range(1)
-            ]
-        )
-    )[:, None, ...].to(DEVICE)
-    z = agent.state_inference_model.get_state(obs)
-    z = z.dot(agent.hash_vector)  # save this output
-
-    state_rewards = np.array(
-        [agent.reward_estimator.get_avg_reward(z0) for z0 in z]
-    ).reshape(
-        20, 20
-    )  # save this output
-
-    state_value_function = np.array(
-        [agent.value_function.get(z0, np.nan) for z0 in z]
-    ).reshape(20, 20)
-
-    room_1_mask = (np.arange(400) < 200) * (np.arange(400) % 20 < 10)
-    room_2_mask = (np.arange(400) >= 200) * (np.arange(400) % 20 < 10)
-    room_3_mask = np.arange(400) % 20 >= 10
-
-    output_json = {
-        "policy_pmf": pmf,
-        "state_embeddings": z,
-        "state_rewards": state_rewards,
-        "state_values": state_value_function,
-        "score": np.sum(pi * pmf, axis=1).mean(),
-        "score_room1": np.sum(pi[room_1_mask] * pmf[room_1_mask], axis=1).mean(),
-        "score_room2": np.sum(pi[room_2_mask] * pmf[room_2_mask], axis=1).mean(),
-        "score_room3": np.sum(pi[room_3_mask] * pmf[room_3_mask], axis=1).mean(),
-    }
-
-    def to_list(x):
-        if isinstance(x, np.ndarray):
-            return x.tolist()
-        return x
+    output_json = eval_model(agent, config)
 
     with open(config.results_path, "w") as f:
         json.dump({k: to_list(v) for k, v in output_json.items()}, f)
