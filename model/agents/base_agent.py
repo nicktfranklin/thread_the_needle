@@ -12,30 +12,6 @@ from model.data import D4rlDataset
 from task.gridworld import ActType, GridWorldEnv, ObsType
 
 
-# todo: implement a progressbar, max steps, etc.  Should be an inplace method
-# look to the BaseAgent method for inspiration
-def collect_buffer(
-    model: nn.Module,
-    task: GridWorldEnv,
-    buffer: D4rlDataset,
-):
-    # collect data
-    obs = task.reset()[0]
-    done = False
-    while not done:
-        action, _ = model.predict(obs, deterministic=True)
-        outcome_tuple = task.step(action)
-        buffer.add(obs, action, outcome_tuple)
-
-        obs = outcome_tuple[0]
-        done = outcome_tuple[2]
-
-        if done:
-            obs = task.reset()[0]
-
-    return buffer
-
-
 class BaseAgent(ABC):
     def __init__(self, task: GridWorldEnv) -> None:
         super().__init__()
@@ -152,3 +128,27 @@ class BaseAgent(ABC):
         obs = torch.stack(obs)
         with torch.no_grad():
             return self.get_pmf(obs)
+
+    # todo: implement a progressbar, max steps, etc.  Should be an inplace method
+    # look to the BaseAgent method for inspiration
+    def collect_buffer(
+        self,
+        task: GridWorldEnv,
+        buffer: D4rlDataset,
+        epsilon: float = 0.05,
+    ):
+        # collect data
+        obs = task.reset()[0]
+        done = False
+        while not done:
+            action, _ = self.predict(obs, deterministic=True)
+            outcome_tuple = task.step(action)
+            buffer.add(obs, action, outcome_tuple)
+
+            obs = outcome_tuple[0]
+            done = outcome_tuple[2]
+
+            if done:
+                obs = task.reset()[0]
+
+        return buffer
