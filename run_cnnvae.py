@@ -11,12 +11,15 @@ import torch
 import yaml
 from stable_baselines3.common.monitor import Monitor
 
+from model.agents.base_agent import BaseAgent
 from model.agents.ppo import PPO
 from model.agents.value_iteration import ValueIterationAgent as ViAgent
+from model.data import D4rlDataset as Buffer
 from task.gridworld import CnnWrapper, GridWorldEnv
 from task.gridworld import ThreadTheNeedleEnv as Environment
 from utils.config_utils import parse_configs
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float, make_tensor
+from utils.sampling_functions import inverse_cmf_sampler
 
 print(f"python {sys.version}")
 print(f"torch {torch.__version__}")
@@ -97,8 +100,8 @@ def to_list(x):
     return x
 
 
-def eval_model(model, config):
-    pi, _ = model.task.get_optimal_policy()  # save for analysis
+def score_model(model: BaseAgent, task, config):
+    pi, _ = task.get_optimal_policy()  # save for analysis
 
     pmf = model.get_policy_prob(
         model.get_env(),
@@ -106,15 +109,34 @@ def eval_model(model, config):
         map_height=config.env_kwargs["map_height"],
         cnn=True,
     )
+
+    room_1_mask = (np.arange(400) < 200) * (np.arange(400) % 20 < 10)
+    room_2_mask = (np.arange(400) >= 200) * (np.arange(400) % 20 < 10)
+    room_3_mask = np.arange(400) % 20 >= 10
+
+    return {
+        "policy_pmf": pmf,
+        "score": np.sum(pi * pmf, axis=1).mean(),
+        "score_room1": np.sum(pi[room_1_mask] * pmf[room_1_mask], axis=1).mean(),
+        "score_room2": np.sum(pi[room_2_mask] * pmf[room_2_mask], axis=1).mean(),
+        "score_room3": np.sum(pi[room_3_mask] * pmf[room_3_mask], axis=1).mean(),
+    }
+
+
+def eval_model(model, task, config):
+    scores = score_model(model, task, config)
+
+    # calculate reward functions based on the embeddings
     obs = convert_8bit_to_float(
         torch.stack(
             [
-                torch.tensor(model.task.observation_model(s), dtype=torch.long)
-                for s in range(model.task.transition_model.n_states)
+                torch.tensor(task.observation_model(s), dtype=torch.long)
+                for s in range(task.transition_model.n_states)
                 for _ in range(1)
             ]
         )
     )[:, None, ...].to(DEVICE)
+
     z = model.state_inference_model.get_state(obs)
     z = z.dot(model.hash_vector)  # save this output
 
@@ -128,20 +150,13 @@ def eval_model(model, config):
         [model.value_function.get(z0, np.nan) for z0 in z]
     ).reshape(20, 20)
 
-    room_1_mask = (np.arange(400) < 200) * (np.arange(400) % 20 < 10)
-    room_2_mask = (np.arange(400) >= 200) * (np.arange(400) % 20 < 10)
-    room_3_mask = np.arange(400) % 20 >= 10
-
-    return {
-        "policy_pmf": pmf,
-        "state_embeddings": z,
-        "state_rewards": state_rewards,
-        "state_values": state_value_function,
-        "score": np.sum(pi * pmf, axis=1).mean(),
-        "score_room1": np.sum(pi[room_1_mask] * pmf[room_1_mask], axis=1).mean(),
-        "score_room2": np.sum(pi[room_2_mask] * pmf[room_2_mask], axis=1).mean(),
-        "score_room3": np.sum(pi[room_3_mask] * pmf[room_3_mask], axis=1).mean(),
-    }
+    return scores.update(
+        {
+            "state_embeddings": z,
+            "state_rewards": state_rewards,
+            "state_values": state_value_function,
+        }
+    )
 
 
 def main():
@@ -159,22 +174,24 @@ def main():
     task = Monitor(task, config.log_dir)
 
     # train ppo``
-    # ppo = train_ppo(config, task)
+    ppo = train_ppo(config, task)
+    # breakpoint()
+    ppo_scores = score_model(ppo, task, config)
 
-    # rollout_buffer = Buffer()
-    # collect_buffer(ppo.policy, task, rollout_buffer)
+    rollout_buffer = Buffer()
+    rollout_buffer = ppo.collect_buffer(task, rollout_buffer, n=1000, epsilon=0.5)
 
-    ## Model + Training Parameters
-    agent = ViAgent.make_from_configs(
-        task, config.agent_config, config.vae_config, config.env_kwargs
-    )
-    # agent.update_from_batch(rollout_buffer, progress_bar=True)
+    # ## Model + Training Parameters
+    # agent = ViAgent.make_from_configs(
+    #     task, config.agent_config, config.vae_config, config.env_kwargs
+    # )
+    # # agent.update_from_batch(rollout_buffer, progress_bar=True)
 
-    # # train the VI agent
-    agent.learn(
-        config.n_training_samples,
-        progress_bar=True,
-    )
+    # # # train the VI agent
+    # agent.learn(
+    #     config.n_training_samples,
+    #     progress_bar=True,
+    # )
 
     output_json = eval_model(agent, config)
 
