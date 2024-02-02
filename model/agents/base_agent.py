@@ -1,15 +1,17 @@
 from abc import ABC, abstractmethod
 from typing import Iterable, Optional
 
+import numpy as np
 import torch
 import torch.nn as nn
 from stable_baselines3.common.base_class import BaseAlgorithm
 from stable_baselines3.common.vec_env import VecEnv
 from torch import FloatTensor
-from tqdm import trange
+from tqdm import tqdm, trange
 
 from model.data import D4rlDataset
 from task.gridworld import ActType, GridWorldEnv, ObsType
+from utils.sampling_functions import inverse_cmf_sampler
 
 
 class BaseAgent(ABC):
@@ -135,13 +137,24 @@ class BaseAgent(ABC):
         self,
         task: GridWorldEnv,
         buffer: D4rlDataset,
+        n: int,
         epsilon: float = 0.05,
     ):
         # collect data
         obs = task.reset()[0]
         done = False
-        while not done:
-            action, _ = self.predict(obs, deterministic=True)
+
+        for _ in tqdm(range(n), desc="Collection rollouts"):
+            action_pmf = self.get_pmf(torch.tensor(obs).unsqueeze(0))
+
+            # epsilon greedy
+            action_pmf = (1 - epsilon) * action_pmf + epsilon * np.ones_like(
+                action_pmf
+            ) / len(action_pmf)
+
+            # sample
+            action = inverse_cmf_sampler(action_pmf)
+
             outcome_tuple = task.step(action)
             buffer.add(obs, action, outcome_tuple)
 
