@@ -65,7 +65,9 @@ class TabularStateActionTransitionEstimator:
     ):
         self.n_actions = n_actions
         if models is not None:
-            self.models = {a: TabularRewardEstimator(**v) for a, v in models.items()}
+            self.models = {
+                a: TabularTransitionEstimator(**v) for a, v in models.items()
+            }
         else:
             self.models = {a: TabularTransitionEstimator() for a in range(n_actions)}
         self.set_states = states if states else set()
