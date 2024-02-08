@@ -150,13 +150,14 @@ def eval_model(model, task, config):
         [model.value_function.get(z0, np.nan) for z0 in z]
     ).reshape(20, 20)
 
-    return scores.update(
+    scores.update(
         {
             "state_embeddings": z,
             "state_rewards": state_rewards,
             "state_values": state_value_function,
         }
     )
+    return scores
 
 
 def main():
@@ -181,11 +182,11 @@ def main():
     rollout_buffer = Buffer()
     rollout_buffer = ppo.collect_buffer(task, rollout_buffer, n=1000, epsilon=0.5)
 
-    # ## Model + Training Parameters
-    # agent = ViAgent.make_from_configs(
-    #     task, config.agent_config, config.vae_config, config.env_kwargs
-    # )
-    # # agent.update_from_batch(rollout_buffer, progress_bar=True)
+    ## Model + Training Parameters
+    agent = ViAgent.make_from_configs(
+        task, config.agent_config, config.vae_config, config.env_kwargs
+    )
+    agent.update_from_batch(rollout_buffer, progress_bar=True)
 
     # # # train the VI agent
     # agent.learn(
@@ -193,8 +194,9 @@ def main():
     #     progress_bar=True,
     # )
 
-    output_json = eval_model(agent, config)
+    output_json = eval_model(agent, task, config)
 
+    print(f"Saving to file {config.results_path}")
     with open(config.results_path, "w") as f:
         json.dump({k: to_list(v) for k, v in output_json.items()}, f)
 
