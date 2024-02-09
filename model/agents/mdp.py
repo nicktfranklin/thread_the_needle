@@ -97,7 +97,8 @@ class TabularStateActionTransitionEstimator:
         for state in self.set_states:
             for action in range(self.n_actions):
                 for sp, p in self.models[action].get_transition_probs(state).items():
-                    adjacency[state_key[state], state_key[sp]] = int(p > 1)
+                    assert sp in state_key, f"state {sp} not in state_key"
+                    adjacency[state_key[state], state_key[sp]] = 1
 
         degree_matrix = np.diag(adjacency.sum(axis=1))
 
