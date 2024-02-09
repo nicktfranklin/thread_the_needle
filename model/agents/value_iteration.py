@@ -1,7 +1,7 @@
 import os
 import pickle
 import random
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Hashable, Optional
 
 import numpy as np
 import torch
@@ -228,3 +228,6 @@ class ValueIterationAgent(BaseAgent):
         VaeClass = getattr(model.state_inference.vae, agent_config["vae_model_class"])
         vae = VaeClass.make_from_configs(vae_config, env_kwargs)
         return cls(task, vae, **agent_config["state_inference_model"])
+
+    def get_graph_laplacian(self) -> tuple[np.ndarray, Dict[Hashable, int]]:
+        return self.transition_estimator.get_graph_laplacian()

@@ -41,8 +41,8 @@ parser.add_argument(
     default=f"simulations/{BASE_FILE_NAME}_{date.today()}.json",
 )
 parser.add_argument("--log_dir", default=f"logs/{BASE_FILE_NAME}_{date.today()}/")
-parser.add_argument("--n_training_samples", default=124)
-parser.add_argument("--n_rollout_samples", default=124)
+parser.add_argument("--n_training_samples", default=2000)
+parser.add_argument("--n_rollout_samples", default=2000)
 
 
 @dataclass
@@ -174,25 +174,28 @@ def main():
     task = make_env(config)
     task = Monitor(task, config.log_dir)
 
-    # train ppo``
-    ppo = train_ppo(config, task)
-    # breakpoint()
-    ppo_scores = score_model(ppo, task, config)
+    # # train ppo``
+    # ppo = train_ppo(config, task)
+    # # breakpoint()
+    # ppo_scores = score_model(ppo, task, config)
 
-    rollout_buffer = Buffer()
-    rollout_buffer = ppo.collect_buffer(task, rollout_buffer, n=1000, epsilon=0.5)
+    # rollout_buffer = Buffer()
+    # rollout_buffer = ppo.collect_buffer(task, rollout_buffer, n=1000, epsilon=0.5)
 
     ## Model + Training Parameters
     agent = ViAgent.make_from_configs(
         task, config.agent_config, config.vae_config, config.env_kwargs
     )
-    agent.update_from_batch(rollout_buffer, progress_bar=True)
+    # agent.update_from_batch(rollout_buffer, progress_bar=True)
 
-    # # # train the VI agent
-    # agent.learn(
-    #     config.n_training_samples,
-    #     progress_bar=True,
-    # )
+    # # train the VI agent
+    agent.learn(
+        config.n_training_samples,
+        progress_bar=True,
+    )
+    laplacian, state_key = agent.get_graph_laplacian()
+    print(laplacian)
+    print(laplacian.sum(axis=1))
 
     output_json = eval_model(agent, task, config)
 

@@ -87,6 +87,24 @@ class TabularStateActionTransitionEstimator:
     def sample(self, s: Hashable, a: ActType) -> None:
         return self.models[a].sample(s)
 
+    def get_graph_laplacian(self) -> tuple[np.ndarray, Dict[Hashable, int]]:
+        # the graph is equivalent to a permutation of the states, so
+        # we can just pick an arbitrary order for them.
+        state_key = {s: ii for ii, s in enumerate(self.set_states)}
+
+        adjacency = np.zeros((len(self.set_states), len(self.set_states)))
+
+        for state in self.set_states:
+            for action in range(self.n_actions):
+                for sp, p in self.models[action].get_transition_probs(state).items():
+                    adjacency[state_key[state], state_key[sp]] = int(p > 1)
+
+        degree_matrix = np.diag(adjacency.sum(axis=1))
+
+        laplacian = degree_matrix - adjacency
+
+        return laplacian, state_key
+
 
 class TabularRewardEstimator:
     def __init__(self):
