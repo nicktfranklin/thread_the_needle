@@ -175,7 +175,7 @@ class ValueIterationAgent(BaseAgent):
         q_s_a += self.alpha * (r + self.gamma * V_sp - q_s_a)
         self.policy.q_values[s][a] = q_s_a
 
-    def update_from_batch(self, buffer: D4rlDataset, progress_bar: bool = False):
+    def train_vae(self, buffer: D4rlDataset, progress_bar: bool = True):
         # prepare the dataset for training the VAE
         dataset = buffer.get_dataset()
         obs = convert_8bit_to_float(torch.tensor(dataset["observations"])).to(DEVICE)
@@ -193,6 +193,11 @@ class ValueIterationAgent(BaseAgent):
             self.grad_clip,
             progress_bar=progress_bar,
         )
+
+    def update_from_batch(self, buffer: D4rlDataset, progress_bar: bool = False):
+        self.train_vae(buffer, progress_bar=progress_bar)
+
+        dataset = buffer.get_dataset()
 
         # re-estimate the reward and transition functions
         self.reward_estimator.reset()
