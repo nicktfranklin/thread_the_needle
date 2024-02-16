@@ -1,6 +1,6 @@
 from collections import namedtuple
 from dataclasses import dataclass
-from typing import Any, Dict, SupportsFloat, Union
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 import torch
@@ -14,14 +14,23 @@ ObservationTuple = namedtuple("ObservationTuple", "obs a r next_obs")
 
 
 class D4rlDataset:
-    def __init__(self) -> None:
-        self.action = []
-        self.obs = []
-        self.next_obs = []
-        self.reward = []
-        self.terminated = []
-        self.truncated = []
-        self.info = []
+    def __init__(
+        self,
+        action: Optional[List[ActType]] = None,
+        obs: Optional[List[ObsType]] = None,
+        next_obs: Optional[List[ObsType]] = None,
+        reward: Optional[List[float]] = None,
+        terminated: Optional[List[bool]] = None,
+        truncated: Optional[List[bool]] = None,
+        info: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
+        self.action = action if action is not None else []
+        self.obs = obs if obs is not None else []
+        self.next_obs = next_obs if next_obs is not None else []
+        self.reward = reward if reward is not None else []
+        self.terminated = terminated if terminated is not None else []
+        self.truncated = truncated if truncated is not None else []
+        self.info = info if info is not None else []
 
     def add(self, obs: ObsType, action: ActType, obs_tuple: OutcomeTuple):
         self.action.append(action)
