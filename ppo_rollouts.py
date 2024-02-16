@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import pickle
 import sys
 from dataclasses import dataclass
 from datetime import date
@@ -13,13 +14,11 @@ from stable_baselines3.common.monitor import Monitor
 
 from model.agents.base_agent import BaseAgent
 from model.agents.ppo import PPO
-from model.agents.value_iteration import ValueIterationAgent as ViAgent
 from model.data import D4rlDataset as Buffer
 from task.gridworld import CnnWrapper, GridWorldEnv
 from task.gridworld import ThreadTheNeedleEnv as Environment
 from utils.config_utils import parse_configs
-from utils.pytorch_utils import DEVICE, convert_8bit_to_float, make_tensor
-from utils.sampling_functions import inverse_cmf_sampler
+from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
 print(f"python {sys.version}")
 print(f"torch {torch.__version__}")
@@ -36,19 +35,16 @@ parser.add_argument("--task_config", default="configs/env_config.yml")
 parser.add_argument("--agent_config", default="configs/agent_config.yml")
 parser.add_argument("--task_name", default="thread_the_needle")
 parser.add_argument("--model_name", default="cnn_vae")
-parser.add_argument(
-    "--results_path",
-    default=f"simulations/{BASE_FILE_NAME}_{date.today()}.json",
-)
+parser.add_argument("--results_dir", default=f"simulations/")
 parser.add_argument("--log_dir", default=f"logs/{BASE_FILE_NAME}_{date.today()}/")
-parser.add_argument("--n_training_samples", default=1000)
-parser.add_argument("--n_rollout_samples", default=500)
+parser.add_argument("--n_training_samples", default=50000)
+parser.add_argument("--n_rollout_samples", default=50000)
 
 
 @dataclass
 class Config:
     log_dir: str
-    results_path: str
+    results_dir: str
     env_kwargs: Dict[str, Any]
     agent_config: Dict[str, Any]
     vae_config: Dict[str, Any]
@@ -67,7 +63,7 @@ class Config:
             agent_config=configs["agent_config"],
             n_training_samples=args.n_training_samples,
             n_rollout_samples=args.n_rollout_samples,
-            results_path=args.results_path,
+            results_dir=args.results_dir,
         )
 
 
@@ -185,10 +181,11 @@ def main():
         task, rollout_buffer, n=1000, epsilon=config.epsilon
     )
 
-    serialized_buffer = vars(rollout_buffer)
+    with open(f"{config.results_dir}ppo_rollouts.pkl", "wb") as f:
+        pickle.dump(rollout_buffer, f)
 
-    with open("simulations/rollout_buffer.json", "w") as f:
-        json.dump(serialized_buffer, f)
+    with open(f"{config.results_dir}ppo_performance.pkl", "wb") as f:
+        pickle.dump(score_model(ppo, task, config), f)
 
 
 if __name__ == "__main__":
