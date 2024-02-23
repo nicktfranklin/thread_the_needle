@@ -80,6 +80,7 @@ class TabularStateActionTransitionEstimator:
     def update(self, s: Hashable, a: ActType, sp: Hashable) -> None:
         self.models[a].update(s, sp)
         self.set_states.add(s)
+        self.set_states.add(sp)
 
     def get_transition_functions(self):
         return self.models
