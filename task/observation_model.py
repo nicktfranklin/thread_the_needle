@@ -99,6 +99,13 @@ class ObservationModel:
         grid = self._embed_one_hot(x, y)
         return self._make_embedding_from_grid(grid)
 
+    def decode_obs(self, obs: np.ndarray) -> StateType:
+        x_hat, y_hat = np.argmax(np.mean(obs, axis=1)), np.argmax(np.mean(obs, axis=0))
+        # get the closest state
+        f = lambda xypair: np.sqrt((xypair[0] - x_hat) ** 2 + (xypair[1] - y_hat) ** 2)
+        d = {s: f(self.get_obs_coords(s)) for s in self.states}
+        return min(d, key=d.get)
+
     def _location_corruption(self, x: int, y: int) -> tuple[int, int]:
         x += int(round(np.random.normal(loc=0, scale=self.loc_noise_scale)))
         y += int(round(np.random.normal(loc=0, scale=self.loc_noise_scale)))
