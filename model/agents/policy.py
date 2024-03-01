@@ -1,3 +1,5 @@
+from typing import Dict
+
 import torch
 from stable_baselines3.common.distributions import CategoricalDistribution
 from torch import Tensor
@@ -43,3 +45,6 @@ class SoftmaxPolicy:
 
         q_values = torch.stack([_get_q(s0) for s0 in s])
         return self.dist.proba_distribution(q_values)
+
+    def get_value_function(self) -> Dict[int, float]:
+        return {s: max(v.values()) for s, v in self.q_values.items()}

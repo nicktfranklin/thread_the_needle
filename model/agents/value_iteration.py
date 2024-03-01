@@ -175,6 +175,9 @@ class ValueIterationAgent(BaseAgent):
         q_s_a += self.alpha * (r + self.gamma * V_sp - q_s_a)
         self.policy.q_values[s][a] = q_s_a
 
+    def get_state_values(self) -> torch.Tensor:
+        return self.policy.get_value_function()
+
     def train_vae(self, buffer: D4rlDataset, progress_bar: bool = True):
         # prepare the dataset for training the VAE
         dataset = buffer.get_dataset()
