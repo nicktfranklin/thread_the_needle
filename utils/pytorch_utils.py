@@ -213,8 +213,10 @@ def convert_8bit_array_to_float_tensor(
 def maybe_convert_to_long_tensor(x: Union[LongTensor, np.ndarray]) -> LongTensor:
     if isinstance(x, np.ndarray) and x.dtype == np.int_:
         return torch.tensor(x, dtype=torch.long)
-    elif torch.is_tensor(x) and not torch.is_floating_point(x):
+    elif torch.is_tensor(x) and torch.is_floating_point(x):
         return x.to(torch.long)
+    elif torch.is_tensor(x) and not torch.is_floating_point(x):
+        return x
     raise ValueError(f"Cannot convert {x} to LongTensor")
 
 
