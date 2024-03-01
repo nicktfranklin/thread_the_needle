@@ -100,6 +100,8 @@ class ObservationModel:
         return self._make_embedding_from_grid(grid)
 
     def decode_obs(self, obs: np.ndarray) -> StateType:
+        """decodes the state based on the maximum, marginally, of each dimension"""
+
         x_hat, y_hat = np.argmax(np.mean(obs, axis=1)), np.argmax(np.mean(obs, axis=0))
         # get the closest state
         f = lambda xypair: np.sqrt((xypair[0] - x_hat) ** 2 + (xypair[1] - y_hat) ** 2)
