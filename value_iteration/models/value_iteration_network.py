@@ -112,7 +112,7 @@ class ValueIterationNetwork(PlanningModel):
             value_function = np.zeros((iterations, n_states))
 
         # dynamic programing algorithm
-        for ii in tnrange(0, iterations):
+        for ii in trange(0, iterations):
             # calculate tiled values (we could randomize the tiling order but it isn't important)
             for a, (r_a, t_a) in enumerate(zip(reward_functions, transition_functions)):
                 q_0[a] = r_a[tiling] + gamma * t_a[tiling][:, ~tiling].dot(value_1)
@@ -197,7 +197,7 @@ class UntiledValueIterationNetwork(ValueIterationNetwork):
             value_function = np.zeros((iterations, n_states))
 
         # dynamic programing algorithm
-        for ii in tnrange(0, iterations):
+        for ii in trange(0, iterations):
             # calculate values
             for a, (r_a, t_a) in enumerate(zip(reward_functions, transition_functions)):
                 q[a] = r_a + gamma * t_a.dot(value)
