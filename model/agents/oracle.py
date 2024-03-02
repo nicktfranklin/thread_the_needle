@@ -1,4 +1,4 @@
-from torch import FloatTensor
+from torch import FloatTensor, LongTensor
 
 from model.agents.base_agent import BaseAgent
 from model.data import D4rlDataset
@@ -12,12 +12,14 @@ class Oracle(BaseAgent):
 
     def __init__(self, task: GridWorldEnv, epsilon: float = 0.0) -> None:
         super().__init__(task)
-        self.pi = task.get_optimal_policy()
+        self.pi = task.unwrapped.get_optimal_policy()
         self.epison = epsilon
         self.task = task
 
     def get_pmf(self, obs: FloatTensor) -> FloatTensor:
-        state = self.task.observation_model.decode_obs(obs)
+
+        obs = obs.squeeze().cpu().numpy()
+        state = self.task.unwrapped.observation_model.decode_obs(obs)
 
         pi = self.pi[state] * (1 - self.epison) + self.epison / self.task.n_states
         return pi

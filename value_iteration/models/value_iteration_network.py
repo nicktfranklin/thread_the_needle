@@ -2,7 +2,7 @@ from typing import List, Tuple, Union
 
 import numpy as np
 from scipy import sparse
-from tqdm import tnrange
+from tqdm.notebook import trange
 
 from value_iteration.models.utils import softmax
 
