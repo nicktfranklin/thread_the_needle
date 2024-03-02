@@ -6,7 +6,7 @@ from typing import Any, Dict, Hashable, Optional
 import numpy as np
 import torch
 from torch import FloatTensor, Tensor, nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 import model.state_inference.vae
 from model.agents.base_agent import BaseAgent
@@ -20,6 +20,22 @@ from model.data import D4rlDataset, OaroTuple
 from model.state_inference.vae import StateVae
 from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
+
+
+class ViDataset(Dataset):
+    def __init__(self, dataset: Dict[str, Any]):
+        self.dataset = dataset
+
+    def __len__(self):
+        return len(self.dataset["observations"])
+
+    def __getitem__(self, idx):
+        return {
+            "observations": self.dataset["observations"][idx],
+            "next_observations": self.dataset["next_observations"][idx],
+            "actions": self.dataset["actions"][idx],
+            "rewards": self.dataset["rewards"][idx],
+        }
 
 
 class ValueIterationAgent(BaseAgent):
@@ -200,17 +216,29 @@ class ValueIterationAgent(BaseAgent):
     def update_from_batch(self, buffer: D4rlDataset, progress_bar: bool = False):
         self.train_vae(buffer, progress_bar=progress_bar)
 
-        dataset = buffer.get_dataset()
-
         # re-estimate the reward and transition functions
         self.reward_estimator.reset()
         self.transition_estimator.reset()
 
+        dataset = buffer.get_dataset()
+
+        # convert ot a tensor dataset for iteration
+        dataset = ViDataset(dataset)
+
         # _get_hashed_state takes care of preprocessing
-        s = self._get_state_hashkey(dataset["observations"])
-        sp = self._get_state_hashkey(dataset["next_observations"])
-        a = dataset["actions"]
-        r = dataset["rewards"]
+        dataloader = DataLoader(
+            dataset, batch_size=self.batch_size, shuffle=False, drop_last=False
+        )
+        s, sp, a, r = [], [], [], []
+        for batch in dataloader:
+            s.append(self._get_state_hashkey(batch["observations"]))
+            sp.append(self._get_state_hashkey(batch["next_observations"]))
+            a.append(batch["actions"])
+            r.append(batch["rewards"])
+        s = np.concatenate(s)
+        sp = np.concatenate(sp)
+        a = np.concatenate(a)
+        r = np.concatenate(r)
 
         for idx in range(len(s)):
             self.transition_estimator.update(s[idx], a[idx], sp[idx])
