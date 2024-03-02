@@ -106,7 +106,14 @@ class GridWorldEnv(gym.Env):
     def set_initial_state(self, initial_state):
         self.initial_state = initial_state
 
-    def get_optimal_policy(self) -> np.ndarray:
+    def get_optimal_policy(self) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Returns:
+            pi: np.ndarray
+                policy, shape (n_states, n_actions)
+            values: np.ndarray
+                state values, shape (n_states,)
+        """
         t = self.transition_model.state_action_transitions
         r = self.reward_model.construct_rew_func(t)
         sa_values, values = ValueIterationNetwork.value_iteration(
