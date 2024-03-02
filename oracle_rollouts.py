@@ -38,8 +38,7 @@ parser.add_argument("--task_name", default="thread_the_needle")
 parser.add_argument("--model_name", default="cnn_vae")
 parser.add_argument("--results_dir", default=f"simulations/")
 parser.add_argument("--log_dir", default=f"logs/{BASE_FILE_NAME}_{date.today()}/")
-parser.add_argument("--n_training_samples", default=50000)
-parser.add_argument("--n_rollout_samples", default=50000)
+parser.add_argument("--n_rollout_samples", default=10000)
 
 
 @dataclass
@@ -50,7 +49,6 @@ class Config:
     agent_config: Dict[str, Any]
     vae_config: Dict[str, Any]
 
-    n_training_samples: int
     n_rollout_samples: int
     epsilon: float = 0.02
 
@@ -62,7 +60,6 @@ class Config:
             env_kwargs=configs["env_kwargs"],
             vae_config=configs["vae_config"],
             agent_config=configs["agent_config"],
-            n_training_samples=args.n_training_samples,
             n_rollout_samples=args.n_rollout_samples,
             results_dir=args.results_dir,
         )
@@ -97,7 +94,7 @@ def main():
 
     rollout_buffer = Buffer()
     rollout_buffer = oracle.collect_buffer(
-        task, rollout_buffer, n=1000, epsilon=config.epsilon
+        task, rollout_buffer, n=config.n_rollout_samples, epsilon=config.epsilon
     )
 
     with open(f"{config.results_dir}oracle_rollouts.pkl", "wb") as f:
