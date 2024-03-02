@@ -1,3 +1,4 @@
+import numpy as np
 from torch import FloatTensor, LongTensor
 
 from model.agents.base_agent import BaseAgent
@@ -12,16 +13,19 @@ class Oracle(BaseAgent):
 
     def __init__(self, task: GridWorldEnv, epsilon: float = 0.0) -> None:
         super().__init__(task)
-        self.pi = task.unwrapped.get_optimal_policy()
+        self.task: GridWorldEnv = task.unwrapped
+        self.pi, self.state_values = self.task.get_optimal_policy()
         self.epison = epsilon
-        self.task = task
 
     def get_pmf(self, obs: FloatTensor) -> FloatTensor:
 
         obs = obs.squeeze().cpu().numpy()
-        state = self.task.unwrapped.observation_model.decode_obs(obs)
+        state = self.task.observation_model.decode_obs(obs)
 
-        pi = self.pi[state] * (1 - self.epison) + self.epison / self.task.n_states
+        # normalize to a pdf
+        pi = self.pi[state] / self.pi[state].sum()
+        # e-greedy
+        pi = pi * (1 - self.epison) + self.epison * np.ones_like(pi) / len(pi)
         return pi
 
     def predict(
@@ -32,6 +36,7 @@ class Oracle(BaseAgent):
         deterministic: bool = False,
     ) -> tuple[ActType, FloatTensor | None]:
         pi = self.get_pmf(obs)
+        print(pi, pi.cumsum())
         return inverse_cmf_sampler(pi), None
 
     def update_from_batch(self, batch: D4rlDataset):
