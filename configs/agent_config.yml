@@ -3,7 +3,7 @@ n_train_steps: 30000
 n_batches: 12
 
 value_iteration_kwargs:
-  gamma: 0.99
+  gamma: 0.5
   n_iter: 1000
   softmax_gain: 1.0
   epsilon: 0.05
@@ -13,7 +13,7 @@ q_learning_kwargs:
   alpha: 0.05
 
 state_inference_model:
-  batch_size: 16
+  batch_size: 64
   n_epochs: 20
   grad_clip: True
   n_steps: 2048
