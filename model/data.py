@@ -3,12 +3,9 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
-import torch
 from torch import Tensor
-from torch.utils.data import DataLoader
 
 from task.gridworld import ActType, ObsType, OutcomeTuple
-from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
 ObservationTuple = namedtuple("ObservationTuple", "obs a r next_obs")
 
