@@ -4,7 +4,7 @@ from typing import Any, Dict, Hashable, Optional
 import numpy as np
 import torch
 from torch import FloatTensor, Tensor
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 
 import model.state_inference.vae
 from model.agents.base_agent import BaseAgent
@@ -15,25 +15,10 @@ from model.agents.mdp import (
 )
 from model.agents.policy import SoftmaxPolicy
 from model.data.d4rl import D4rlDataset, OaroTuple
+from model.data.value_iteration import ViDataset
 from model.state_inference.vae import StateVae
 from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
-
-
-class ViDataset(Dataset):
-    def __init__(self, dataset: Dict[str, Any]):
-        self.dataset = dataset
-
-    def __len__(self):
-        return len(self.dataset["observations"])
-
-    def __getitem__(self, idx):
-        return {
-            "observations": self.dataset["observations"][idx],
-            "next_observations": self.dataset["next_observations"][idx],
-            "actions": self.dataset["actions"][idx],
-            "rewards": self.dataset["rewards"][idx],
-        }
 
 
 class ValueIterationAgent(BaseAgent):
