@@ -1,5 +1,4 @@
 import argparse
-import json
 import os
 import pickle
 import sys
@@ -14,7 +13,7 @@ from stable_baselines3.common.monitor import Monitor
 
 from model.agents.base_agent import BaseAgent
 from model.agents.ppo import PPO
-from model.data import D4rlDataset as Buffer
+from model.data.d4rl import D4rlDataset as Buffer
 from task.gridworld import CnnWrapper, GridWorldEnv
 from task.gridworld import ThreadTheNeedleEnv as Environment
 from utils.config_utils import parse_configs

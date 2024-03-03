@@ -3,13 +3,12 @@ from typing import Iterable, Optional
 
 import numpy as np
 import torch
-import torch.nn as nn
 from stable_baselines3.common.base_class import BaseAlgorithm
 from stable_baselines3.common.vec_env import VecEnv
 from torch import FloatTensor
 from tqdm import tqdm, trange
 
-from model.data import D4rlDataset
+from model.data.d4rl import D4rlDataset
 from task.gridworld import ActType, GridWorldEnv, ObsType
 from utils.sampling_functions import inverse_cmf_sampler
 
@@ -20,8 +19,7 @@ class BaseAgent(ABC):
         self.task = task
 
     @abstractmethod
-    def get_pmf(self, x: FloatTensor) -> FloatTensor:
-        ...
+    def get_pmf(self, x: FloatTensor) -> FloatTensor: ...
 
     def get_env(self) -> VecEnv:
         ## used for compatibility with stablebaseline code, use with caution
@@ -34,8 +32,7 @@ class BaseAgent(ABC):
         state: Optional[FloatTensor] = None,
         episode_start: Optional[bool] = None,
         deterministic: bool = False,
-    ) -> tuple[ActType, Optional[FloatTensor]]:
-        ...
+    ) -> tuple[ActType, Optional[FloatTensor]]: ...
 
     def _init_state(self) -> Optional[FloatTensor]:
         return None
@@ -73,8 +70,7 @@ class BaseAgent(ABC):
         return rollout_buffer
 
     @abstractmethod
-    def update_from_batch(self, batch: D4rlDataset):
-        ...
+    def update_from_batch(self, batch: D4rlDataset): ...
 
     def learn(self, total_timesteps: int, progress_bar: bool = False, **kwargs):
         if progress_bar is not None:

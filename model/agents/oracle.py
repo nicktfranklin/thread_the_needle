@@ -1,8 +1,8 @@
 import numpy as np
-from torch import FloatTensor, LongTensor
+from torch import FloatTensor
 
 from model.agents.base_agent import BaseAgent
-from model.data import D4rlDataset
+from model.data.d4rl import D4rlDataset
 from task.gridworld import GridWorldEnv
 from task.utils import ActType, ObsType
 from utils.sampling_functions import inverse_cmf_sampler

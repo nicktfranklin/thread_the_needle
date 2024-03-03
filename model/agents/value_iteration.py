@@ -1,11 +1,9 @@
-import os
-import pickle
 import random
 from typing import Any, Dict, Hashable, Optional
 
 import numpy as np
 import torch
-from torch import FloatTensor, Tensor, nn
+from torch import FloatTensor, Tensor
 from torch.utils.data import DataLoader, Dataset
 
 import model.state_inference.vae
@@ -16,7 +14,7 @@ from model.agents.mdp import (
     value_iteration,
 )
 from model.agents.policy import SoftmaxPolicy
-from model.data import D4rlDataset, OaroTuple
+from model.data.d4rl import D4rlDataset, OaroTuple
 from model.state_inference.vae import StateVae
 from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float

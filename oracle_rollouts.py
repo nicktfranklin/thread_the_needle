@@ -1,5 +1,4 @@
 import argparse
-import json
 import os
 import pickle
 import sys
@@ -7,19 +6,16 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Dict
 
-import numpy as np
 import torch
 import yaml
 from stable_baselines3.common.monitor import Monitor
 
-from model.agents.base_agent import BaseAgent
 from model.agents.oracle import Oracle
-from model.agents.ppo import PPO
-from model.data import D4rlDataset as Buffer
+from model.data.d4rl import D4rlDataset as Buffer
 from task.gridworld import CnnWrapper, GridWorldEnv
 from task.gridworld import ThreadTheNeedleEnv as Environment
 from utils.config_utils import parse_configs
-from utils.pytorch_utils import DEVICE, convert_8bit_to_float
+from utils.pytorch_utils import DEVICE
 
 print(f"python {sys.version}")
 print(f"torch {torch.__version__}")
