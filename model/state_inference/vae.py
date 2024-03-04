@@ -1,5 +1,4 @@
 import sys
-from importlib import import_module
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
@@ -25,6 +24,7 @@ from utils.pytorch_utils import (
     train,
 )
 
+# needed to import the Encoder/Decoder from config
 from .nets import *
 
 
@@ -91,6 +91,7 @@ class StateVae(nn.Module):
         vae_kwargs = vae_config["vae_kwargs"]
         vae_kwargs["input_shape"] = input_shape
 
+        print(sys.modules[__name__])
         Encoder = getattr(sys.modules[__name__], vae_config["encoder_class"])
         Decoder = getattr(sys.modules[__name__], vae_config["decoder_class"])
 
