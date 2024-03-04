@@ -1,4 +1,6 @@
 import numpy as np
+import torch
+from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset
 
 from model.data.d4rl import D4rlDataset
@@ -49,11 +51,14 @@ class RecurrentDataset(Dataset):
     def __len__(self):
         return self.observations.shape[0]
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx) -> torch.Tensor:
         """return a sequence of observations.
         each sequence starts either idx - seq_len or idx - run_len, whichever is shorter
         """
 
         run_len = min([self.time_in_run[idx], self.seq_len])
 
-        return self.observations[idx - run_len + 1 : idx + 1, ...]
+        return torch.from_numpy(self.observations[idx - run_len + 1 : idx + 1, ...])
+
+    def collate_fn(self, batch):
+        return pad_sequence(batch, batch_first=False, padding_value=0)
