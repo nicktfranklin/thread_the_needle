@@ -21,7 +21,7 @@ from model.agents.constants import (
 )
 from model.agents.value_iteration import ValueIterationAgent
 from model.data.d4rl import OaroTuple
-from model.state_inference.vae import RecurrentVae
+from model.state_inference.recurrent_vae import RecurrentVae
 from utils.data import RecurrentVaeDataset, TransitionVaeDataset
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float, maybe_convert_to_tensor
 
