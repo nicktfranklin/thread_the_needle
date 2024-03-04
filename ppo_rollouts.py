@@ -11,8 +11,7 @@ import torch
 import yaml
 from stable_baselines3.common.monitor import Monitor
 
-from model.agents.base_agent import BaseAgent
-from model.agents.ppo import PPO
+from model.agents import PPO, BaseAgent
 from model.data.d4rl import D4rlDataset as Buffer
 from task.gridworld import CnnWrapper, GridWorldEnv
 from task.gridworld import ThreadTheNeedleEnv as Environment

@@ -3,7 +3,7 @@ from typing import Callable
 import numpy as np
 import torch
 
-from model.agents.base_agent import BaseAgent
+from model.agents import BaseAgent
 
 
 def eval_model(model, n, start_state=None):

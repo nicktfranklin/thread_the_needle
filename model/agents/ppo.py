@@ -1,7 +1,7 @@
 from stable_baselines3 import PPO as StableBaselinesPPO
 from torch import FloatTensor
 
-from model.agents.base_agent import BaseAgent
+from model.agents.utils.base_agent import BaseAgent
 from model.data.d4rl import D4rlDataset
 
 

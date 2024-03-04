@@ -7,13 +7,13 @@ from torch import FloatTensor, Tensor
 from torch.utils.data import DataLoader
 
 import model.state_inference.vae
-from model.agents.base_agent import BaseAgent
-from model.agents.mdp import (
+from model.agents.utils.base_agent import BaseAgent
+from model.agents.utils.mdp import (
     TabularRewardEstimator,
     TabularStateActionTransitionEstimator,
     value_iteration,
 )
-from model.agents.policy import SoftmaxPolicy
+from model.agents.utils.policy import SoftmaxPolicy
 from model.data.d4rl import D4rlDataset, OaroTuple
 from model.data.value_iteration import ViDataset
 from model.state_inference.vae import StateVae
