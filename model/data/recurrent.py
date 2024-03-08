@@ -61,4 +61,8 @@ class RecurrentDataset(Dataset):
         return torch.from_numpy(self.observations[idx - run_len + 1 : idx + 1, ...])
 
     def collate_fn(self, batch):
+        """
+        Pad the batch of sequences to the same length, and return a tensor of shape
+        (seq_len, batch_size, *obs_shape)
+        """
         return pad_sequence(batch, batch_first=False, padding_value=0)
