@@ -23,45 +23,57 @@ class RecurrentVae(StateVae):
             hidden_size=z_dim * z_layers, input_size=z_dim * z_layers, batch_first=False
         )
 
-    def encode(self, x: torch.Tensor) -> torch.Tensor:
+    def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         The encoder takes in a sequence of observations and returns
         an encoding of each of the observations in the sequence.  The logic is a
         filtering operation.
 
-        input: x (N, B, C, H, W) or (N, C, H, W)
-            output: logits (N, B, Z_dim * Z_layers) or (B, Z_dim * Z_layers)
+        Should handle batched or unbatched inputs, but should always assume a sequence.
+
+        input: x (L, B, C, H, W) or (L, C, H, W)
+        output: logits (L, B, Z_dim * Z_layers) or (L, Z_dim * Z_layers)
+
+        where L is the length of the sequence, B is the batch size,
+            C is the number of channels, H is the height, and W is the width.
 
         """
+        # add the batch dimension if it doesn't exist
+        if len(x.shape) == 4:
+            x = x.unsqueeze(1)
 
-        # loop over the sequences with the encoder network
-        # (N, B, C, H, W) -> (N, B, Z_dim * Z_layers)
-        if x.n_dim == 5:
-            logits = torch.stack(
-                [self.encoder(x0).view(-1, self.z_layers * self.z_dim) for x0 in x]
-            )
-        else:
-            logits = self.encoder(x).view(-1, self.z_layers * self.z_dim)
+        # (L, B, C, H, W) -> (L, B, Z_dim * Z_layers)
+        logits = torch.stack(
+            [self.encoder(x0).view(-1, self.z_layers * self.z_dim) for x0 in x]
+        )
 
         # pass the sequence of logits through the LSTM
-        # (N, B, Z_dim * Z_layers) -> (N, B, Z_dim * Z_layers)
+        # (L, B, Z_dim * Z_layers) -> (L, B, Z_dim * Z_layers)
         lstm_out, _ = self.lstm(logits)
 
         # skip connection
         logits = logits + lstm_out
 
         # re parameterize the logits
-        if x.n_dim == 5:
-            z = torch.stack(
-                [
-                    self.reparameterize(l.reshape(-1, self.z_layers, self.z_dim))
-                    for l in logits
-                ]
-            )
-        else:
-            z = self.reparameterize(logits.reshape(-1, self.z_layers, self.z_dim))
+        # (L, B, Z_dim * Z_layers) -> (L, B, Z_layers, Z_dim)
+        z = torch.stack(
+            [
+                self.reparameterize(l.reshape(-1, self.z_layers, self.z_dim))
+                for l in logits
+            ]
+        )
 
         return logits, z
+
+    def decode(self, z):
+        """
+        The decoder needs to handle batched or unbatched inputs, but should always assume
+        a sequence.
+
+        input: z (N, B, Z_dim * Z_layers) or (N, Z_dim * Z_layers)
+        ouput: x (N, B, C, H, W) or (N, C, H, W)
+        """
+        raise NotImplementedError()
 
     def _encode_from_sequence(self, obs: Tensor, actions: Tensor) -> Tensor:
         raise NotImplementedError()
