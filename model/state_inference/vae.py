@@ -166,10 +166,6 @@ class StateVae(nn.Module):
         # sum loss over dimensions in each example, average over batch
         return mse_loss.view(x.shape[0], -1).sum(1).mean()
 
-    def decoder_loss(self, z: Tensor, target: FloatTensor) -> FloatTensor:
-        y_hat = self.decoder(z)
-        return F.mse_loss(y_hat, torch.flatten(target, start_dim=1))
-
     def loss(self, x: Tensor) -> Tensor:
         x = x.to(DEVICE).float()
         (logits, _), x_hat = self(x)
@@ -245,39 +241,3 @@ class StateVae(nn.Module):
         for _ in iterator:
             train(self, data_loader, optim, grad_clip)
             self.prep_next_batch()
-
-
-class TransitionStateVae(StateVae):
-    def __init__(
-        self,
-        encoder: nn.Module,
-        decoder: nn.Module,
-        next_obs_decoder: MlpDecoderWithActions,
-        z_dim: int,
-        z_layers: int = 2,
-        beta: float = 1,
-        tau: float = 1,
-        gamma: float = 1,
-    ):
-        super().__init__(encoder, decoder, z_dim, z_layers, beta, tau, gamma)
-        self.next_obs_decoder = next_obs_decoder
-
-    def forward(self, x: Tensor):
-        raise NotImplementedError
-
-    def loss(self, batch_data: List[Tensor]) -> Tensor:
-        obs, actions, obsp = batch_data
-        obs = obs.to(DEVICE).float()
-        actions = actions.to(DEVICE).float()
-        obsp = obsp.to(DEVICE).float()
-
-        logits, z = self.encode(obs)
-        z = z.view(-1, self.z_layers * self.z_dim).float()
-
-        # get the two components of the ELBO loss
-        kl_loss = self.kl_loss(logits)
-        recon_loss = self.recontruction_loss(z, obs)
-        recon_loss = self.decoder_loss(z, obs)
-        next_obs_loss = self.next_obs_decoder.loss(z, actions, obsp)
-
-        return recon_loss + next_obs_loss + kl_loss * self.beta
