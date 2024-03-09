@@ -6,6 +6,7 @@ import torch.distributions as dist
 import torch.nn.functional as F
 from torch import FloatTensor, Tensor, nn
 from torch.distributions.categorical import Categorical
+from torch.distributions.kl import kl_divergence
 from tqdm import trange
 
 from model.state_inference.constants import (
@@ -157,7 +158,7 @@ class StateVae(nn.Module):
         p = Categorical(probs=torch.full((B * N, K), 1.0 / K).to(DEVICE))
 
         # sum loss over dimensions in each example, average over batch
-        kl = dist.kl.kl_divergence(q, p).view(B, N).sum(1).mean()
+        kl = kl_divergence(q, p).view(B, N).sum(1).mean()
 
         return kl
 
