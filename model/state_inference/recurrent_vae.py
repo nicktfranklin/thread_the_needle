@@ -132,33 +132,13 @@ class LstmVae(StateVae):
 
         Args:
             obs (Tensor): a (N, C, H, W) or (N, B, C, H, W) tensor
-            hidden_state (Tensor, optional) a NxD tensor of hidden states.  If
-                no value is specified, will use a default value of zero
         """
         assert obs.ndim <= 5
         assert_correct_end_shape(obs, self.input_shape)
-        raise NotImplementedError
-        # hidden_state = (
-        #     hidden_state
-        #     if isinstance(hidden_state, Tensor)
-        #     else torch.zeros_like(obs).to(DEVICE)
-        # )
 
-        # self.eval()
-        # with torch.no_grad():
-        #     # check the dimensions, expand if unbatch
+        self.eval()
+        with torch.no_grad():
+            _, z = self.encode(obs.to(DEVICE))
 
-        #     # expand if unbatched
-        #     assert obs.view(-1).shape[0] % self.encoder.nin == 0
-        #     print(obs.shape)
-        #     if obs.view(-1).shape[0] == self.encoder.nin:
-        #         obs = obs[None, ...]
-        #         hidden_state = hidden_state[None, ...]
-
-        #     state_vars = []
-        #     for o, h in zip(obs, hidden_state):
-        #         print(o, h)
-        # #         _, z = self._encode_from_state(o.to(DEVICE), h.to(DEVICE))
-        # #         state_vars.append(torch.argmax(z, dim=-1).detach().cpu().numpy())
-
-        # # return state_vars
+            state_vars = torch.argmax(z, dim=-1).detach().cpu().numpy()
+        return state_vars
