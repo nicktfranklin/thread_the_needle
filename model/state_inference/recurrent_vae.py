@@ -1,13 +1,20 @@
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import torch
+import torch.functional as F
 from torch import Tensor, nn
+from torch.distributions.categorical import Categorical
+from torch.distributions.kl import kl_divergence
 
+from model.state_inference.constants import INPUT_SHAPE, VAE_TAU_ANNEALING_RATE
 from model.state_inference.vae import StateVae
-from utils.pytorch_utils import DEVICE
+from utils.pytorch_utils import DEVICE, assert_correct_end_shape
 
 
-class RecurrentVae(StateVae):
+class LstmVae(StateVae):
+    """A recurrent version of StateVae, where LstmVae reduces to
+    StateVAE when the weights of the LSTM are zero."""
+
     def __init__(
         self,
         encoder: nn.Module,
@@ -16,9 +23,21 @@ class RecurrentVae(StateVae):
         z_layers: int = 2,
         beta: float = 1,
         tau: float = 1,
-        gamma: float = 1,
+        tau_annealing_rate: float = VAE_TAU_ANNEALING_RATE,
+        input_shape: Tuple[int, int, int] = INPUT_SHAPE,
+        tau_is_parameter: bool = False,
     ):
-        super().__init__(encoder, decoder, z_dim, z_layers, beta, tau, gamma)
+        super().__init__(
+            encoder,
+            decoder,
+            z_dim,
+            z_layers,
+            beta,
+            tau,
+            tau_annealing_rate,
+            input_shape,
+            tau_is_parameter,
+        )
         self.lstm = nn.LSTM(
             hidden_size=z_dim * z_layers, input_size=z_dim * z_layers, batch_first=False
         )
@@ -70,32 +89,54 @@ class RecurrentVae(StateVae):
         The decoder needs to handle batched or unbatched inputs, but should always assume
         a sequence.
 
-        input: z (N, B, Z_dim * Z_layers) or (N, Z_dim * Z_layers)
+        input: z (N, B, Z_dim, Z_layers) or (N, Z_dim, Z_layers)
         ouput: x (N, B, C, H, W) or (N, C, H, W)
         """
-        raise NotImplementedError()
+        # add the batch dimension if it doesn't exist
+        if z.ndim == 2:
+            z = z.unsqueeze(1)
+        z = z.flatten(start_dim=2)
 
-    def _encode_from_sequence(self, obs: Tensor, actions: Tensor) -> Tensor:
-        raise NotImplementedError()
-        # logits = self.encoder(obs, actions)
-        # z = self.reparameterize(logits)
-        # return logits, z
+        # (N, B, Z_dim * Z_layers) -> (N, B, C, H, W)
+        x_hat = torch.stack([self.decoder(z0) for z0 in z])
 
-    def _encode_from_state(self, obs: Tensor, h: Tensor) -> Tensor:
-        raise NotImplementedError()
-        # logits = self.encoder.rnn(obs, h)
-        # z = self.reparameterize(logits)
-        # return logits, z
+        raise x_hat
 
-    def get_state(self, obs: Tensor, hidden_state: Optional[Tensor] = None):
+    def kl_loss(self, logits):
+        """
+        Logits are shape (L, B, N, K), where B is the number of batches, N is the number
+            of categorical distributions, L is the length of the sequence, and K is the number of classes
+        returns: kl-divergence, in nats
+        """
+        assert logits.ndim == 4
+        L, B, N, K = logits.shape
+        logits = logits.view(L * B * N, K)
+
+        q = Categorical(logits=logits)
+        p = Categorical(probs=torch.full((B * N, K), 1.0 / K).to(DEVICE))
+
+        # sum loss over dimensions in each example, average over batch
+        kl = kl_divergence(q, p).view(B, N).sum(1).mean()
+
+        return kl
+
+    def recontruction_loss(self, x, x_hat):
+        mse_loss = F.mse_loss(x_hat, x, reduction="none")
+        # sum loss over dimensions in each example, average over batch and sequence
+        mse_loss = mse_loss.view(x.shape[0], x.shape[1], -1).sum(2).mean(1)
+        return mse_loss
+
+    def get_state(self, obs: Tensor):
         r"""
         Takes in observations and returns discrete states
 
         Args:
-            obs (Tensor): a NxCxHxW tensor
+            obs (Tensor): a (N, C, H, W) or (N, B, C, H, W) tensor
             hidden_state (Tensor, optional) a NxD tensor of hidden states.  If
                 no value is specified, will use a default value of zero
         """
+        assert obs.ndim <= 5
+        assert_correct_end_shape(obs, self.input_shape)
         raise NotImplementedError
         # hidden_state = (
         #     hidden_state
@@ -121,18 +162,3 @@ class RecurrentVae(StateVae):
         # #         state_vars.append(torch.argmax(z, dim=-1).detach().cpu().numpy())
 
         # # return state_vars
-
-    def loss(self, batch_data: List[Tensor]) -> Tensor:
-        raise NotImplementedError()
-        # (obs, actions), _ = batch_data
-        # obs = obs.to(DEVICE).float()
-        # actions = actions.to(DEVICE).float()
-
-        # logits, z = self._encode_from_sequence(obs, actions)  # this won't work
-        # z = z.view(-1, self.z_layers * self.z_dim).float()
-
-        # # get the two components of the ELBO loss
-        # kl_loss = self.kl_loss(logits)
-        # recon_loss = self.decoder_loss(z, obs[:, -1, ...])
-
-        # return recon_loss + kl_loss * self.beta

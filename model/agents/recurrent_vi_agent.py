@@ -21,7 +21,7 @@ from model.agents.constants import (
 )
 from model.agents.value_iteration import ValueIterationAgent
 from model.data.d4rl import OaroTuple
-from model.state_inference.recurrent_vae import RecurrentVae
+from model.state_inference.recurrent_vae import LstmVae
 from utils.data import RecurrentVaeDataset, TransitionVaeDataset
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float, maybe_convert_to_tensor
 
@@ -30,7 +30,7 @@ class RecurrentViAgent(ValueIterationAgent):
     def __init__(
         self,
         task,
-        state_inference_model: RecurrentVae,
+        state_inference_model: LstmVae,
         set_action: Set[int],
         optim_kwargs: Dict[str, Any] | None = None,
         grad_clip: bool = GRAD_CLIP,
