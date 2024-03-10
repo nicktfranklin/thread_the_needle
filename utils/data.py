@@ -9,6 +9,8 @@ from task.transition_model import TransitionModel
 from utils.pytorch_utils import convert_8bit_to_float, make_tensor
 from utils.sampling_functions import sample_random_walk
 
+# todo: Remove this file
+
 
 class ObservationDataset(Dataset):
     def __init__(
