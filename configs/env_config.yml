@@ -39,7 +39,7 @@ thread_the_needle:
     width: 20
     map_height: 64
     state_rewards:
-      84: 100
+      84: 10
       399: -1
       19: -1
       380: -1
