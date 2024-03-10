@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from torch import FloatTensor, Tensor
 from torch.utils.data import DataLoader
 
+import model.state_inference.vae
 from model.agents.constants import (
     ALPHA,
     BATCH_SIZE,
@@ -20,6 +21,7 @@ from model.agents.constants import (
 )
 from model.agents.value_iteration import ValueIterationAgent
 from model.data.d4rl import D4rlDataset, OaroTuple
+from model.data.recurrent import RecurrentDataset
 from model.state_inference.recurrent_vae import LstmVae
 from task.utils import ActType
 from utils.data import RecurrentVaeDataset, TransitionVaeDataset
@@ -162,14 +164,15 @@ class RecurrentViAgent(ValueIterationAgent):
         return self.policy.get_value_function()
 
     def train_vae(self, buffer: D4rlDataset, progress_bar: bool = True):
-        raise NotImplementedError()
         # prepare the dataset for training the VAE
-        dataset = buffer.get_dataset()
-        obs = convert_8bit_to_float(torch.tensor(dataset["observations"])).to(DEVICE)
-        obs = obs.permute(0, 3, 1, 2)  # -> NxCxHxW
+        recurrent_dataset = RecurrentDataset(buffer, self.max_sequence_len)
 
         dataloader = DataLoader(
-            obs, batch_size=self.batch_size, shuffle=True, drop_last=True
+            recurrent_dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            drop_last=True,
+            collate_fn=recurrent_dataset.collate_fn,
         )
 
         # train the VAE on the rollouts
@@ -182,7 +185,9 @@ class RecurrentViAgent(ValueIterationAgent):
         )
 
     def update_from_batch(self, buffer: D4rlDataset, progress_bar: bool = False):
-        raise NotImplementedError()
+        self.train_vae(buffer, progress_bar=progress_bar)
+
+        return
         self.train_vae(buffer, progress_bar=progress_bar)
 
         # re-estimate the reward and transition functions
@@ -230,8 +235,7 @@ class RecurrentViAgent(ValueIterationAgent):
         vae_config: Dict[str, Any],
         env_kwargs: Dict[str, Any],
     ):
-        raise NotImplementedError()
-        VaeClass = getattr(model.state_inference.vae, agent_config["vae_model_class"])
+        VaeClass = getattr(model.state_inference, agent_config["vae_model_class"])
         vae = VaeClass.make_from_configs(vae_config, env_kwargs)
         return cls(task, vae, **agent_config["state_inference_model"])
 
