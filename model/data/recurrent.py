@@ -11,7 +11,9 @@ class RecurrentDataset(Dataset):
         self.seq_len = seq_len  # maximum length of a sequence
 
         ds = buffer.get_dataset()
-        self.observations = ds["observations"]
+
+        # change to (n_samples, n_channels, height, width)
+        self.observations = np.transpose(ds["observations"], (0, 3, 1, 2))
 
         last_obs_in_run = np.sort(
             np.concatenate(
