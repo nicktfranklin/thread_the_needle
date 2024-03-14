@@ -50,6 +50,7 @@ class CnnEncoder(nn.Module):
 
     def forward(self, x):
         # Assume NxCxHxW input or CxHxW input
+        assert x.ndim == 4 or x.ndim == 3
         assert_correct_end_shape(x, self.input_shape)
         x = maybe_expand_batch(x, self.input_shape)
         x = self.cnn(x)
