@@ -1,7 +1,7 @@
 from typing import List, Optional, Tuple
 
 import torch
-import torch.functional as F
+import torch.nn.functional as F
 from torch import Tensor, nn
 from torch.distributions.categorical import Categorical
 from torch.distributions.kl import kl_divergence
@@ -132,7 +132,7 @@ class LstmVae(StateVae):
     def recontruction_loss(self, x, x_hat):
         mse_loss = F.mse_loss(x_hat, x, reduction="none")
         # sum loss over dimensions in each example, average over batch and sequence
-        mse_loss = mse_loss.view(x.shape[0], x.shape[1], -1).sum(2).mean(1)
+        mse_loss = mse_loss.view(x.shape[0], x.shape[1], -1).sum(2).mean()
         return mse_loss
 
     def get_state(self, obs: Tensor):
