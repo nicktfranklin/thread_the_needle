@@ -7,7 +7,7 @@ from torch.distributions.categorical import Categorical
 from torch.distributions.kl import kl_divergence
 
 from model.state_inference.constants import INPUT_SHAPE, VAE_TAU_ANNEALING_RATE
-from model.state_inference.vae import StateVae
+from model.state_inference.vae import StateVae, unit_test_vae_reconstruction
 from utils.pytorch_utils import DEVICE, assert_correct_end_shape
 
 
@@ -37,10 +37,12 @@ class LstmVae(StateVae):
             tau_annealing_rate,
             input_shape,
             tau_is_parameter,
+            run_unit_test=False,
         )
         self.lstm = nn.LSTM(
             hidden_size=z_dim * z_layers, input_size=z_dim * z_layers, batch_first=False
         )
+        unit_test_vae_reconstruction(self, input_shape)
 
     def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -50,7 +52,7 @@ class LstmVae(StateVae):
 
         Should handle batched or unbatched inputs, but should always assume a sequence.
 
-        input: x (L, B, C, H, W) or (L, C, H, W)
+        input: x (L, B, C, H, W) or (L, C, H, W) or (C, H, W)
         output: logits (L, B, Z_dim * Z_layers) or (L, Z_dim * Z_layers)
 
         where L is the length of the sequence, B is the batch size,
@@ -58,7 +60,9 @@ class LstmVae(StateVae):
 
         """
         # add the batch dimension if it doesn't exist
-        if len(x.shape) == 4:
+        if x.ndim == 3:
+            x = x.unsqueeze(0)
+        if x.ndim == 4:
             x = x.unsqueeze(1)
 
         # (L, B, C, H, W) -> (L, B, Z_dim * Z_layers)
@@ -98,7 +102,7 @@ class LstmVae(StateVae):
         z = z.flatten(start_dim=2)
 
         # (N, B, Z_dim * Z_layers) -> (N, B, C, H, W)
-        x_hat = torch.stack([self.decoder(z0) for z0 in z])
+        x_hat = torch.stack([self.decoder(z0.float()) for z0 in z])
 
         raise x_hat
 
