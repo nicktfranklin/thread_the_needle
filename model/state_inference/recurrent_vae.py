@@ -42,7 +42,7 @@ class LstmVae(StateVae):
         self.lstm = nn.LSTM(
             hidden_size=z_dim * z_layers, input_size=z_dim * z_layers, batch_first=False
         )
-        unit_test_vae_reconstruction(self, input_shape)
+        unit_test_vae_reconstruction(self, (1,) + input_shape)
 
     def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -65,6 +65,8 @@ class LstmVae(StateVae):
         if x.ndim == 4:
             x = x.unsqueeze(1)
 
+        l, b, _, _, _ = x.shape
+
         # (L, B, C, H, W) -> (L, B, Z_dim * Z_layers)
         logits = torch.stack(
             [self.encoder(x0).view(-1, self.z_layers * self.z_dim) for x0 in x]
@@ -76,6 +78,9 @@ class LstmVae(StateVae):
 
         # skip connection
         logits = logits + lstm_out
+
+        # reshape for loss
+        logits = logits.view(l, b, self.z_layers, self.z_dim)
 
         # re parameterize the logits
         # (L, B, Z_dim * Z_layers) -> (L, B, Z_layers, Z_dim)
@@ -117,10 +122,10 @@ class LstmVae(StateVae):
         logits = logits.view(L * B * N, K)
 
         q = Categorical(logits=logits)
-        p = Categorical(probs=torch.full((B * N, K), 1.0 / K).to(DEVICE))
+        p = Categorical(probs=torch.full((L * B * N, K), 1.0 / K).to(DEVICE))
 
-        # sum loss over dimensions in each example, average over batch
-        kl = kl_divergence(q, p).view(B, N).sum(1).mean()
+        # sum loss over dimensions in each example, average over batch and run
+        kl = kl_divergence(q, p).view(L * B, N).sum(1).mean()
 
         return kl
 
