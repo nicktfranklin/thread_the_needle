@@ -225,7 +225,9 @@ def maybe_convert_to_tensor(x: Union[FloatTensor, np.ndarray]) -> FloatTensor:
 
 
 def check_shape_match(x: FloatTensor, shape: Tuple[int]):
-    return x.view(-1).shape[0] == torch.prod(torch.tensor(shape))
+    return (x.ndim == len(shape)) and (
+        x.view(-1).shape[0] == torch.prod(torch.tensor(shape))
+    )
 
 
 def assert_correct_end_shape(
