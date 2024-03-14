@@ -104,7 +104,7 @@ class LstmVae(StateVae):
         # (N, B, Z_dim * Z_layers) -> (N, B, C, H, W)
         x_hat = torch.stack([self.decoder(z0.float()) for z0 in z])
 
-        raise x_hat
+        return x_hat
 
     def kl_loss(self, logits):
         """
