@@ -53,6 +53,8 @@ class StateVae(nn.Module):
         tau_annealing_rate: float = VAE_TAU_ANNEALING_RATE,
         input_shape: Tuple[int, int, int] = INPUT_SHAPE,
         tau_is_parameter: bool = False,
+        *,
+        run_unit_test: bool = True,
     ):
         """
         Note: larger values of beta result in more independent state values
@@ -73,7 +75,8 @@ class StateVae(nn.Module):
                 self.tau_annealing_rate == 1.0
             ), "Must set tau annealing to 1 for learnable tau"
 
-        unit_test_vae_reconstruction(self, input_shape)
+        if run_unit_test:
+            unit_test_vae_reconstruction(self, input_shape)
 
     def configure_optimizers(
         self,
