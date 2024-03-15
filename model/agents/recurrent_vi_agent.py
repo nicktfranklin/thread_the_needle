@@ -1,5 +1,4 @@
-from random import choice
-from typing import Any, Dict, Hashable, List, Optional, Set, Tuple
+from typing import Any, Dict, Hashable, Optional
 
 import numpy as np
 import torch
@@ -22,10 +21,10 @@ from model.agents.constants import (
 from model.agents.value_iteration import ValueIterationAgent
 from model.data.d4rl import D4rlDataset, OaroTuple
 from model.data.recurrent import RecurrentDataset
+from model.data.value_iteration import ViDataset
 from model.state_inference.recurrent_vae import LstmVae
 from task.utils import ActType
-from utils.data import RecurrentVaeDataset, TransitionVaeDataset
-from utils.pytorch_utils import DEVICE, convert_8bit_to_float, maybe_convert_to_tensor
+from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
 
 class RecurrentViAgent(ValueIterationAgent):
@@ -76,6 +75,9 @@ class RecurrentViAgent(ValueIterationAgent):
         return obs.permute(0, 3, 1, 2)
 
     def _get_state_hashkey(self, obs: Tensor):
+        """
+        obs is shaped (L, H, W, C) or (H, W, C)
+        """
         raise NotImplementedError()
         obs = obs if isinstance(obs, Tensor) else torch.tensor(obs)
         obs_ = self._preprocess_obs(obs)
@@ -163,17 +165,7 @@ class RecurrentViAgent(ValueIterationAgent):
         raise NotImplementedError()
         return self.policy.get_value_function()
 
-    def train_vae(self, buffer: D4rlDataset, progress_bar: bool = True):
-        # prepare the dataset for training the VAE
-        recurrent_dataset = RecurrentDataset(buffer, self.max_sequence_len)
-
-        dataloader = DataLoader(
-            recurrent_dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            drop_last=True,
-            collate_fn=recurrent_dataset.collate_fn,
-        )
+    def train_vae(self, dataloader: RecurrentDataset, progress_bar: bool = True):
 
         # train the VAE on the rollouts
         self.state_inference_model.train_epochs(
@@ -185,10 +177,18 @@ class RecurrentViAgent(ValueIterationAgent):
         )
 
     def update_from_batch(self, buffer: D4rlDataset, progress_bar: bool = False):
-        self.train_vae(buffer, progress_bar=progress_bar)
+        # prepare the dataset for training the VAE
+        recurrent_dataset = RecurrentDataset(buffer, self.max_sequence_len)
 
-        return
-        self.train_vae(buffer, progress_bar=progress_bar)
+        dataloader = DataLoader(
+            recurrent_dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            drop_last=True,
+            collate_fn=recurrent_dataset.collate_fn,
+        )
+
+        self.train_vae(dataloader, progress_bar=progress_bar)
 
         # re-estimate the reward and transition functions
         self.reward_estimator.reset()
@@ -205,6 +205,8 @@ class RecurrentViAgent(ValueIterationAgent):
         )
         s, sp, a, r = [], [], [], []
         for batch in dataloader:
+            print(batch["observations"].shape)
+            raise ("Stop Here")
             s.append(self._get_state_hashkey(batch["observations"]))
             sp.append(self._get_state_hashkey(batch["next_observations"]))
             a.append(batch["actions"])
@@ -240,5 +242,4 @@ class RecurrentViAgent(ValueIterationAgent):
         return cls(task, vae, **agent_config["state_inference_model"])
 
     def get_graph_laplacian(self) -> tuple[np.ndarray, Dict[Hashable, int]]:
-        raise NotImplementedError()
         return self.transition_estimator.get_graph_laplacian()
