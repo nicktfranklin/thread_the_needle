@@ -7,6 +7,8 @@ from model.data.d4rl import D4rlDataset
 
 
 class RecurrentDataset(Dataset):
+    action_pad_value = -1
+
     def __init__(self, buffer: D4rlDataset, seq_len: int):
         self.seq_len = seq_len  # maximum length of a sequence
 
@@ -50,21 +52,59 @@ class RecurrentDataset(Dataset):
         repeated_run_lengths = np.repeat(self.run_lens, self.run_lens)
         self.time_in_run = repeated_run_lengths + self.obs_remaining_in_run
 
+        self.observations = torch.from_numpy(self.observations)
+        self.actions = torch.from_numpy(ds["actions"])
+        self.rewards = torch.from_numpy(ds["rewards"])
+
     def __len__(self):
         return self.observations.shape[0]
 
-    def __getitem__(self, idx) -> torch.Tensor:
-        """return a sequence of observations.
-        each sequence starts either idx - seq_len or idx - run_len, whichever is shorter
+    def __getitem__(self, idx) -> dict[torch.Tensor]:
+        """
+        Returns a dictionary with the following element:
+            - Observations (len t)
+            - Actions (len t - 1)
+            - Rewards (len t - 1)
+
+        at each time-step, there is an (obs, action, reward, succesor_obs tuple)
+        Their causal order is: obs -> action -> reward + succesor_obs.
+
+        Hense, the sequence of obs is one longer than actions or rewards.  We simplify
+        the causal structure to
+
+        (obs, action) -> (succesor_obs, reward).  Thus, actions and observations are
+        aligned from i = 0, ... , t-1 and rewards and observations are alligned from
+        i = 1, ..., t
+
+        return: Dict[str, torch.Tensor]
         """
 
         run_len = min([self.time_in_run[idx], self.seq_len])
 
-        return torch.from_numpy(self.observations[idx - run_len + 1 : idx + 1, ...])
+        output = {
+            "obs": self.observations[idx - run_len + 1 : idx + 1, ...],
+            "action": self.actions[idx - run_len + 1 : idx],
+            "reward": self.rewards[idx - run_len + 2 : idx + 1, ...],
+        }
+
+        return output
 
     def collate_fn(self, batch):
         """
         Pad the batch of sequences to the same length, and return a tensor of shape
         (seq_len, batch_size, *obs_shape)
         """
-        return pad_sequence(batch, batch_first=False, padding_value=0)
+
+        return {
+            "obs": pad_sequence(
+                [b["obs"] for b in batch], batch_first=False, padding_value=0
+            ),
+            "action": pad_sequence(
+                [b["action"] for b in batch],
+                batch_first=False,
+                padding_value=self.action_pad_value,
+            ),
+            "reward": pad_sequence(
+                [b["reward"] for b in batch], batch_first=False, padding_value=0
+            ),
+        }

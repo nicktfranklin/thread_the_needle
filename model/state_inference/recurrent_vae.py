@@ -151,3 +151,7 @@ class LstmVae(StateVae):
 
             state_vars = torch.argmax(z, dim=-1).detach().cpu().numpy()
         return state_vars
+
+    def loss(self, batch: dict[str, Tensor]) -> Tensor:
+        x = batch["obs"]
+        return super().loss(x)
