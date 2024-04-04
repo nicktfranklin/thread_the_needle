@@ -7,6 +7,8 @@ import torch.nn.functional as F
 from torch import FloatTensor, Tensor, nn
 from torch.distributions.categorical import Categorical
 from torch.distributions.kl import kl_divergence
+from torch.optim import Optimizer
+from torch.utils.data import DataLoader
 from tqdm import trange
 
 from model.state_inference.constants import (
@@ -229,9 +231,9 @@ class StateVae(nn.Module):
 
     def train_epochs(
         self,
-        n_epochs,
-        data_loader,
-        optim,
+        n_epochs: int,
+        data_loader: DataLoader,
+        optim: Optimizer,
         grad_clip: bool = False,
         progress_bar: bool = False,
     ):
