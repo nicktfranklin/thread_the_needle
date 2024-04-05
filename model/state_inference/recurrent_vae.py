@@ -1,5 +1,6 @@
 from typing import List, Optional, Tuple
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
@@ -98,8 +99,8 @@ class LstmVae(StateVae):
         The decoder needs to handle batched or unbatched inputs, but should always assume
         a sequence.
 
-        input: z (N, B, Z_dim, Z_layers) or (N, Z_dim, Z_layers)
-        ouput: x (N, B, C, H, W) or (N, C, H, W)
+        input: z (L, B, Z_dim, Z_layers) or (L, Z_dim, Z_layers)
+        ouput: x (L, B, C, H, W) or (L, C, H, W)
         """
         # add the batch dimension if it doesn't exist
         if z.ndim == 2:
@@ -135,21 +136,28 @@ class LstmVae(StateVae):
         mse_loss = mse_loss.view(x.shape[0], x.shape[1], -1).sum(2).mean()
         return mse_loss
 
-    def get_state(self, obs: Tensor):
+    @torch.no_grad()
+    def get_state(self, obs: Tensor) -> np.ndarray:
         r"""
         Takes in observations and returns discrete states
 
         Args:
-            obs (Tensor): a (N, C, H, W) or (N, B, C, H, W) tensor
+            obs: (L, B, C, H, W) or (L, C, H, W) or (C, H, W)
+
+
+        returns:
+            ndarray, shape (..., Z_layers)
+                Note, it is impracticle to infer the length dimension inside
+                this function
         """
         assert obs.ndim <= 5
         assert_correct_end_shape(obs, self.input_shape)
 
         self.eval()
-        with torch.no_grad():
-            _, z = self.encode(obs.to(DEVICE))
 
-            state_vars = torch.argmax(z, dim=-1).detach().cpu().numpy()
+        _, z = self.encode(obs.to(DEVICE))
+        state_vars = torch.argmax(z, dim=-1).detach().cpu().numpy()
+
         return state_vars
 
     def loss(self, batch: dict[str, Tensor]) -> Tensor:
