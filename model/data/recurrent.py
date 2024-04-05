@@ -79,12 +79,19 @@ class RecurrentDataset(Dataset):
         return: Dict[str, torch.Tensor]
         """
 
+        # input observation is at time idx, successor observation at time idx+1
         run_len = min([self.time_in_run[idx], self.seq_len])
 
+        # align the sequence start to the (obs, action)
+        start = idx - run_len + 1
+
+        # align the end to the last (obs, action), shifted by one for range indexing
+        end = idx + 1
+
         output = {
-            "obs": self.observations[idx - run_len + 1 : idx + 1, ...],
-            "action": self.actions[idx - run_len + 1 : idx],
-            "reward": self.rewards[idx - run_len + 2 : idx + 1, ...],
+            "obs": self.observations[start : end + 1, ...],
+            "action": self.actions[start:end],
+            "reward": self.rewards[start + 1 : end + 1, ...],
         }
 
         return output
