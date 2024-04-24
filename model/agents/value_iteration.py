@@ -248,5 +248,7 @@ class ValueIterationAgent(BaseAgent):
         vae = VaeClass.make_from_configs(vae_config, env_kwargs)
         return cls(task, vae, **agent_config["state_inference_model"])
 
-    def get_graph_laplacian(self) -> tuple[np.ndarray, Dict[Hashable, int]]:
-        return self.transition_estimator.get_graph_laplacian()
+    def get_graph_laplacian(
+        self, normalized: bool = True
+    ) -> tuple[np.ndarray, Dict[Hashable, int]]:
+        return self.transition_estimator.get_graph_laplacian(normalized=normalized)
