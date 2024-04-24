@@ -18,10 +18,10 @@ from model.agents.constants import (
     N_ITER_VALUE_ITERATION,
     SOFTMAX_GAIN,
 )
+from model.agents.utils.mdp import value_iteration
 from model.agents.value_iteration import ValueIterationAgent
 from model.data.d4rl import D4rlDataset, OaroTuple
 from model.data.recurrent import RecurrentDataset
-from model.data.value_iteration import ViDataset
 from model.state_inference.recurrent_vae import LstmVae
 from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
@@ -66,23 +66,24 @@ class RecurrentViAgent(ValueIterationAgent):
         return None
 
     def _preprocess_obs(self, obs: Tensor) -> Tensor:
-        raise NotImplementedError()
-        # take in 8bit with shape NxHxWxC
-        # convert to float with shape NxCxHxW
+        """
+        obs: (L, B, C, H, W) or (L, C, H, W) or (C, H, W)
+        """
         obs = convert_8bit_to_float(obs)
-        if obs.ndim == 3:
-            return obs.permute(2, 0, 1)
-        return obs.permute(0, 3, 1, 2)
+        return obs
 
     def _get_state_hashkey(self, obs: Tensor):
         """
-        obs is shaped (L, H, W, C) or (H, W, C)
+        obs: (L, B, C, H, W) or (L, C, H, W) or (C, H, W)
+
+        returns:
+            (L, B, 1) or (L, 1) or (1)
         """
-        raise NotImplementedError()
         obs = obs if isinstance(obs, Tensor) else torch.tensor(obs)
+
         obs_ = self._preprocess_obs(obs)
-        with torch.no_grad():
-            z = self.state_inference_model.get_state(obs_)
+
+        z = self.state_inference_model.get_state(obs_)
         return z.dot(self.hash_vector)
 
     def update_rollout_policy(self, rollout_buffer: D4rlDataset) -> None:
@@ -196,25 +197,21 @@ class RecurrentViAgent(ValueIterationAgent):
 
         dataset = buffer.get_dataset()
 
-        # convert ot a tensor dataset for iteration
-        dataset = ViDataset(dataset)
-
-        # _get_hashed_state takes care of preprocessing
-        dataloader = DataLoader(
-            dataset, batch_size=self.batch_size, shuffle=False, drop_last=False
-        )
         s, sp, a, r = [], [], [], []
-        for batch in dataloader:
-            print(batch["observations"].shape)
-            raise ("Stop Here")
-            s.append(self._get_state_hashkey(batch["observations"]))
-            sp.append(self._get_state_hashkey(batch["next_observations"]))
-            a.append(batch["actions"])
-            r.append(batch["rewards"])
-        s = np.concatenate(s)
-        sp = np.concatenate(sp)
-        a = np.concatenate(a)
-        r = np.concatenate(r)
+        for batch in recurrent_dataset:
+
+            s_seq = self._get_state_hashkey(batch["obs"])
+            print(s_seq)
+
+            # to avoid double counting, we only take a single sars tuple per batch
+            s.append(s_seq[-2, 0])
+            sp.append(s_seq[-1, 0])
+            a.append(batch["action"][-1])
+            r.append(batch["reward"][-1])
+        s = np.array(s)
+        sp = np.array(sp)
+        a = np.array(a)
+        r = np.array(r)
 
         for idx in range(len(s)):
             self.transition_estimator.update(s[idx], a[idx], sp[idx])
