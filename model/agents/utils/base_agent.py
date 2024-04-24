@@ -1,3 +1,4 @@
+import logging
 from abc import ABC, abstractmethod
 from typing import Iterable, Optional
 
@@ -73,6 +74,7 @@ class BaseAgent(ABC):
     def update_from_batch(self, batch: D4rlDataset): ...
 
     def learn(self, total_timesteps: int, progress_bar: bool = False, **kwargs):
+        logging.info("Calling Library learn method")
         if progress_bar is not None:
             progress_bar = trange(total_timesteps, position=0, leave=True)
 
