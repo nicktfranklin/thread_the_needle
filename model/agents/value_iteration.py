@@ -49,6 +49,7 @@ class ValueIterationAgent(BaseAgent):
         n_epochs: int = 10,
         alpha: float = 0.05,
         dyna_updates: int = 5,
+        persistant_optim: bool = False,
     ) -> None:
         """
         :param n_steps: The number of steps to run for each environment per update
@@ -56,7 +57,11 @@ class ValueIterationAgent(BaseAgent):
         super().__init__(task)
         self.state_inference_model = state_inference_model.to(DEVICE)
 
-        self.optim = self.state_inference_model.configure_optimizers(optim_kwargs)
+        self.optim = (
+            self.state_inference_model.configure_optimizers(optim_kwargs)
+            if persistant_optim
+            else None
+        )
         self.grad_clip = grad_clip
         self.batch_size = batch_size
         self.gamma = gamma
@@ -187,11 +192,16 @@ class ValueIterationAgent(BaseAgent):
             obs, batch_size=self.batch_size, shuffle=True, drop_last=True
         )
 
+        if self.optim is None:
+            optim = self.state_inference_model.configure_optimizers()
+        else:
+            optim = self.optim
+
         # train the VAE on the rollouts
         self.state_inference_model.train_epochs(
             self.n_epochs,
             dataloader,
-            self.optim,
+            optim,
             self.grad_clip,
             progress_bar=progress_bar,
         )
@@ -229,8 +239,8 @@ class ValueIterationAgent(BaseAgent):
 
         # use value iteration to estimate the rewards
         self.policy.q_values, value_function = value_iteration(
-            t=self.transition_estimator.get_transition_functions(),
-            r=self.reward_estimator,
+            T=self.transition_estimator.get_transition_functions(),
+            R=self.reward_estimator,
             gamma=self.gamma,
             iterations=self.n_iter,
         )
