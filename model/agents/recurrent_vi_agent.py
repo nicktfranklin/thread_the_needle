@@ -219,8 +219,8 @@ class RecurrentViAgent(ValueIterationAgent):
 
         # use value iteration to estimate the rewards
         self.policy.q_values, value_function = value_iteration(
-            t=self.transition_estimator.get_transition_functions(),
-            r=self.reward_estimator,
+            T=self.transition_estimator.get_transition_functions(),
+            R=self.reward_estimator,
             gamma=self.gamma,
             iterations=self.n_iter,
         )

@@ -1,10 +1,9 @@
 import sys
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import torch
-import torch.distributions as dist
 import torch.nn.functional as F
-from torch import FloatTensor, Tensor, nn
+from torch import Tensor, nn
 from torch.distributions.categorical import Categorical
 from torch.distributions.kl import kl_divergence
 from torch.optim import Optimizer
