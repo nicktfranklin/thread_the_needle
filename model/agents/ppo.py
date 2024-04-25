@@ -2,7 +2,7 @@ from stable_baselines3 import PPO as StableBaselinesPPO
 from torch import FloatTensor
 
 from model.agents.utils.base_agent import BaseAgent
-from model.data.rollout_data import RolloutDataset
+from model.training.rollout_data import RolloutDataset
 
 
 class PPO(StableBaselinesPPO, BaseAgent):

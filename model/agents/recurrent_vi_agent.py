@@ -20,9 +20,9 @@ from model.agents.constants import (
 )
 from model.agents.utils.mdp import value_iteration
 from model.agents.value_iteration import ValueIterationAgent
-from model.data.recurrent import RecurrentDataset
-from model.data.rollout_data import OaroTuple, RolloutDataset
 from model.state_inference.recurrent_vae import LstmVae
+from model.training.recurrent import RecurrentDataset
+from model.training.rollout_data import OaroTuple, RolloutDataset
 from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 

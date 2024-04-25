@@ -3,7 +3,7 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset
 
-from model.data.rollout_data import RolloutDataset
+from model.training.rollout_data import RolloutDataset
 
 
 class RecurrentDataset(Dataset):

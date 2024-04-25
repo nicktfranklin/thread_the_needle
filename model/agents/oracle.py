@@ -2,7 +2,7 @@ import numpy as np
 from torch import FloatTensor
 
 from model.agents.utils.base_agent import BaseAgent
-from model.data.rollout_data import RolloutDataset
+from model.training.rollout_data import RolloutDataset
 from task.gridworld import GridWorldEnv
 from task.utils import ActType, ObsType
 from utils.sampling_functions import inverse_cmf_sampler

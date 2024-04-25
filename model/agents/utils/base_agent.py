@@ -9,7 +9,7 @@ from stable_baselines3.common.vec_env import VecEnv
 from torch import FloatTensor
 from tqdm import tqdm, trange
 
-from model.data.rollout_data import RolloutDataset
+from model.training.rollout_data import RolloutDataset
 from task.gridworld import ActType, GridWorldEnv, ObsType
 from utils.sampling_functions import inverse_cmf_sampler
 

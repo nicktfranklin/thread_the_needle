@@ -14,9 +14,9 @@ from model.agents.utils.mdp import (
     value_iteration,
 )
 from model.agents.utils.policy import SoftmaxPolicy
-from model.data.rollout_data import OaroTuple, RolloutDataset
-from model.data.value_iteration import ViDataset
 from model.state_inference.vae import StateVae
+from model.training.rollout_data import OaroTuple, RolloutDataset
+from model.training.value_iteration import ViDataset
 from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
