@@ -73,7 +73,13 @@ class BaseAgent(ABC):
     @abstractmethod
     def update_from_batch(self, batch: D4rlDataset): ...
 
-    def learn(self, total_timesteps: int, progress_bar: bool = False, **kwargs):
+    def learn(
+        self,
+        total_timesteps: int,
+        progress_bar: bool = False,
+        reset_buffer: bool = True,
+        **kwargs,
+    ):
         logging.info("Calling Library learn method")
         if progress_bar is not None:
             progress_bar = trange(total_timesteps, position=0, leave=True)
@@ -85,7 +91,8 @@ class BaseAgent(ABC):
 
         num_timesteps = 0
         while num_timesteps < total_timesteps:
-            self.rollout_buffer.reset_buffer()
+            if reset_buffer:
+                self.rollout_buffer.reset_buffer()
             if progress_bar is not None:
                 progress_bar.set_description("Collecting Rollouts")
 

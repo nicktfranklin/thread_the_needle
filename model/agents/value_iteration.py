@@ -236,6 +236,18 @@ class ValueIterationAgent(BaseAgent):
         )
         self.value_function = value_function
 
+    def learn(
+        self,
+        total_timesteps: int,
+        progress_bar: bool = False,
+        reset_buffer: bool = False,
+    ):
+        super().learn(
+            total_timesteps=total_timesteps,
+            progress_bar=progress_bar,
+            reset_buffer=reset_buffer,
+        )
+
     @classmethod
     def make_from_configs(
         cls,
