@@ -2,7 +2,7 @@ import numpy as np
 from torch import FloatTensor
 
 from model.agents.utils.base_agent import BaseAgent
-from model.data.d4rl import D4rlDataset
+from model.data.rollout_data import RolloutDataset
 from task.gridworld import GridWorldEnv
 from task.utils import ActType, ObsType
 from utils.sampling_functions import inverse_cmf_sampler
@@ -39,5 +39,5 @@ class Oracle(BaseAgent):
         print(pi, pi.cumsum())
         return inverse_cmf_sampler(pi), None
 
-    def update_from_batch(self, batch: D4rlDataset):
+    def update_from_batch(self, batch: RolloutDataset):
         raise NotImplementedError

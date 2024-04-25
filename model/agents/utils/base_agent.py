@@ -9,7 +9,7 @@ from stable_baselines3.common.vec_env import VecEnv
 from torch import FloatTensor
 from tqdm import tqdm, trange
 
-from model.data.d4rl import D4rlDataset
+from model.data.rollout_data import RolloutDataset
 from task.gridworld import ActType, GridWorldEnv, ObsType
 from utils.sampling_functions import inverse_cmf_sampler
 
@@ -38,13 +38,13 @@ class BaseAgent(ABC):
     def _init_state(self) -> Optional[FloatTensor]:
         return None
 
-    def update_rollout_policy(self, rollout_buffer: D4rlDataset) -> None:
+    def update_rollout_policy(self, rollout_buffer: RolloutDataset) -> None:
         pass
 
     def collect_rollouts(
         self,
         n_rollout_steps: int,
-        rollout_buffer: D4rlDataset,
+        rollout_buffer: RolloutDataset,
         progress_bar: Optional[Iterable] = None,
     ):
         task = self.task
@@ -71,7 +71,7 @@ class BaseAgent(ABC):
         return rollout_buffer
 
     @abstractmethod
-    def update_from_batch(self, batch: D4rlDataset): ...
+    def update_from_batch(self, batch: RolloutDataset): ...
 
     def learn(
         self,
@@ -84,7 +84,7 @@ class BaseAgent(ABC):
         if progress_bar is not None:
             progress_bar = trange(total_timesteps, position=0, leave=True)
 
-        self.rollout_buffer = D4rlDataset()
+        self.rollout_buffer = RolloutDataset()
 
         # alternate between collecting rollouts and batch updates
         n_rollout_steps = self.n_steps if self.n_steps is not None else total_timesteps
@@ -141,7 +141,7 @@ class BaseAgent(ABC):
     def collect_buffer(
         self,
         task: GridWorldEnv,
-        buffer: D4rlDataset,
+        buffer: RolloutDataset,
         n: int,
         epsilon: float = 0.05,
     ):

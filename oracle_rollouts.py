@@ -11,7 +11,7 @@ import yaml
 from stable_baselines3.common.monitor import Monitor
 
 from model.agents import Oracle
-from model.data.d4rl import D4rlDataset as Buffer
+from model.data.rollout_data import RolloutDataset as Buffer
 from task.gridworld import CnnWrapper, GridWorldEnv
 from task.gridworld import ThreadTheNeedleEnv as Environment
 from utils.config_utils import parse_configs

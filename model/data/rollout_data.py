@@ -10,7 +10,11 @@ from task.gridworld import ActType, ObsType, OutcomeTuple
 ObservationTuple = namedtuple("ObservationTuple", "obs a r next_obs")
 
 
-class D4rlDataset:
+class RolloutDataset:
+    """
+    This class is meant to be consistent with the dataset in d4RL
+    """
+
     def __init__(
         self,
         action: Optional[List[ActType]] = None,
