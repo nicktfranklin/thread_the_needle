@@ -160,14 +160,6 @@ def value_iteration(
     q_values = {s: {a: 0 for a in list_actions} for s in list_states}
     v = {s: 0 for s in list_states}
 
-    normalized_rewards = {s: R.get_avg_reward(s) for s in list_states}
-    max_reward = max(normalized_rewards.values())
-    min_reward = min(normalized_rewards.values())
-
-    f = lambda x: (x - min_reward) / (max_reward - min_reward) * 2 - 1
-
-    normalized_rewards = {s: f(r) for s, r in normalized_rewards.items()}
-
     def _successor_value(s, a):
         _sum = 0
         for sp, p in T[a].get_transition_probs(s).items():
@@ -177,7 +169,7 @@ def value_iteration(
     def _expected_reward(s, a):
         _sum = 0
         for sp, p in T[a].get_transition_probs(s).items():
-            _sum += p * normalized_rewards[sp]
+            _sum += p * R.get_avg_reward(s)
         return _sum
 
     for _ in range(iterations):
