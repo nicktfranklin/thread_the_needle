@@ -1,4 +1,3 @@
-import json
 from random import choices
 from typing import Any, Dict, Hashable, List, Optional
 
@@ -151,26 +150,34 @@ class TabularRewardEstimator:
 
 
 def value_iteration(
-    t: Dict[ActType, TabularTransitionEstimator],
-    r: TabularRewardEstimator,
+    T: Dict[ActType, TabularTransitionEstimator],
+    R: TabularRewardEstimator,
     gamma: float,
     iterations: int,
 ):
-    list_states = r.get_states()
-    list_actions = list(t.keys())
+    list_states = R.get_states()
+    list_actions = list(T.keys())
     q_values = {s: {a: 0 for a in list_actions} for s in list_states}
     v = {s: 0 for s in list_states}
 
+    normalized_rewards = {s: R.get_avg_reward(s) for s in list_states}
+    max_reward = max(normalized_rewards.values())
+    min_reward = min(normalized_rewards.values())
+
+    f = lambda x: (x - min_reward) / (max_reward - min_reward) * 2 - 1
+
+    normalized_rewards = {s: f(r) for s, r in normalized_rewards.items()}
+
     def _successor_value(s, a):
         _sum = 0
-        for sp, p in t[a].get_transition_probs(s).items():
+        for sp, p in T[a].get_transition_probs(s).items():
             _sum += p * v[sp]
         return _sum
 
     def _expected_reward(s, a):
         _sum = 0
-        for sp, p in t[a].get_transition_probs(s).items():
-            _sum += p * r.get_avg_reward(sp)
+        for sp, p in T[a].get_transition_probs(s).items():
+            _sum += p * normalized_rewards[sp]
         return _sum
 
     for _ in range(iterations):
