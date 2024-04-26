@@ -58,7 +58,7 @@ class PpoScoreCallback(BaseCallback):
 
         :return: If the callback returns False, training is aborted early.
         """
-        self.rewards["time_steps"].append(self.num_timesteps)
+        self.rewards["num_timesteps"].append(self.num_timesteps)
         self.rewards["rewards"].append(self.locals["rewards"].item())
         return True
 

@@ -40,7 +40,7 @@ parser.add_argument("--results_dir", default=f"simulations/")
 parser.add_argument("--log_dir", default=f"logs/{BASE_FILE_NAME}_{date.today()}/")
 parser.add_argument("--n_training_samples", default=50000)
 parser.add_argument("--n_rollout_samples", default=50000)
-parser.add_argument("--n_batch", default=8)
+parser.add_argument("--n_batch", default=24)
 
 
 @dataclass
