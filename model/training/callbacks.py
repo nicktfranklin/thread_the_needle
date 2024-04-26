@@ -30,8 +30,8 @@ class PpoScoreCallback(BaseCallback):
         # Sometimes, for event callback, it is useful
         # to have access to the parent object
         # self.parent = None  # type: Optional[BaseCallback]
-        self.rewards = []
-        self.evaluations = {}
+        self.rewards = dict(time_steps=[], rewards=[])
+        self.evaluations = []
 
     def _on_training_start(self) -> None:
         """
@@ -45,7 +45,9 @@ class PpoScoreCallback(BaseCallback):
         using the current policy.
         This event is triggered before collecting new samples.
         """
-        self.evaluations[self.num_timesteps] = score_model(self.model)
+        score = score_model(self.model)
+        score["num_timesteps"] = self.num_timesteps
+        self.evaluations.append(score)
 
     def _on_step(self) -> bool:
         """
@@ -56,7 +58,8 @@ class PpoScoreCallback(BaseCallback):
 
         :return: If the callback returns False, training is aborted early.
         """
-        self.rewards.append(self.locals["rewards"].item())
+        self.rewards["time_steps"].append(self.num_timesteps)
+        self.rewards["rewards"].append(self.locals["rewards"].item())
         return True
 
     def _on_rollout_end(self) -> None:
@@ -69,4 +72,6 @@ class PpoScoreCallback(BaseCallback):
         """
         This event is triggered before exiting the `learn()` method.
         """
-        pass
+        score = score_model(self.model)
+        score["num_timesteps"] = self.num_timesteps
+        self.evaluations.append(score)
