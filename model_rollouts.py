@@ -40,6 +40,7 @@ parser.add_argument("--results_dir", default=f"simulations/")
 parser.add_argument("--log_dir", default=f"logs/{BASE_FILE_NAME}_{date.today()}/")
 parser.add_argument("--n_training_samples", default=50000)
 parser.add_argument("--n_rollout_samples", default=50000)
+parser.add_argument("--n_batch", default=8)
 
 
 @dataclass
@@ -52,6 +53,8 @@ class Config:
 
     n_training_samples: int
     n_rollout_samples: int
+
+    n_batch: int
     epsilon: float = 0.02
 
     @classmethod
@@ -65,6 +68,7 @@ class Config:
             n_training_samples=args.n_training_samples,
             n_rollout_samples=args.n_rollout_samples,
             results_dir=args.results_dir,
+            n_batch=args.n_batch,
         )
 
 
@@ -78,7 +82,14 @@ def make_env(configs: Config) -> GridWorldEnv:
     return task
 
 
-def train_ppo(configs: Config, task: GridWorldEnv, callbacks=None):
+def train_ppo(configs: Config):
+
+    # create task
+    task = make_env(configs)
+    task = Monitor(task, configs.log_dir)  # not sure I use this
+
+    callback = PpoScoreCallback()
+
     ppo = PPO(
         "CnnPolicy",
         task,
@@ -90,10 +101,12 @@ def train_ppo(configs: Config, task: GridWorldEnv, callbacks=None):
     ppo.learn(
         total_timesteps=configs.n_training_samples,
         progress_bar=True,
-        callback=callbacks,
+        callback=callback,
     )
 
-    return ppo
+    data = {"rewards": callback.rewards, "evaluations": callback.evaluations}
+
+    return ppo, data
 
 
 def main():
@@ -106,25 +119,24 @@ def main():
     # Create log dir
     os.makedirs(config.log_dir, exist_ok=True)
 
-    # create task
-    task = make_env(config)
-    task = Monitor(task, config.log_dir)
-
-    callback = PpoScoreCallback()
-
     # train ppo
-    ppo = train_ppo(config, task, callback)
+    batched_data = []
+    for ii in range(config.n_batch):
+        logging.info(f"running batch {ii}")
+        ppo, data = train_ppo(config)
+        data["batch"] = ii
+        batched_data.append(data)
 
     rollout_buffer = Buffer()
     rollout_buffer = ppo.collect_buffer(
-        task, rollout_buffer, n=1000, epsilon=config.epsilon
+        ppo.env.envs[0], rollout_buffer, n=1000, epsilon=config.epsilon
     )
 
     with open(f"{config.results_dir}ppo_rollouts.pkl", "wb") as f:
         pickle.dump(rollout_buffer, f)
 
-    with open(f"{config.results_dir}ppo_performance.pkl", "wb") as f:
-        pickle.dump(score_model(ppo), f)
+    with open(f"{config.results_dir}ppo_batched_data.pkl", "wb") as f:
+        pickle.dump(batched_data, f)
 
 
 if __name__ == "__main__":
