@@ -30,7 +30,7 @@ class PpoScoreCallback(BaseCallback):
         # Sometimes, for event callback, it is useful
         # to have access to the parent object
         # self.parent = None  # type: Optional[BaseCallback]
-        self.rewards = dict(time_steps=[], rewards=[])
+        self.rewards = dict(num_timesteps=[], rewards=[])
         self.evaluations = []
 
     def _on_training_start(self) -> None:
