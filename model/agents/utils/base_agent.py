@@ -110,7 +110,7 @@ class BaseAgent(ABC):
             progress_bar.close()
 
     def get_policy_prob(
-        self, env, n_states: int, map_height: int, cnn=True
+        self, env: VecEnv, n_states: int, map_height: int, cnn: bool = True
     ) -> FloatTensor:
         """
         Wrapper for getting the policy probability for each state in the environment.
@@ -122,6 +122,8 @@ class BaseAgent(ABC):
             :param n_states:
             :param map_height:
         """
+        assert isinstance(env, VecEnv)
+        env = env.envs[0]
 
         # reshape to match env standard (HxWxC) -> not standard
         shape = [map_height, map_height]
@@ -129,7 +131,7 @@ class BaseAgent(ABC):
             shape = [map_height, map_height, 1]
 
         obs = [
-            torch.tensor(env.env_method("generate_observation", s)[0]).view(*shape)
+            torch.tensor(env.unwrapped.generate_observation(s)).view(*shape)
             for s in range(n_states)
         ]
         obs = torch.stack(obs)

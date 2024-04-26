@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 import pickle
 import sys
@@ -12,15 +13,16 @@ import yaml
 from stable_baselines3.common.monitor import Monitor
 
 from model.agents import PPO, BaseAgent
+from model.training.callbacks import PpoScoreCallback
 from model.training.rollout_data import RolloutDataset as Buffer
 from task.gridworld import CnnWrapper, GridWorldEnv
 from task.gridworld import ThreadTheNeedleEnv as Environment
 from utils.config_utils import parse_configs
-from utils.pytorch_utils import DEVICE, convert_8bit_to_float
+from utils.pytorch_utils import DEVICE
 
-print(f"python {sys.version}")
-print(f"torch {torch.__version__}")
-print(f"device = {DEVICE}")
+logging.info(f"python {sys.version}")
+logging.info(f"torch {torch.__version__}")
+logging.info(f"device = {DEVICE}")
 
 
 BASE_FILE_NAME = "thread_the_needle_cnn_vae"
@@ -75,7 +77,7 @@ def make_env(configs: Config) -> GridWorldEnv:
     return task
 
 
-def train_ppo(configs: Config, task: GridWorldEnv):
+def train_ppo(configs: Config, task: GridWorldEnv, callbacks=None):
     ppo = PPO(
         "CnnPolicy",
         task,
@@ -84,7 +86,11 @@ def train_ppo(configs: Config, task: GridWorldEnv):
         batch_size=64,
         n_epochs=10,
     )
-    ppo.learn(total_timesteps=configs.n_training_samples, progress_bar=True)
+    ppo.learn(
+        total_timesteps=configs.n_training_samples,
+        progress_bar=True,
+        callback=callbacks,
+    )
 
     return ppo
 
@@ -95,13 +101,18 @@ def to_list(x):
     return x
 
 
-def score_model(model: BaseAgent, task, config):
-    pi, _ = task.get_optimal_policy()  # save for analysis
+def score_model(model: BaseAgent):
+    vec_env = model.get_env()
+    env: GridWorldEnv = vec_env.envs[0]
+
+    pi, _ = env.unwrapped.get_optimal_policy()
+    n_states = env.get_wrapper_attr("n_states")
+    map_height = env.get_wrapper_attr("observation_model").map_height
 
     pmf = model.get_policy_prob(
-        model.get_env(),
-        n_states=config.env_kwargs["n_states"],
-        map_height=config.env_kwargs["map_height"],
+        vec_env,
+        n_states=n_states,
+        map_height=map_height,
         cnn=True,
     )
 
@@ -118,43 +129,6 @@ def score_model(model: BaseAgent, task, config):
     }
 
 
-def eval_model(model, task, config):
-    scores = score_model(model, task, config)
-
-    # calculate reward functions based on the embeddings
-    obs = convert_8bit_to_float(
-        torch.stack(
-            [
-                torch.tensor(task.observation_model(s), dtype=torch.long)
-                for s in range(task.transition_model.n_states)
-                for _ in range(1)
-            ]
-        )
-    )[:, None, ...].to(DEVICE)
-
-    z = model.state_inference_model.get_state(obs)
-    z = z.dot(model.hash_vector)  # save this output
-
-    state_rewards = np.array(
-        [model.reward_estimator.get_avg_reward(z0) for z0 in z]
-    ).reshape(
-        20, 20
-    )  # save this output
-
-    state_value_function = np.array(
-        [model.value_function.get(z0, np.nan) for z0 in z]
-    ).reshape(20, 20)
-
-    scores.update(
-        {
-            "state_embeddings": z,
-            "state_rewards": state_rewards,
-            "state_values": state_value_function,
-        }
-    )
-    return scores
-
-
 def main():
     config = Config.construct(parser.parse_args())
 
@@ -169,10 +143,10 @@ def main():
     task = make_env(config)
     task = Monitor(task, config.log_dir)
 
+    callback = PpoScoreCallback()
+
     # # train ppo``
-    ppo = train_ppo(config, task)
-    # # breakpoint()
-    # ppo_scores = score_model(ppo, task, config)
+    ppo = train_ppo(config, task, callback)
 
     rollout_buffer = Buffer()
     rollout_buffer = ppo.collect_buffer(
@@ -183,18 +157,8 @@ def main():
         pickle.dump(rollout_buffer, f)
 
     with open(f"{config.results_dir}ppo_performance.pkl", "wb") as f:
-        pickle.dump(score_model(ppo, task, config), f)
+        pickle.dump(score_model(ppo), f)
 
 
 if __name__ == "__main__":
     main()
-
-
-# agent = make_model()
-# total_params = sum(p.numel() for p in agent.state_inference_model.parameters())
-# print(f"Number of parameters: {total_params}")
-
-
-# agent = make_model()
-# # agent.learn(2048, estimate_batch=True, progress_bar=True)
-# agent.learn(10000, estimate_batch=True, progress_bar=True)
