@@ -1,4 +1,9 @@
-class ScoreCallback(BaseCallback):
+from stable_baselines3.common.callbacks import BaseCallback
+
+from model.training.scoring import score_model
+
+
+class PpoScoreCallback(BaseCallback):
     """
     A custom callback that derives from ``BaseCallback``.
 
@@ -25,6 +30,8 @@ class ScoreCallback(BaseCallback):
         # Sometimes, for event callback, it is useful
         # to have access to the parent object
         # self.parent = None  # type: Optional[BaseCallback]
+        self.rewards = []
+        self.evaluations = {}
 
     def _on_training_start(self) -> None:
         """
@@ -38,7 +45,7 @@ class ScoreCallback(BaseCallback):
         using the current policy.
         This event is triggered before collecting new samples.
         """
-        pass
+        self.evaluations[self.num_timesteps] = score_model(self.model)
 
     def _on_step(self) -> bool:
         """
@@ -49,6 +56,7 @@ class ScoreCallback(BaseCallback):
 
         :return: If the callback returns False, training is aborted early.
         """
+        self.rewards.append(self.locals["rewards"].item())
         return True
 
     def _on_rollout_end(self) -> None:

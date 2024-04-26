@@ -12,9 +12,10 @@ import torch
 import yaml
 from stable_baselines3.common.monitor import Monitor
 
-from model.agents import PPO, BaseAgent
+from model.agents import PPO
 from model.training.callbacks import PpoScoreCallback
 from model.training.rollout_data import RolloutDataset as Buffer
+from model.training.scoring import score_model
 from task.gridworld import CnnWrapper, GridWorldEnv
 from task.gridworld import ThreadTheNeedleEnv as Environment
 from utils.config_utils import parse_configs
@@ -95,40 +96,6 @@ def train_ppo(configs: Config, task: GridWorldEnv, callbacks=None):
     return ppo
 
 
-def to_list(x):
-    if isinstance(x, np.ndarray):
-        return x.tolist()
-    return x
-
-
-def score_model(model: BaseAgent):
-    vec_env = model.get_env()
-    env: GridWorldEnv = vec_env.envs[0]
-
-    pi, _ = env.unwrapped.get_optimal_policy()
-    n_states = env.get_wrapper_attr("n_states")
-    map_height = env.get_wrapper_attr("observation_model").map_height
-
-    pmf = model.get_policy_prob(
-        vec_env,
-        n_states=n_states,
-        map_height=map_height,
-        cnn=True,
-    )
-
-    room_1_mask = (np.arange(400) < 200) * (np.arange(400) % 20 < 10)
-    room_2_mask = (np.arange(400) >= 200) * (np.arange(400) % 20 < 10)
-    room_3_mask = np.arange(400) % 20 >= 10
-
-    return {
-        "policy_pmf": pmf,
-        "score": np.sum(pi * pmf, axis=1).mean(),
-        "score_room1": np.sum(pi[room_1_mask] * pmf[room_1_mask], axis=1).mean(),
-        "score_room2": np.sum(pi[room_2_mask] * pmf[room_2_mask], axis=1).mean(),
-        "score_room3": np.sum(pi[room_3_mask] * pmf[room_3_mask], axis=1).mean(),
-    }
-
-
 def main():
     config = Config.construct(parser.parse_args())
 
@@ -145,7 +112,7 @@ def main():
 
     callback = PpoScoreCallback()
 
-    # # train ppo``
+    # train ppo
     ppo = train_ppo(config, task, callback)
 
     rollout_buffer = Buffer()
