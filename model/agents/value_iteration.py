@@ -70,6 +70,8 @@ class ValueIterationAgent(BaseAgent):
         self.n_epochs = n_epochs
         self.alpha = alpha
 
+        self.env = make_vec_env(env)
+
         self.transition_estimator = self.TRANSITION_MODEL_CLASS()
         self.reward_estimator = self.REWARD_MODEL_CLASS()
         self.policy = self.POLICY_CLASS(
