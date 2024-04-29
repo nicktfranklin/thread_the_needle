@@ -1,10 +1,17 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Iterable, Optional
+from typing import Callable, Iterable, List, Optional, Union
 
 import numpy as np
 import torch
 from stable_baselines3.common.base_class import BaseAlgorithm
+from stable_baselines3.common.callbacks import (
+    BaseCallback,
+    CallbackList,
+    ConvertCallback,
+    ProgressBarCallback,
+)
+from stable_baselines3.common.type_aliases import MaybeCallback
 from stable_baselines3.common.vec_env import VecEnv
 from torch import FloatTensor
 from tqdm import tqdm, trange
@@ -45,12 +52,16 @@ class BaseAgent(ABC):
         self,
         n_rollout_steps: int,
         rollout_buffer: RolloutDataset,
-        progress_bar: Optional[Iterable] = None,
-    ):
+        callback: BaseCallback,
+        progress_bar: Iterable | bool = False,
+    ) -> bool:
         task = self.task
         obs = task.reset()[0]
         state = self._init_state()
         episode_start = True
+
+        callback.on_rollout_start()
+
         for _ in range(n_rollout_steps):
             action, state = self.predict(obs, state, episode_start, deterministic=False)
             episode_start = False
@@ -65,26 +76,58 @@ class BaseAgent(ABC):
 
             if done or truncated:
                 obs = task.reset()[0]
-            if progress_bar is not None:
-                progress_bar.update(1)
 
-        return rollout_buffer
+            callback.update_locals(locals())
+            if not callback.on_step():
+                return False
+
+        callback.update_locals(locals())
+        callback.on_rollout_end()
+
+        return True
 
     @abstractmethod
     def update_from_batch(self, batch: RolloutDataset): ...
+
+    def _init_callback(
+        self,
+        callback: MaybeCallback,
+        progress_bar: bool = False,
+    ) -> BaseCallback:
+        """
+        :param callback: Callback(s) called at every step with state of the algorithm.
+        :param progress_bar: Display a progress bar using tqdm and rich.
+        :return: A hybrid callback calling `callback` and performing evaluation.
+        """
+        # Convert a list of callbacks into a callback
+        if isinstance(callback, list):
+            callback = CallbackList(callback)
+
+        # Convert functional callback to object
+        if not isinstance(callback, BaseCallback):
+            callback = ConvertCallback(callback)
+
+        # Add progress bar callback
+        if progress_bar:
+            callback = CallbackList([callback, ProgressBarCallback()])
+
+        callback.init_callback(self)
+        return callback
 
     def learn(
         self,
         total_timesteps: int,
         progress_bar: bool = False,
         reset_buffer: bool = True,
+        callback: MaybeCallback = None,
         **kwargs,
     ):
         logging.info("Calling Library learn method")
-        if progress_bar is not None:
-            progress_bar = trange(total_timesteps, position=0, leave=True)
 
         self.rollout_buffer = RolloutDataset()
+
+        callback = self._init_callback(callback, progress_bar=progress_bar)
+        callback.on_training_start(locals(), globals())
 
         # alternate between collecting rollouts and batch updates
         n_rollout_steps = self.n_steps if self.n_steps is not None else total_timesteps
@@ -93,21 +136,19 @@ class BaseAgent(ABC):
         while num_timesteps < total_timesteps:
             if reset_buffer:
                 self.rollout_buffer.reset_buffer()
-            if progress_bar is not None:
-                progress_bar.set_description("Collecting Rollouts")
 
-            self.rollout_buffer = self.collect_rollouts(
-                n_rollout_steps, self.rollout_buffer, progress_bar=progress_bar
-            )
+            if not self.collect_rollouts(
+                n_rollout_steps,
+                self.rollout_buffer,
+                callback=callback,
+                progress_bar=progress_bar,
+            ):
+                break
             num_timesteps += n_rollout_steps
 
-            if progress_bar is not None:
-                progress_bar.set_description("Updating Batch")
+            self.update_from_batch(self.rollout_buffer, progress_bar=False)
 
-            self.update_from_batch(self.rollout_buffer, progress_bar=True)
-
-        if progress_bar is not None:
-            progress_bar.close()
+        callback.on_training_end()
 
     def get_policy_prob(
         self, env: VecEnv, n_states: int, map_height: int, cnn: bool = True
