@@ -13,7 +13,7 @@ import yaml
 from stable_baselines3.common.monitor import Monitor
 
 from model.agents import PPO
-from model.training.callbacks import PpoScoreCallback
+from model.training.callbacks import ThreadTheNeedleCallback
 from model.training.rollout_data import RolloutDataset as Buffer
 from model.training.scoring import score_model
 from task.gridworld import CnnWrapper, GridWorldEnv
@@ -88,7 +88,7 @@ def train_ppo(configs: Config):
     task = make_env(configs)
     task = Monitor(task, configs.log_dir)  # not sure I use this
 
-    callback = PpoScoreCallback()
+    callback = ThreadTheNeedleCallback()
 
     ppo = PPO(
         "CnnPolicy",

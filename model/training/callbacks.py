@@ -3,7 +3,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 from model.training.scoring import score_model
 
 
-class PpoScoreCallback(BaseCallback):
+class ThreadTheNeedleCallback(BaseCallback):
     """
     A custom callback that derives from ``BaseCallback``.
 

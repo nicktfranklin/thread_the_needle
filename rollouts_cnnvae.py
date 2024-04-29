@@ -7,15 +7,13 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Dict
 
-import numpy as np
 import torch
 import yaml
 from stable_baselines3.common.monitor import Monitor
 
-from model.agents import PPO
-from model.training.callbacks import PpoScoreCallback
+from model.agents.value_iteration import ValueIterationAgent
+from model.training.callbacks import ThreadTheNeedleCallback
 from model.training.rollout_data import RolloutDataset as Buffer
-from model.training.scoring import score_model
 from task.gridworld import CnnWrapper, GridWorldEnv
 from task.gridworld import ThreadTheNeedleEnv as Environment
 from utils.config_utils import parse_configs
@@ -38,9 +36,9 @@ parser.add_argument("--task_name", default="thread_the_needle")
 parser.add_argument("--model_name", default="cnn_vae")
 parser.add_argument("--results_dir", default=f"simulations/")
 parser.add_argument("--log_dir", default=f"logs/{BASE_FILE_NAME}_{date.today()}/")
-parser.add_argument("--n_training_samples", default=50000)
-parser.add_argument("--n_rollout_samples", default=50000)
-parser.add_argument("--n_batch", default=24)
+parser.add_argument("--n_training_samples", default=2048)  # 50000
+parser.add_argument("--n_rollout_samples", default=2048)  # 50000
+parser.add_argument("--n_batch", default=2)  # 24
 
 
 @dataclass
@@ -82,31 +80,23 @@ def make_env(configs: Config) -> GridWorldEnv:
     return task
 
 
-def train_ppo(configs: Config):
+def train_agent(configs: Config):
 
     # create task
     task = make_env(configs)
     task = Monitor(task, configs.log_dir)  # not sure I use this
 
-    callback = PpoScoreCallback()
+    callback = ThreadTheNeedleCallback()
 
-    ppo = PPO(
-        "CnnPolicy",
-        task,
-        verbose=0,
-        n_steps=min(configs.n_training_samples, 2048),
-        batch_size=64,
-        n_epochs=10,
+    agent = ValueIterationAgent.make_from_configs(
+        task, configs.agent_config, configs.vae_config, configs.env_kwargs
     )
-    ppo.learn(
-        total_timesteps=configs.n_training_samples,
-        progress_bar=True,
-        callback=callback,
-    )
+
+    agent.learn(total_timesteps=configs.n_training_samples, progress_bar=True)
 
     data = {"rewards": callback.rewards, "evaluations": callback.evaluations}
 
-    return ppo, data
+    return agent, data
 
 
 def main():
@@ -123,19 +113,19 @@ def main():
     batched_data = []
     for ii in range(config.n_batch):
         logging.info(f"running batch {ii}")
-        ppo, data = train_ppo(config)
+        agent, data = train_agent(config)
         data["batch"] = ii
         batched_data.append(data)
 
     rollout_buffer = Buffer()
-    rollout_buffer = ppo.collect_buffer(
-        ppo.env.envs[0], rollout_buffer, n=1000, epsilon=config.epsilon
+    rollout_buffer = agent.collect_buffer(
+        agent.env.envs[0], rollout_buffer, n=1000, epsilon=config.epsilon
     )
 
-    with open(f"{config.results_dir}ppo_rollouts.pkl", "wb") as f:
+    with open(f"{config.results_dir}cnnvae_rollouts.pkl", "wb") as f:
         pickle.dump(rollout_buffer, f)
 
-    with open(f"{config.results_dir}ppo_batched_data.pkl", "wb") as f:
+    with open(f"{config.results_dir}cnnvae_batched_data.pkl", "wb") as f:
         pickle.dump(batched_data, f)
 
 
