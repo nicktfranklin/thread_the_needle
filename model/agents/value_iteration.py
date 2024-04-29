@@ -3,6 +3,7 @@ from typing import Any, Dict, Hashable, Optional
 
 import numpy as np
 import torch
+from stable_baselines3.common.env_util import make_vec_env
 from torch import FloatTensor, Tensor
 from torch.utils.data import DataLoader
 
