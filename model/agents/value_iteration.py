@@ -1,9 +1,12 @@
 import random
 from typing import Any, Dict, Hashable, Optional
 
+import gymnasium as gym
 import numpy as np
 import torch
+from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.monitor import Monitor
 from torch import FloatTensor, Tensor
 from torch.utils.data import DataLoader
 
@@ -71,7 +74,7 @@ class ValueIterationAgent(BaseAgent):
         self.n_epochs = n_epochs
         self.alpha = alpha
 
-        self.env = make_vec_env(task)
+        self.env = task
 
         self.transition_estimator = self.TRANSITION_MODEL_CLASS()
         self.reward_estimator = self.REWARD_MODEL_CLASS()
@@ -254,11 +257,13 @@ class ValueIterationAgent(BaseAgent):
         total_timesteps: int,
         progress_bar: bool = False,
         reset_buffer: bool = False,
+        callback: BaseCallback | None = None,
     ):
         super().learn(
             total_timesteps=total_timesteps,
             progress_bar=progress_bar,
             reset_buffer=reset_buffer,
+            callback=callback,
         )
 
     @classmethod

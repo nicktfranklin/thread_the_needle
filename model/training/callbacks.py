@@ -59,7 +59,14 @@ class ThreadTheNeedleCallback(BaseCallback):
         :return: If the callback returns False, training is aborted early.
         """
         self.rewards["num_timesteps"].append(self.num_timesteps)
-        self.rewards["rewards"].append(self.locals["rewards"].item())
+        if "rewards" in self.locals:
+            self.rewards["rewards"].append(self.locals["rewards"].item())
+        elif "reward" in self.locals:
+            self.rewards["rewards"].append(self.locals["reward"])
+        else:
+            print(self.locals)
+            raise ValueError("No reward found in locals")
+
         return True
 
     def _on_rollout_end(self) -> None:

@@ -36,9 +36,9 @@ parser.add_argument("--task_name", default="thread_the_needle")
 parser.add_argument("--model_name", default="cnn_vae")
 parser.add_argument("--results_dir", default=f"simulations/")
 parser.add_argument("--log_dir", default=f"logs/{BASE_FILE_NAME}_{date.today()}/")
-parser.add_argument("--n_training_samples", default=2048)  # 50000
-parser.add_argument("--n_rollout_samples", default=2048)  # 50000
-parser.add_argument("--n_batch", default=2)  # 24
+parser.add_argument("--n_training_samples", default=20000)  # 50000
+parser.add_argument("--n_rollout_samples", default=20000)  # 50000
+parser.add_argument("--n_batch", default=8)  # 24
 
 
 @dataclass
@@ -92,7 +92,9 @@ def train_agent(configs: Config):
         task, configs.agent_config, configs.vae_config, configs.env_kwargs
     )
 
-    agent.learn(total_timesteps=configs.n_training_samples, progress_bar=True)
+    agent.learn(
+        total_timesteps=configs.n_training_samples, progress_bar=True, callback=callback
+    )
 
     data = {"rewards": callback.rewards, "evaluations": callback.evaluations}
 
@@ -117,16 +119,16 @@ def main():
         data["batch"] = ii
         batched_data.append(data)
 
+        with open(f"{config.results_dir}cnnvae_batched_data.pkl", "wb") as f:
+            pickle.dump(batched_data, f)
+
     rollout_buffer = Buffer()
     rollout_buffer = agent.collect_buffer(
-        agent.env.envs[0], rollout_buffer, n=1000, epsilon=config.epsilon
+        agent.env, rollout_buffer, n=1000, epsilon=config.epsilon
     )
 
     with open(f"{config.results_dir}cnnvae_rollouts.pkl", "wb") as f:
         pickle.dump(rollout_buffer, f)
-
-    with open(f"{config.results_dir}cnnvae_batched_data.pkl", "wb") as f:
-        pickle.dump(batched_data, f)
 
 
 if __name__ == "__main__":

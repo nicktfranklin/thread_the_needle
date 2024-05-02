@@ -2,6 +2,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Callable, Iterable, List, Optional, Union
 
+import gymnasium as gym
 import numpy as np
 import torch
 from stable_baselines3.common.base_class import BaseAlgorithm
@@ -17,21 +18,27 @@ from torch import FloatTensor
 from tqdm import tqdm, trange
 
 from model.training.rollout_data import RolloutDataset
-from task.gridworld import ActType, GridWorldEnv, ObsType
+from task.gridworld import ActType, ObsType
 from utils.sampling_functions import inverse_cmf_sampler
 
 
 class BaseAgent(ABC):
-    def __init__(self, task: GridWorldEnv) -> None:
+    def __init__(self, task: VecEnv | gym.Env) -> None:
         super().__init__()
-        self.task = task
+        self.task = task if isinstance(task, gym.Env) else task.envs[0]
+        self.num_timesteps = 0
 
     @abstractmethod
     def get_pmf(self, x: FloatTensor) -> FloatTensor: ...
 
     def get_env(self) -> VecEnv:
         ## used for compatibility with stablebaseline code, use with caution
+        if isinstance(self.task, VecEnv):
+            return self.task
         return BaseAlgorithm._wrap_env(self.task, verbose=False, monitor_wrapper=True)
+
+    def get_task(self) -> gym.Env:
+        return self.task if isinstance(self.task, gym.Env) else self.envs[0]
 
     @abstractmethod
     def predict(
@@ -55,7 +62,7 @@ class BaseAgent(ABC):
         callback: BaseCallback,
         progress_bar: Iterable | bool = False,
     ) -> bool:
-        task = self.task
+        task = self.get_task()
         obs = task.reset()[0]
         state = self._init_state()
         episode_start = True
@@ -67,12 +74,13 @@ class BaseAgent(ABC):
             episode_start = False
 
             outcome_tuple = task.step(action)
+            self.num_timesteps += 1
             rollout_buffer.add(obs, action, outcome_tuple)
 
             self.update_rollout_policy(rollout_buffer)
 
             # get the next obs from the observation tuple
-            obs, _, done, truncated, _ = outcome_tuple
+            obs, reward, done, truncated, _ = outcome_tuple
 
             if done or truncated:
                 obs = task.reset()[0]
@@ -132,10 +140,12 @@ class BaseAgent(ABC):
         # alternate between collecting rollouts and batch updates
         n_rollout_steps = self.n_steps if self.n_steps is not None else total_timesteps
 
-        num_timesteps = 0
-        while num_timesteps < total_timesteps:
+        self.num_timesteps = 0
+        while self.num_timesteps < total_timesteps:
             if reset_buffer:
                 self.rollout_buffer.reset_buffer()
+
+            n_rollout_steps = min(n_rollout_steps, total_timesteps - self.num_timesteps)
 
             if not self.collect_rollouts(
                 n_rollout_steps,
@@ -144,7 +154,6 @@ class BaseAgent(ABC):
                 progress_bar=progress_bar,
             ):
                 break
-            num_timesteps += n_rollout_steps
 
             self.update_from_batch(self.rollout_buffer, progress_bar=False)
 
@@ -183,7 +192,7 @@ class BaseAgent(ABC):
     # look to the BaseAgent method for inspiration
     def collect_buffer(
         self,
-        task: GridWorldEnv,
+        task: gym.Env,
         buffer: RolloutDataset,
         n: int,
         epsilon: float = 0.05,
