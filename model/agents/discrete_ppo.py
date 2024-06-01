@@ -7,13 +7,14 @@ from stable_baselines3.common.policies import ActorCriticPolicy
 from torch import FloatTensor, Tensor
 
 import model.state_inference.vae
-from model.agents.base_state_agent import BaseStateAgent
+from model.agents.utils.base_agent import BaseAgent
 from model.state_inference.vae import StateVae
 from model.training.rollout_data import RolloutDataset
 from task.utils import ActType
+from utils.pytorch_utils import DEVICE
 
 
-class DiscretePPO(BaseStateAgent):
+class DiscretePPO(BaseAgent):
 
     def __init__(
         self,
@@ -25,8 +26,18 @@ class DiscretePPO(BaseStateAgent):
         """
         :param n_steps: The number of steps to run for each environment per update
         """
-        super().__init__(env, state_inference_model, optim_kwargs)
-        self.get_policy = policy
+        super().__init__(env)
+        self.state_inference_model = state_inference_model.to(DEVICE)
+        self.optim = self._configure_optimizers(optim_kwargs)
+
+        self.hash_vector = np.array(
+            [
+                self.state_inference_model.z_dim**ii
+                for ii in range(self.state_inference_model.z_layers)
+            ]
+        )
+
+        self.policy = policy
 
     def get_policy(self, obs: Tensor):
         raise NotImplementedError()
@@ -37,6 +48,18 @@ class DiscretePPO(BaseStateAgent):
     def predict(
         self, obs: Tensor, state=None, episode_start=None, deterministic: bool = False
     ) -> tuple[ActType, None]:
+        raise NotImplementedError()
+
+    def compute_rewards_to_go(self, buffer: RolloutDataset) -> FloatTensor:
+        raise NotImplementedError()
+
+    def compute_advantages(self, buffer: RolloutDataset) -> FloatTensor:
+        raise NotImplementedError()
+
+    def update_policy(self, buffer: RolloutDataset, advantages: FloatTensor):
+        raise NotImplementedError()
+
+    def update_value_function(self, buffer: RolloutDataset, rewards_to_go: FloatTensor):
         raise NotImplementedError()
 
     def update_from_batch(self, buffer: RolloutDataset, progress_bar: bool = False):
