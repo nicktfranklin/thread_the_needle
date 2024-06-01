@@ -1,6 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Callable, Iterable, List, Optional, Union
+from typing import Iterable, List, Optional
 
 import gymnasium as gym
 import numpy as np
@@ -15,7 +15,7 @@ from stable_baselines3.common.callbacks import (
 from stable_baselines3.common.type_aliases import MaybeCallback
 from stable_baselines3.common.vec_env import VecEnv
 from torch import FloatTensor
-from tqdm import tqdm, trange
+from tqdm import tqdm
 
 from model.training.rollout_data import RolloutDataset
 from task.gridworld import ActType, ObsType
@@ -196,9 +196,11 @@ class BaseAgent(ABC):
         buffer: RolloutDataset,
         n: int,
         epsilon: float = 0.05,
+        start_state: Optional[int] = None,
     ):
         # collect data
-        obs = task.reset()[0]
+        options = {"initial_state": start_state} if start_state is not None else None
+        obs = task.reset(options=options)[0]
         done = False
 
         for _ in tqdm(range(n), desc="Collection rollouts"):
@@ -219,6 +221,6 @@ class BaseAgent(ABC):
             done = outcome_tuple[2]
 
             if done:
-                obs = task.reset()[0]
+                obs = task.reset(options=options)[0]
 
         return buffer
