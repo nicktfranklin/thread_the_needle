@@ -1,14 +1,12 @@
 import random
 from typing import Any, Dict, Hashable, Optional
 
-import gymnasium as gym
 import numpy as np
 import torch
 from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.monitor import Monitor
 from torch import FloatTensor, Tensor
 from torch.utils.data import DataLoader
+from tqdm import trange
 
 import model.state_inference.vae
 from model.agents.utils.base_agent import BaseAgent
@@ -19,7 +17,7 @@ from model.agents.utils.mdp import (
 )
 from model.agents.utils.policy import SoftmaxPolicy
 from model.state_inference.vae import StateVae
-from model.training.data import ViDataset
+from model.training.data import MdpDataset
 from model.training.rollout_data import OaroTuple, RolloutDataset
 from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
@@ -189,6 +187,10 @@ class ValueIterationAgent(BaseAgent):
         return self.policy.get_value_function()
 
     def train_vae(self, buffer: RolloutDataset, progress_bar: bool = True):
+        """
+        In the Vi Agent, the VAE is trained separately from the policy.
+        """
+
         # prepare the dataset for training the VAE
         dataset = buffer.get_dataset()
         obs = convert_8bit_to_float(torch.tensor(dataset["observations"])).to(DEVICE)
@@ -203,14 +205,28 @@ class ValueIterationAgent(BaseAgent):
         else:
             optim = self.optim
 
-        # train the VAE on the rollouts
-        self.state_inference_model.train_epochs(
-            self.n_epochs,
-            dataloader,
-            optim,
-            self.grad_clip,
-            progress_bar=progress_bar,
-        )
+        if progress_bar:
+            iterator = trange(self.n_epochs, desc="Vae Epochs")
+        else:
+            iterator = range(self.n_epochs)
+
+        for _ in iterator:
+            self.state_inference_model.train()
+
+            for x in dataloader:
+
+                optim.zero_grad()
+                loss = self.state_inference_model.loss(x)
+                loss.backward()
+
+                if self.grad_clip:
+                    torch.nn.utils.clip_grad_norm_(
+                        self.state_inference_model.parameters(), self.grad_clip
+                    )
+
+                optim.step()
+            self.state_inference_model.prep_next_batch()
+        self.state_inference_model.eval()
 
     def update_from_batch(self, buffer: RolloutDataset, progress_bar: bool = False):
         self.train_vae(buffer, progress_bar=progress_bar)
@@ -222,7 +238,7 @@ class ValueIterationAgent(BaseAgent):
         dataset = buffer.get_dataset()
 
         # convert ot a tensor dataset for iteration
-        dataset = ViDataset(dataset)
+        dataset = MdpDataset(dataset)
 
         # _get_hashed_state takes care of preprocessing
         dataloader = DataLoader(

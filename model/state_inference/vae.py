@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
-from torch import Tensor, nn
+from torch import FloatTensor, Tensor, nn
 from torch.distributions.categorical import Categorical
 from torch.distributions.kl import kl_divergence
 from torch.optim import Optimizer
@@ -151,7 +151,7 @@ class StateVae(nn.Module):
     def kl_loss(self, logits):
         """
         Logits are shape (B, N, K), where B is the number of batches, N is the number
-            of categorical distributions and where K is the number of classes
+            of categorical distributions and wheåre K is the number of classes
         # returns kl-divergence, in nats
         """
         assert logits.ndim == 3
@@ -166,18 +166,21 @@ class StateVae(nn.Module):
 
         return kl
 
-    def recontruction_loss(self, x, x_hat):
+    def recontruction_loss(self, x: FloatTensor, x_hat: FloatTensor) -> FloatTensor:
         mse_loss = F.mse_loss(x_hat, x, reduction="none")
         # sum loss over dimensions in each example, average over batch
         return mse_loss.view(x.shape[0], -1).sum(1).mean()
 
-    def loss(self, x: Tensor) -> Tensor:
+    def loss(self, x: FloatTensor, target: FloatTensor = None) -> FloatTensor:
         x = x.to(DEVICE).float()
-        (logits, _), x_hat = self(x)
+        (logits, _), y_hat = self(x)
+
+        if target is None:
+            target = x
 
         # get the two components of the ELBO loss
         kl_loss = self.kl_loss(logits)
-        recon_loss = self.recontruction_loss(x, x_hat)
+        recon_loss = self.recontruction_loss(target, y_hat)
 
         return recon_loss + kl_loss * self.beta
 

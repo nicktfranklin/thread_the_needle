@@ -1,9 +1,10 @@
 from typing import Any, Dict
 
+import torch
 from torch.utils.data import Dataset
 
 
-class ViDataset(Dataset):
+class MdpDataset(Dataset):
     def __init__(self, dataset: Dict[str, Any]):
         self.dataset = dataset
 
