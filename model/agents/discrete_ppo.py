@@ -62,6 +62,22 @@ class DiscretePPO(BaseAgent):
     def update_value_function(self, buffer: RolloutDataset, rewards_to_go: FloatTensor):
         raise NotImplementedError()
 
+    def policy_loss(
+        self, buffer: RolloutDataset, advantages: FloatTensor
+    ) -> FloatTensor:
+        raise NotImplementedError()
+
+    def entropy_loss(self, buffer: RolloutDataset) -> FloatTensor:
+        raise NotImplementedError()
+
+    def value_loss(
+        self, buffer: RolloutDataset, rewards_to_go: FloatTensor
+    ) -> FloatTensor:
+        raise NotImplementedError()
+
+    def vae_loss(self, buffer: RolloutDataset) -> FloatTensor:
+        raise NotImplementedError()
+
     def update_from_batch(self, buffer: RolloutDataset, progress_bar: bool = False):
         """
         Pseudoe code steps for the inner loop:
