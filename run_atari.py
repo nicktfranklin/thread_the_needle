@@ -11,6 +11,7 @@ import gymnasium as gym
 import torch
 import yaml
 from stable_baselines3.common.atari_wrappers import AtariWrapper
+from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
 
 from model.agents.lookahead_value_iteration import (
@@ -45,9 +46,9 @@ parser.add_argument("--task_name", default="thread_the_needle")
 parser.add_argument("--model_name", default="cnn_vae")
 parser.add_argument("--results_dir", default=f"simulations/")
 parser.add_argument("--log_dir", default=f"logs/{BASE_FILE_NAME}_{date.today()}/")
-parser.add_argument("--n_training_samples", default=20000)  # 50000
+parser.add_argument("--n_training_samples", default=2_500_000)  # 50000
 parser.add_argument("--n_rollout_samples", default=20000)  # 50000
-parser.add_argument("--n_batch", default=8)  # 24
+parser.add_argument("--n_batch", default=16)  # 24
 parser.add_argument("--atari_env", default="ALE/Pong-v5")
 parser.add_argument("--ppo", action="store_true")
 
@@ -90,12 +91,13 @@ class Config:
         )
 
 
-def make_env(configs: Config) -> GridWorldEnv:
+def make_env(configs: Config, batch: int = 0) -> GridWorldEnv:
     # create the task
     task = gym.make(configs.atari_env)
 
     # create the monitor
-    task = Monitor(task, configs.log_dir)
+    log_name = f"{configs.model_name}_{configs.atari_env.split('/')[-1]}_batch_{batch}"
+    task = Monitor(task, os.path.join(configs.log_dir, log_name))
 
     # prepare for ATARI
     task = AtariWrapper(task, screen_size=64)
@@ -103,13 +105,16 @@ def make_env(configs: Config) -> GridWorldEnv:
     return task
 
 
-def train_agent(configs: Config):
+def train_agent(configs: Config, batch: int = 0):
 
     # create task
-    task = make_env(configs)
+    task = make_env(configs, batch=batch)
     task = Monitor(task, configs.log_dir)  # not sure I use this
 
-    callback = AtariCallback()
+    callback = [
+        AtariCallback(configs.log_dir),
+        CheckpointCallback(save_freq=250_000, save_path="checkpoints/"),
+    ]
 
     if configs.use_ppo is False:
         agent = ValueIterationAgent.make_from_configs(
@@ -155,7 +160,7 @@ def main():
     batched_data = []
     for ii in range(config.n_batch):
         logging.info(f"running batch {ii}")
-        agent, data = train_agent(config)
+        agent, data = train_agent(config, ii)
         data["batch"] = ii
         batched_data.append(data)
 
