@@ -77,7 +77,9 @@ class LookaheadViAgent(BaseAgent):
 
         self.env = task
 
-        self.transition_estimator = self.TRANSITION_MODEL_CLASS()
+        self.transition_estimator = self.TRANSITION_MODEL_CLASS(
+            n_actions=task.action_space.n
+        )
         self.reward_estimator = self.REWARD_MODEL_CLASS()
         self.policy = self.POLICY_CLASS(
             beta=softmax_gain,
