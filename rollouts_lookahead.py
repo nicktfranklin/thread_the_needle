@@ -5,7 +5,7 @@ import pickle
 import sys
 from dataclasses import dataclass
 from datetime import date
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import torch
 import yaml
@@ -39,8 +39,9 @@ parser.add_argument("--model_name", default="cnn_vae")
 parser.add_argument("--results_dir", default=f"simulations/")
 parser.add_argument("--log_dir", default=f"logs/{BASE_FILE_NAME}_{date.today()}/")
 parser.add_argument("--n_training_samples", default=20000)  # 50000
-parser.add_argument("--n_rollout_samples", default=20000)  # 50000
-parser.add_argument("--n_batch", default=8)  # 24
+parser.add_argument("--n_rollout_samples", default=10000)  # 50000
+parser.add_argument("--n_batch", default=24)  # 24
+parser.add_argument("--capacity", default=None)
 
 
 @dataclass
@@ -57,6 +58,8 @@ class Config:
     n_batch: int
     epsilon: float = 0.02
 
+    capacity: Optional[int] = None
+
     @classmethod
     def construct(cls, args: argparse.Namespace):
         configs = parse_configs(args)
@@ -69,6 +72,7 @@ class Config:
             n_rollout_samples=args.n_rollout_samples,
             results_dir=args.results_dir,
             n_batch=args.n_batch,
+            capacity=args.capacity,
         )
 
 
@@ -95,7 +99,10 @@ def train_agent(configs: Config):
     )
 
     agent.learn(
-        total_timesteps=configs.n_training_samples, progress_bar=True, callback=callback
+        total_timesteps=configs.n_training_samples,
+        progress_bar=True,
+        callback=callback,
+        capacity=configs.capacity,
     )
 
     data = {"rewards": callback.rewards, "evaluations": callback.evaluations}
