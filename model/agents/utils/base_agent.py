@@ -126,13 +126,14 @@ class BaseAgent(ABC):
         self,
         total_timesteps: int,
         progress_bar: bool = False,
-        reset_buffer: bool = True,
+        reset_buffer: bool = False,
+        capacity: Optional[int] = None,
         callback: MaybeCallback = None,
         **kwargs,
     ):
         logging.info("Calling Library learn method")
 
-        self.rollout_buffer = RolloutDataset()
+        self.rollout_buffer = RolloutDataset(capacity=capacity)
 
         callback = self._init_callback(callback, progress_bar=progress_bar)
         callback.on_training_start(locals(), globals())

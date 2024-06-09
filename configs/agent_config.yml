@@ -13,9 +13,10 @@ q_learning_kwargs:
   alpha: 0.05
 
 state_inference_model:
-  batch_size: 64
-  n_epochs: 20
-  grad_clip: True
-  n_steps: 2048
+  batch_size: 64  # matched to PPO
+  n_epochs: 10 # matched to PPO
+  grad_clip: 1.0
+  n_steps: 2048 # matched to PPO
+  persistant_optim: True
   optim_kwargs:
-    lr: 0.0003
+    lr: 0.0003 # matched to PPO

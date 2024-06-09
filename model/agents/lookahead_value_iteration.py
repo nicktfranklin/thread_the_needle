@@ -44,7 +44,7 @@ class LookaheadViAgent(BaseAgent):
         task,
         state_inference_model: StateVae,
         optim_kwargs: Optional[Dict[str, Any]] = None,
-        grad_clip: bool = True,
+        grad_clip: int = 2.5,
         batch_size: int = 64,
         gamma: float = 0.99,
         n_iter: int = 1000,
@@ -228,7 +228,7 @@ class LookaheadViAgent(BaseAgent):
                 loss = self.state_inference_model.loss(obs, next_obs)
                 loss.backward()
 
-                if self.grad_clip:
+                if self.grad_clip is not None:
                     torch.nn.utils.clip_grad_norm_(
                         self.state_inference_model.parameters(), self.grad_clip
                     )
@@ -282,12 +282,14 @@ class LookaheadViAgent(BaseAgent):
         total_timesteps: int,
         progress_bar: bool = False,
         reset_buffer: bool = False,
+        capacity: Optional[int] = None,
         callback: BaseCallback | None = None,
     ):
         super().learn(
             total_timesteps=total_timesteps,
             progress_bar=progress_bar,
             reset_buffer=reset_buffer,
+            capacity=capacity,
             callback=callback,
         )
 

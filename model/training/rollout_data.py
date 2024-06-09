@@ -24,6 +24,7 @@ class RolloutDataset:
         terminated: Optional[List[bool]] = None,
         truncated: Optional[List[bool]] = None,
         info: Optional[List[Dict[str, Any]]] = None,
+        capacity: Optional[int] = None,
     ) -> None:
         self.action = action if action is not None else []
         self.obs = obs if obs is not None else []
@@ -32,6 +33,7 @@ class RolloutDataset:
         self.terminated = terminated if terminated is not None else []
         self.truncated = truncated if truncated is not None else []
         self.info = info if info is not None else []
+        self.capcity = capacity
 
     def add(self, obs: ObsType, action: ActType, obs_tuple: OutcomeTuple):
         self.action.append(action)
@@ -41,6 +43,15 @@ class RolloutDataset:
         self.terminated.append(obs_tuple[2])
         self.truncated.append(obs_tuple[3])
         self.info.append(obs_tuple[4])
+
+        if self.capcity is not None and len(self.obs) > self.capcity:
+            self.action.pop(0)
+            self.obs.pop(0)
+            self.next_obs.pop(0)
+            self.reward.pop(0)
+            self.terminated.pop(0)
+            self.truncated.pop(0)
+            self.info.pop(0)
 
     def get_dataset(self) -> dict[str, Union[Any, Tensor]]:
         """This is meant to be consistent with the dataset in d4RL"""
