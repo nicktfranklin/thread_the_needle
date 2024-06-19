@@ -1,7 +1,4 @@
-from typing import Callable
-
 import numpy as np
-import torch
 
 from model.agents import BaseAgent
 
