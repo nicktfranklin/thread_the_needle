@@ -2,7 +2,6 @@ from typing import Any, Dict, Hashable, Optional
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from torch import FloatTensor, Tensor
 from torch.utils.data import DataLoader
 
@@ -169,11 +168,11 @@ class RecurrentViAgent(ValueIterationAgent):
     def train_vae(self, dataloader: RecurrentDataset, progress_bar: bool = True):
 
         # train the VAE on the rollouts
-        self.state_inference_model.train_epochs(
+        self.state_inference_model.fit(
             self.n_epochs,
             dataloader,
-            self.optim,
-            self.grad_clip,
+            optim=self.optim,
+            grad_clip=self.grad_clip,
             progress_bar=progress_bar,
         )
 

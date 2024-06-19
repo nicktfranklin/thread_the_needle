@@ -17,14 +17,8 @@ from model.state_inference.constants import (
     VAE_TAU,
     VAE_TAU_ANNEALING_RATE,
 )
-from model.state_inference.nets.mlp import MlpDecoderWithActions
-from utils.pytorch_utils import (
-    DEVICE,
-    assert_correct_end_shape,
-    check_shape_match,
-    gumbel_softmax,
-    train,
-)
+from model.state_inference.gumbel_softmax import gumbel_softmax
+from utils.pytorch_utils import DEVICE, assert_correct_end_shape, check_shape_match
 
 # needed to import the Encoder/Decoder from config
 from .nets import *
@@ -55,7 +49,7 @@ class StateVae(nn.Module):
         input_shape: Tuple[int, int, int] = INPUT_SHAPE,
         tau_is_parameter: bool = False,
         *,
-        run_unit_test: bool = True,
+        run_unit_test: bool = False,
     ):
         """
         Note: larger values of beta result in more independent state values
@@ -96,7 +90,6 @@ class StateVae(nn.Module):
         vae_kwargs = vae_config["vae_kwargs"]
         vae_kwargs["input_shape"] = input_shape
 
-        print(sys.modules[__name__])
         Encoder = getattr(sys.modules[__name__], vae_config["encoder_class"])
         Decoder = getattr(sys.modules[__name__], vae_config["decoder_class"])
 
@@ -229,7 +222,7 @@ class StateVae(nn.Module):
             B, N, K = logits.shape
             logits = logits.view(B * N, K)
             state_vars = Categorical(logits=logits).sample().detach().cpu().numpy()
-            
+
         return state_vars
 
     def decode_state(self, s: Tuple[int]):
@@ -250,21 +243,60 @@ class StateVae(nn.Module):
     def prep_next_batch(self):
         self.anneal_tau()
 
-    def train_epochs(
+    def fit(
         self,
         n_epochs: int,
-        data_loader: DataLoader,
-        optim: Optimizer,
-        grad_clip: bool = False,
+        train_dataloader: DataLoader,
+        *,
+        test_dataloader: DataLoader | None = None,
+        optim: Optimizer | None = None,
+        grad_clip: int | None = None,
         progress_bar: bool = False,
+        verbose: bool = False,
     ):
-        self.train()
+
+        assert not (verbose and progress_bar)
 
         if progress_bar:
             iterator = trange(n_epochs, desc="Vae Epochs")
         else:
             iterator = range(n_epochs)
 
-        for _ in iterator:
-            train(self, data_loader, optim, grad_clip)
+        optim = optim if optim is not None else self.configure_optimizers()
+
+        train_losses, test_losses = [], []
+        for epoch in iterator:
+
+            # training
+            self.train()
+            for batch in train_dataloader:
+
+                optim.zero_grad()
+                loss = self.loss(batch)
+                loss.backward()
+
+                if grad_clip:
+                    torch.nn.utils.clip_grad_norm_(self.parameters(), grad_clip)
+
+                optim.step()
+
+                train_losses.append(loss.detach().cpu().item())
+
+            # validation
+            if test_dataloader is None:
+                continue
+            self.eval()
+            with torch.no_grad():
+                test_loss = 0
+                for batch in test_dataloader:
+                    loss = self.loss(batch)
+                    test_loss += loss * test_dataloader.batch_size
+                avg_loss = test_loss / len(test_dataloader.dataset)
+                test_losses.append(avg_loss.item())
+
             self.prep_next_batch()
+
+            if verbose:
+                print(f"Epoch {epoch}, ELBO Loss (test) {test_losses[-1]:.6f}")
+
+        return train_losses, test_losses

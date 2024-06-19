@@ -1,6 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Iterable, List, Optional
+from typing import Iterable, Optional
 
 import gymnasium as gym
 import numpy as np
