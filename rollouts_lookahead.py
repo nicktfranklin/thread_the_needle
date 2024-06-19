@@ -38,10 +38,10 @@ parser.add_argument("--task_name", default="thread_the_needle")
 parser.add_argument("--model_name", default="cnn_vae")
 parser.add_argument("--results_dir", default=f"simulations/")
 parser.add_argument("--log_dir", default=f"logs/{BASE_FILE_NAME}_{date.today()}/")
-parser.add_argument("--n_training_samples", default=20000)  # 50000
+parser.add_argument("--n_training_samples", default=50000)  # 50000
 parser.add_argument("--n_rollout_samples", default=10000)  # 50000
 parser.add_argument("--n_batch", default=24)  # 24
-parser.add_argument("--capacity", default=None)
+parser.add_argument("--capacity", default=16384)
 
 
 @dataclass
@@ -128,7 +128,9 @@ def main():
         data["batch"] = ii
         batched_data.append(data)
 
-        with open(f"{config.results_dir}lookahead_batched_data.pkl", "wb") as f:
+        with open(
+            f"{config.results_dir}lookahead_batched_data_{date.today()}.pkl", "wb"
+        ) as f:
             pickle.dump(batched_data, f)
 
     rollout_buffer = Buffer()
@@ -136,7 +138,7 @@ def main():
         agent.env, rollout_buffer, n=1000, epsilon=config.epsilon
     )
 
-    with open(f"{config.results_dir}lookahead_rollouts.pkl", "wb") as f:
+    with open(f"{config.results_dir}lookahead_rollouts_{date.today()}.pkl", "wb") as f:
         pickle.dump(rollout_buffer, f)
 
 

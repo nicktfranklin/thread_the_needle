@@ -213,6 +213,25 @@ class StateVae(nn.Module):
             state_vars = torch.argmax(z, dim=-1).detach().cpu().numpy()
         return state_vars
 
+    def sample_state(self, x):
+        """
+        Assume input shape of NxCxHxW or CxHxW.
+        """
+        assert x.ndim <= 4
+        assert_correct_end_shape(x, self.input_shape)
+
+        self.eval()
+        with torch.no_grad():
+            logits, _ = self.encode(x.to(DEVICE))
+
+            if logits.ndim == 2:
+                logits = logits.unsqueeze(0)
+            B, N, K = logits.shape
+            logits = logits.view(B * N, K)
+            state_vars = Categorical(logits=logits).sample().detach().cpu().numpy()
+            
+        return state_vars
+
     def decode_state(self, s: Tuple[int]):
         self.eval()
         z = (

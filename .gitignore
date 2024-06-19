@@ -13,6 +13,7 @@ tmp
 logs
 Sandbox.ipynb
 scratch.ipynb
+checkpoints/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

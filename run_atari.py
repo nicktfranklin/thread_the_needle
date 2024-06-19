@@ -5,7 +5,7 @@ import pickle
 import sys
 from dataclasses import dataclass
 from datetime import date
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import gymnasium as gym
 import torch
@@ -51,6 +51,7 @@ parser.add_argument("--n_rollout_samples", default=20000)  # 50000
 parser.add_argument("--n_batch", default=16)  # 24
 parser.add_argument("--atari_env", default="ALE/Pong-v5")
 parser.add_argument("--ppo", action="store_true")
+parser.add_argument("--capacity", default=16384, type=int)
 
 
 @dataclass
@@ -73,6 +74,8 @@ class Config:
 
     use_ppo: bool = False
 
+    capacity: Optional[int] = None  # only used for VI
+
     @classmethod
     def construct(cls, args: argparse.Namespace):
 
@@ -88,6 +91,7 @@ class Config:
             n_batch=int(args.n_batch),
             atari_env=args.atari_env,
             use_ppo=args.ppo,
+            capacity=args.capacity,
         )
 
 
@@ -120,6 +124,12 @@ def train_agent(configs: Config, batch: int = 0):
         agent = ValueIterationAgent.make_from_configs(
             task, configs.agent_config, configs.vae_config, configs.env_kwargs
         )
+        agent.learn(
+            total_timesteps=configs.n_training_samples,
+            progress_bar=True,
+            callback=callback,
+            capacity=configs.capacity,
+        )
     else:
         agent = PPO(
             "CnnPolicy",
@@ -129,9 +139,11 @@ def train_agent(configs: Config, batch: int = 0):
             batch_size=64,
             n_epochs=10,
         )
-    agent.learn(
-        total_timesteps=configs.n_training_samples, progress_bar=True, callback=callback
-    )
+        agent.learn(
+            total_timesteps=configs.n_training_samples,
+            progress_bar=True,
+            callback=callback,
+        )
 
     data = {"rewards": callback.rewards, "evaluations": callback.evaluations}
 
