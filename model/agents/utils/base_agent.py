@@ -40,6 +40,10 @@ class BaseAgent(ABC):
     def get_task(self) -> gym.Env:
         return self.task if isinstance(self.task, gym.Env) else self.envs[0]
 
+    def save(self, model_path: str):
+        """this is a stable baselines method we don't use"""
+        pass
+
     @abstractmethod
     def predict(
         self,
