@@ -85,13 +85,3 @@ class RolloutDataset:
         self.terminated = []
         self.truncated = []
         self.info = []
-
-
-# TODO: Remove this class
-@dataclass
-class OaroTuple:
-    obs: ObsType
-    a: ActType
-    r: float
-    next_obs: Tensor
-    index: int  # unique index for each trial

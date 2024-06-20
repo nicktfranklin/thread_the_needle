@@ -18,7 +18,7 @@ from model.agents.utils.mdp import (
 from model.agents.utils.policy import SoftmaxPolicy
 from model.state_inference.vae import StateVae
 from model.training.data import MdpDataset, VaeDataset
-from model.training.rollout_data import OaroTuple, RolloutDataset
+from model.training.rollout_data import RolloutDataset
 from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
@@ -165,11 +165,6 @@ class LookaheadViAgent(BaseAgent):
         s = self._get_state_hashkey(obs)
         p = self.policy.get_distribution(s)
         return p.get_actions(deterministic=deterministic).item(), None
-
-    def update_model(self, obs: OaroTuple):
-        s, a, r, sp = self._get_sars_tuples(obs)
-        self.transition_estimator.update(s, a, sp)
-        self.reward_estimator.update(sp, r)
 
     def update_qvalues(self, s, a, r, sp) -> None:
         """

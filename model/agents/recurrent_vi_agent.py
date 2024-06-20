@@ -21,9 +21,9 @@ from model.agents.utils.mdp import value_iteration
 from model.agents.value_iteration import ValueIterationAgent
 from model.state_inference.recurrent_vae import LstmVae
 from model.training.recurrent import RecurrentDataset
-from model.training.rollout_data import OaroTuple, RolloutDataset
+from model.training.rollout_data import RolloutDataset
 from task.utils import ActType
-from utils.pytorch_utils import DEVICE, convert_8bit_to_float
+from utils.pytorch_utils import convert_8bit_to_float
 
 
 class RecurrentViAgent(ValueIterationAgent):
@@ -139,12 +139,6 @@ class RecurrentViAgent(ValueIterationAgent):
         s = self._get_state_hashkey(obs)
         p = self.policy.get_distribution(s)
         return p.get_actions(deterministic=deterministic).item(), None
-
-    def update_model(self, obs: OaroTuple):
-        raise NotImplementedError()
-        s, a, r, sp = self._get_sars_tuples(obs)
-        self.transition_estimator.update(s, a, sp)
-        self.reward_estimator.update(sp, r)
 
     def update_qvalues(self, s, a, r, sp) -> None:
         raise NotImplementedError()
