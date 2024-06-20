@@ -19,7 +19,7 @@ from model.agents.lookahead_value_iteration import (
 )
 from model.agents.ppo import PPO
 from model.training.callbacks import AtariCallback
-from model.training.rollout_data import RolloutDataset
+from model.training.rollout_data import RolloutBuffer
 from task.gridworld import GridWorldEnv
 from utils.config_utils import (
     load_config,

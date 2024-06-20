@@ -17,7 +17,7 @@ from stable_baselines3.common.vec_env import VecEnv
 from torch import FloatTensor
 from tqdm import tqdm
 
-from model.training.rollout_data import RolloutDataset
+from model.training.rollout_data import RolloutBuffer
 from task.gridworld import ActType, ObsType
 from utils.sampling_functions import inverse_cmf_sampler
 
@@ -56,13 +56,13 @@ class BaseAgent(ABC):
     def _init_state(self) -> Optional[FloatTensor]:
         return None
 
-    def update_rollout_policy(self, rollout_buffer: RolloutDataset) -> None:
+    def update_rollout_policy(self, rollout_buffer: RolloutBuffer) -> None:
         pass
 
     def collect_rollouts(
         self,
         n_rollout_steps: int,
-        rollout_buffer: RolloutDataset,
+        rollout_buffer: RolloutBuffer,
         callback: BaseCallback,
         progress_bar: Iterable | bool = False,
     ) -> bool:
@@ -99,7 +99,7 @@ class BaseAgent(ABC):
         return True
 
     @abstractmethod
-    def update_from_batch(self, batch: RolloutDataset): ...
+    def update_from_batch(self, batch: RolloutBuffer): ...
 
     def _init_callback(
         self,
@@ -137,7 +137,7 @@ class BaseAgent(ABC):
     ):
         logging.info("Calling Library learn method")
 
-        self.rollout_buffer = RolloutDataset(capacity=capacity)
+        self.rollout_buffer = RolloutBuffer(capacity=capacity)
 
         callback = self._init_callback(callback, progress_bar=progress_bar)
         callback.on_training_start(locals(), globals())
@@ -198,7 +198,7 @@ class BaseAgent(ABC):
     def collect_buffer(
         self,
         task: gym.Env,
-        buffer: RolloutDataset,
+        buffer: RolloutBuffer,
         n: int,
         epsilon: float = 0.05,
         start_state: Optional[int] = None,

@@ -13,7 +13,7 @@ from stable_baselines3.common.monitor import Monitor
 
 from model.agents.value_iteration import ValueIterationAgent
 from model.training.callbacks import ThreadTheNeedleCallback
-from model.training.rollout_data import RolloutDataset as Buffer
+from model.training.rollout_data import RolloutBuffer as Buffer
 from task.gridworld import CnnWrapper, GridWorldEnv
 from task.gridworld import ThreadTheNeedleEnv as Environment
 from utils.config_utils import parse_configs

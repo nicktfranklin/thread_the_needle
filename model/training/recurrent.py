@@ -3,13 +3,13 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset
 
-from model.training.rollout_data import RolloutDataset
+from model.training.rollout_data import RolloutBuffer
 
 
 class RecurrentDataset(Dataset):
     action_pad_value = -1
 
-    def __init__(self, buffer: RolloutDataset, seq_len: int):
+    def __init__(self, buffer: RolloutBuffer, seq_len: int):
         self.seq_len = seq_len  # maximum length of a sequence
 
         ds = buffer.get_dataset()

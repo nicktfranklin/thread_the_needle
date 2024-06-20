@@ -10,7 +10,7 @@ from task.gridworld import ActType, ObsType, OutcomeTuple
 ObservationTuple = namedtuple("ObservationTuple", "obs a r next_obs")
 
 
-class RolloutDataset:
+class RolloutBuffer:
     """
     This class is meant to be consistent with the dataset in d4RL
     """

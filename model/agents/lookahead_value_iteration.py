@@ -18,7 +18,7 @@ from model.agents.utils.mdp import (
 from model.agents.utils.policy import SoftmaxPolicy
 from model.state_inference.vae import StateVae
 from model.training.data import MdpDataset, VaeDataset
-from model.training.rollout_data import RolloutDataset
+from model.training.rollout_data import RolloutBuffer
 from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
@@ -115,7 +115,7 @@ class LookaheadViAgent(BaseAgent):
             z = self.state_inference_model.get_state(obs_)
         return z.dot(self.hash_vector)
 
-    def update_rollout_policy(self, rollout_buffer: RolloutDataset) -> None:
+    def update_rollout_policy(self, rollout_buffer: RolloutBuffer) -> None:
         # the rollout policy is a DYNA variant
         # dyna updates (note: this assumes a deterministic enviornment,
         # and this code differes from dyna as we are only using resampled
@@ -183,7 +183,7 @@ class LookaheadViAgent(BaseAgent):
     def get_state_values(self) -> torch.Tensor:
         return self.policy.get_value_function()
 
-    def train_vae(self, buffer: RolloutDataset, progress_bar: bool = True):
+    def train_vae(self, buffer: RolloutBuffer, progress_bar: bool = True):
         # prepare the dataset for training the VAE
         dataset = buffer.get_dataset()
         obs = convert_8bit_to_float(torch.tensor(dataset["observations"])).to(DEVICE)
@@ -229,7 +229,7 @@ class LookaheadViAgent(BaseAgent):
             self.state_inference_model.prep_next_batch()
         self.state_inference_model.eval()
 
-    def update_from_batch(self, buffer: RolloutDataset, progress_bar: bool = False):
+    def update_from_batch(self, buffer: RolloutBuffer, progress_bar: bool = False):
         self.train_vae(buffer, progress_bar=progress_bar)
 
         # re-estimate the reward and transition functions

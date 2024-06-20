@@ -14,12 +14,10 @@ from stable_baselines3.common.monitor import Monitor
 from model.agents.ppo import PPO
 from model.agents.utils.base_agent import BaseAgent
 from model.agents.value_iteration import ValueIterationAgent as ViAgent
-from model.training.rollout_data import RolloutDataset as Buffer
 from task.gridworld import CnnWrapper, GridWorldEnv
 from task.gridworld import ThreadTheNeedleEnv as Environment
 from utils.config_utils import parse_configs
-from utils.pytorch_utils import DEVICE, convert_8bit_to_float, make_tensor
-from utils.sampling_functions import inverse_cmf_sampler
+from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
 print(f"python {sys.version}")
 print(f"torch {torch.__version__}")
