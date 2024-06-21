@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Dict, Optional
 
+import numpy as np
 import torch
 import yaml
 from stable_baselines3.common.monitor import Monitor
@@ -104,6 +105,7 @@ def train_agent(configs: Config):
         callback=callback,
         capacity=configs.capacity,
         buffer_class="priority",
+        buffer_kwargs=dict(aggregation=np.max),
     )
 
     data = {"rewards": callback.rewards, "evaluations": callback.evaluations}

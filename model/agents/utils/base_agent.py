@@ -1,6 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Iterable, Optional
+from typing import Any, Dict, Iterable, Optional
 
 import gymnasium as gym
 import numpy as np
@@ -140,13 +140,17 @@ class BaseAgent(ABC):
         capacity: Optional[int] = None,
         callback: MaybeCallback = None,
         buffer_class: str | None = None,
+        buffer_kwargs: Dict[str, Any] | None = None,
         **kwargs,
     ):
         logging.info("Calling Library learn method")
         if buffer_class is None or buffer_class == "fifo":
             self.rollout_buffer = RolloutBuffer(capacity=capacity)
         elif buffer_class == "priority":
-            self.rollout_buffer = PriorityReplayBuffer(capacity=capacity)
+            buffer_kwargs = buffer_kwargs if buffer_kwargs else dict()
+            self.rollout_buffer = PriorityReplayBuffer(
+                capacity=capacity, **buffer_kwargs
+            )
         else:
             raise ValueError(f"Buffer class: '{buffer_class}' not implemented!")
 

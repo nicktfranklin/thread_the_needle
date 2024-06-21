@@ -284,6 +284,7 @@ class LookaheadViAgent(BaseAgent):
         capacity: Optional[int] = None,
         callback: BaseCallback | None = None,
         buffer_class: str | None = None,
+        buffer_kwargs: Dict[str, Any] | None = None,
     ):
         super().learn(
             total_timesteps=total_timesteps,
@@ -292,6 +293,7 @@ class LookaheadViAgent(BaseAgent):
             capacity=capacity,
             callback=callback,
             buffer_class=buffer_class,
+            buffer_kwargs=buffer_kwargs,
         )
 
     @classmethod

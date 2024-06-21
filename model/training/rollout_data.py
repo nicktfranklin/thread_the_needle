@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from collections import namedtuple
 from heapq import heappop, heappush
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import numpy as np
 from torch import Tensor
@@ -113,7 +113,7 @@ class RolloutBuffer(BaseBuffer):
 
 class Episode:
 
-    def __init__(self):
+    def __init__(self, aggregation: Callable | None = None):
         self.actions = []
         self.obs = []
         self.next_obs = []
@@ -124,6 +124,8 @@ class Episode:
 
         # used in the priority buffer
         self.total_reward = 0
+
+        self.aggregation = aggregation if aggregation else np.mean
 
     def add(self, obs: ObsType, action: ActType, obs_tuple: OutcomeTuple):
 
@@ -144,7 +146,7 @@ class Episode:
 
     def __lt__(self, obj):
         # used for the heap
-        return self.total_reward < obj.total_reward
+        return self.aggregation(self.rewards) < self.aggregation(obj.rewards)
 
     @property
     def is_terminated(self) -> bool:
@@ -154,17 +156,20 @@ class Episode:
 class PriorityReplayBuffer(BaseBuffer):
     ### use a min queue
 
-    def __init__(self, capacity: int | None = None):
+    def __init__(
+        self, capacity: int | None = None, aggregation: Callable | None = None
+    ):
         self.capacity = capacity
         self.buffer_size = 0
 
         self.current_episode = None
         self.min_heap = []
+        self.aggregation = aggregation
 
     def add(self, obs: ObsType, action: ActType, obs_tuple: OutcomeTuple):
 
         if self.current_episode is None:
-            self.current_episode = Episode()
+            self.current_episode = Episode(self.aggregation)
 
         self.current_episode.add(obs, action, obs_tuple)
         self.most_recent_episode = self.current_episode
