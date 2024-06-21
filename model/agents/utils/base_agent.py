@@ -139,12 +139,11 @@ class BaseAgent(ABC):
         reset_buffer: bool = False,
         capacity: Optional[int] = None,
         callback: MaybeCallback = None,
-        buffer_class: str = "fifo",
+        buffer_class: str | None = None,
         **kwargs,
     ):
         logging.info("Calling Library learn method")
-
-        if buffer_class == "fifo":
+        if buffer_class is None or buffer_class == "fifo":
             self.rollout_buffer = RolloutBuffer(capacity=capacity)
         elif buffer_class == "priority":
             self.rollout_buffer = PriorityReplayBuffer(capacity=capacity)

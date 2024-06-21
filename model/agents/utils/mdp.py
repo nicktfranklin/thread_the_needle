@@ -113,6 +113,8 @@ class TabularStateActionTransitionEstimator:
 
 
 class TabularRewardEstimator:
+    default_sample_value: float = 0.0
+
     def __init__(self):
         self.counts = {}
 
@@ -134,20 +136,26 @@ class TabularRewardEstimator:
         return list(self.counts.keys())
 
     def get_avg_reward(self, state):
+
         # get the weighted average
         reward_dict = self.counts.get(state, None)
         if reward_dict is None:
             return np.nan
-        # TODO: add a default value for no reward seen
-        r = np.array(list(self.counts[state].keys()))
-        n = np.array(list(self.counts[state].values()))
+        r = np.array(list(reward_dict.keys()))
+        n = np.array(list(reward_dict.values()))
+
         vs = r @ n / n.sum()
         return vs
 
     def sample(self, state):
-        # TODO add a default value for no reward seen
-        r = np.array(list(self.counts[state].keys()))
-        n = np.array(list(self.counts[state].values()))
+
+        reward_dict = self.counts.get(state, None)
+        if reward_dict is None:
+            return self.default_sample_value
+
+        r = np.array(list(reward_dict.keys()))
+        n = np.array(list(reward_dict.values()))
+
         return choices(r, n / n.sum())[0]
 
 

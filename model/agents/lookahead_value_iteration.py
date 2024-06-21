@@ -283,6 +283,7 @@ class LookaheadViAgent(BaseAgent):
         reset_buffer: bool = False,
         capacity: Optional[int] = None,
         callback: BaseCallback | None = None,
+        buffer_class: str | None = None,
     ):
         super().learn(
             total_timesteps=total_timesteps,
@@ -290,6 +291,7 @@ class LookaheadViAgent(BaseAgent):
             reset_buffer=reset_buffer,
             capacity=capacity,
             callback=callback,
+            buffer_class=buffer_class,
         )
 
     @classmethod

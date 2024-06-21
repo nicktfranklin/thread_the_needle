@@ -103,6 +103,7 @@ def train_agent(configs: Config):
         progress_bar=True,
         callback=callback,
         capacity=configs.capacity,
+        buffer_class="priority",
     )
 
     data = {"rewards": callback.rewards, "evaluations": callback.evaluations}
@@ -129,7 +130,8 @@ def main():
         batched_data.append(data)
 
         with open(
-            f"{config.results_dir}lookahead_batched_data_{date.today()}.pkl", "wb"
+            f"{config.results_dir}lookahead_priority_batched_data_{date.today()}.pkl",
+            "wb",
         ) as f:
             pickle.dump(batched_data, f)
 
@@ -138,7 +140,9 @@ def main():
         agent.env, rollout_buffer, n=1000, epsilon=config.epsilon
     )
 
-    with open(f"{config.results_dir}lookahead_rollouts_{date.today()}.pkl", "wb") as f:
+    with open(
+        f"{config.results_dir}lookahead_priority_rollouts_{date.today()}.pkl", "wb"
+    ) as f:
         pickle.dump(rollout_buffer, f)
 
 

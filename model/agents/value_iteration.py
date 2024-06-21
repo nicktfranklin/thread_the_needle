@@ -275,12 +275,14 @@ class ValueIterationAgent(BaseAgent):
         progress_bar: bool = False,
         reset_buffer: bool = False,
         callback: BaseCallback | None = None,
+        buffer_class: str | None = None,
     ):
         super().learn(
             total_timesteps=total_timesteps,
             progress_bar=progress_bar,
             reset_buffer=reset_buffer,
             callback=callback,
+            buffer_class=buffer_class,
         )
 
     @classmethod
