@@ -21,7 +21,7 @@ from model.agents.utils.mdp import value_iteration
 from model.agents.value_iteration import ValueIterationAgent
 from model.state_inference.recurrent_vae import LstmVae
 from model.training.recurrent import RecurrentDataset
-from model.training.rollout_data import RolloutBuffer
+from model.training.rollout_data import BaseBuffer
 from task.utils import ActType
 from utils.pytorch_utils import convert_8bit_to_float
 
@@ -85,7 +85,7 @@ class RecurrentViAgent(ValueIterationAgent):
         z = self.state_inference_model.get_state(obs_)
         return z.dot(self.hash_vector)
 
-    def update_rollout_policy(self, rollout_buffer: RolloutBuffer) -> None:
+    def update_rollout_policy(self, rollout_buffer: BaseBuffer) -> None:
         raise NotImplementedError()
         # the rollout policy is a DYNA variant
         # dyna updates (note: this assumes a deterministic enviornment,
@@ -93,7 +93,7 @@ class RecurrentViAgent(ValueIterationAgent):
         # values and not seperately sampling rewards and sucessor states
 
         # pass the obseration tuple through the state-inference network
-        obs, a, r, next_obs = rollout_buffer.get_obs(-1)
+        next_obs, reward, _, _, _ = outcome_tuple
         s = self._get_state_hashkey(obs)[0]
         sp = self._get_state_hashkey(next_obs)[0]
 
@@ -170,7 +170,7 @@ class RecurrentViAgent(ValueIterationAgent):
             progress_bar=progress_bar,
         )
 
-    def update_from_batch(self, buffer: RolloutBuffer, progress_bar: bool = False):
+    def update_from_batch(self, buffer: BaseBuffer, progress_bar: bool = False):
         # prepare the dataset for training the VAE
         recurrent_dataset = RecurrentDataset(buffer, self.max_sequence_len)
 

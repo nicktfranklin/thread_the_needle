@@ -18,7 +18,7 @@ from model.agents.utils.mdp import (
 from model.agents.utils.policy import SoftmaxPolicy
 from model.state_inference.vae import StateVae
 from model.training.data import MdpDataset
-from model.training.rollout_data import RolloutBuffer
+from model.training.rollout_data import BaseBuffer
 from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
@@ -113,14 +113,20 @@ class ValueIterationAgent(BaseAgent):
             z = self.state_inference_model.get_state(obs_)
         return z.dot(self.hash_vector)
 
-    def update_rollout_policy(self, rollout_buffer: RolloutBuffer) -> None:
+    def update_rollout_policy(
+        self,
+        obs: int,
+        a: int,
+        outcome_tuple,
+        rollout_buffer: BaseBuffer,
+    ) -> None:
         # the rollout policy is a DYNA variant
         # dyna updates (note: this assumes a deterministic enviornment,
         # and this code differes from dyna as we are only using resampled
         # values and not seperately sampling rewards and sucessor states
 
         # pass the obseration tuple through the state-inference network
-        obs, a, r, next_obs = rollout_buffer.get_obs(-1)
+        next_obs, r, _, _, _ = outcome_tuple
         s = self._get_state_hashkey(obs)[0]
         sp = self._get_state_hashkey(next_obs)[0]
 
@@ -181,7 +187,7 @@ class ValueIterationAgent(BaseAgent):
     def get_state_values(self) -> torch.Tensor:
         return self.policy.get_value_function()
 
-    def train_vae(self, buffer: RolloutBuffer, progress_bar: bool = True):
+    def train_vae(self, buffer: BaseBuffer, progress_bar: bool = True):
         """
         In the Vi Agent, the VAE is trained separately from the policy.
         """
@@ -223,7 +229,7 @@ class ValueIterationAgent(BaseAgent):
             self.state_inference_model.prep_next_batch()
         self.state_inference_model.eval()
 
-    def update_from_batch(self, buffer: RolloutBuffer, progress_bar: bool = False):
+    def update_from_batch(self, buffer: BaseBuffer, progress_bar: bool = False):
         self.train_vae(buffer, progress_bar=progress_bar)
 
         # re-estimate the reward and transition functions

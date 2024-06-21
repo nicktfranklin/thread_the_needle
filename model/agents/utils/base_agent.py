@@ -17,7 +17,7 @@ from stable_baselines3.common.vec_env import VecEnv
 from torch import FloatTensor
 from tqdm import tqdm
 
-from model.training.rollout_data import RolloutBuffer
+from model.training.rollout_data import BaseBuffer, PriorityReplayBuffer, RolloutBuffer
 from task.gridworld import ActType, ObsType
 from utils.sampling_functions import inverse_cmf_sampler
 
@@ -56,13 +56,19 @@ class BaseAgent(ABC):
     def _init_state(self) -> Optional[FloatTensor]:
         return None
 
-    def update_rollout_policy(self, rollout_buffer: RolloutBuffer) -> None:
+    def update_rollout_policy(
+        self,
+        obs: int,
+        a: int,
+        outcome_tuple,
+        rollout_buffer: BaseBuffer,
+    ) -> None:
         pass
 
     def collect_rollouts(
         self,
         n_rollout_steps: int,
-        rollout_buffer: RolloutBuffer,
+        rollout_buffer: BaseBuffer,
         callback: BaseCallback,
         progress_bar: Iterable | bool = False,
     ) -> bool:
@@ -81,7 +87,7 @@ class BaseAgent(ABC):
             self.num_timesteps += 1
             rollout_buffer.add(obs, action, outcome_tuple)
 
-            self.update_rollout_policy(rollout_buffer)
+            self.update_rollout_policy(obs, action, outcome_tuple, rollout_buffer)
 
             # get the next obs from the observation tuple
             obs, reward, done, truncated, _ = outcome_tuple
@@ -99,7 +105,7 @@ class BaseAgent(ABC):
         return True
 
     @abstractmethod
-    def update_from_batch(self, batch: RolloutBuffer): ...
+    def update_from_batch(self, batch: BaseBuffer): ...
 
     def _init_callback(
         self,
@@ -133,11 +139,17 @@ class BaseAgent(ABC):
         reset_buffer: bool = False,
         capacity: Optional[int] = None,
         callback: MaybeCallback = None,
+        buffer_class: str = "fifo",
         **kwargs,
     ):
         logging.info("Calling Library learn method")
 
-        self.rollout_buffer = RolloutBuffer(capacity=capacity)
+        if buffer_class == "fifo":
+            self.rollout_buffer = RolloutBuffer(capacity=capacity)
+        elif buffer_class == "priority":
+            self.rollout_buffer = PriorityReplayBuffer(capacity=capacity)
+        else:
+            raise ValueError(f"Buffer class: '{buffer_class}' not implemented!")
 
         callback = self._init_callback(callback, progress_bar=progress_bar)
         callback.on_training_start(locals(), globals())
@@ -198,7 +210,7 @@ class BaseAgent(ABC):
     def collect_buffer(
         self,
         task: gym.Env,
-        buffer: RolloutBuffer,
+        buffer: BaseBuffer,
         n: int,
         epsilon: float = 0.05,
         start_state: Optional[int] = None,

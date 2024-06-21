@@ -1,5 +1,6 @@
+from abc import ABC, abstractmethod
 from collections import namedtuple
-from dataclasses import dataclass
+from heapq import heappop, heappush
 from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
@@ -10,7 +11,30 @@ from task.gridworld import ActType, ObsType, OutcomeTuple
 ObservationTuple = namedtuple("ObservationTuple", "obs a r next_obs")
 
 
-class RolloutBuffer:
+class BaseBuffer(ABC):
+    def __init__(self, capacity: int = None):
+        self.capacity = capacity
+
+    @abstractmethod
+    def add(self, obs: ObsType, action: ActType, obs_tuple: OutcomeTuple): ...
+
+    @abstractmethod
+    def get_dataset(self) -> dict[str, Union[Any, Tensor]]: ...
+
+    @abstractmethod
+    def get_obs(self, idx: int) -> ObservationTuple: ...
+
+    @abstractmethod
+    def __len__(self): ...
+
+    @abstractmethod
+    def get_obs(self, idx: int) -> ObservationTuple: ...
+
+    @abstractmethod
+    def reset_buffer(self): ...
+
+
+class RolloutBuffer(BaseBuffer):
     """
     This class is meant to be consistent with the dataset in d4RL
     """
@@ -85,3 +109,145 @@ class RolloutBuffer:
         self.terminated = []
         self.truncated = []
         self.info = []
+
+
+class Episode:
+
+    def __init__(self):
+        self.actions = []
+        self.obs = []
+        self.next_obs = []
+        self.rewards = []
+        self.terminated = []
+        self.truncated = []
+        self.info = []
+
+        # used in the priority buffer
+        self.total_reward = 0
+
+    def add(self, obs: ObsType, action: ActType, obs_tuple: OutcomeTuple):
+
+        next_obs, reward, terminated, truncated, info = obs_tuple
+
+        self.actions.append(action)
+        self.obs.append(obs)
+        self.next_obs.append(next_obs)  # these are sucessor observations
+        self.rewards.append(reward)
+        self.terminated.append(terminated)
+        self.truncated.append(truncated)
+        self.info.append(info)
+
+        self.total_reward += reward
+
+    def __len__(self):
+        return len(self.obs)
+
+    def __lt__(self, obj):
+        # used for the heap
+        return self.total_reward < obj.total_reward
+
+    @property
+    def is_terminated(self) -> bool:
+        return self.terminated[-1] or self.truncated[-1]
+
+
+class PriorityReplayBuffer(BaseBuffer):
+    ### use a min queue
+
+    def __init__(self, capacity: int | None = None):
+        self.capacity = capacity
+        self.buffer_size = 0
+
+        self.current_episode = None
+        self.min_heap = []
+
+    def add(self, obs: ObsType, action: ActType, obs_tuple: OutcomeTuple):
+
+        if self.current_episode is None:
+            self.current_episode = Episode()
+
+        self.current_episode.add(obs, action, obs_tuple)
+        self.most_recent_episode = self.current_episode
+        self.buffer_size += 1
+
+        if self.current_episode.is_terminated:
+            # add the new episode to the heap (only adds completed episodes)
+            heappush(self.min_heap, self.current_episode)
+
+            # we never want an empty episode
+            self.current_episode = None
+            # # make a new episode. Note, we don't add the current
+            # # episode to the heap to (1) maintain the heap property
+            # # and (2) to prevent it from being removed if the
+            # # capacity is exceeded
+            # self.current_episode = Episode()
+
+        if self.capacity is not None and self.buffer_size > self.capacity:
+
+            # remove an episode with low reward
+            episode_to_remove = heappop(self.min_heap)
+
+            # account for the change in buffer size
+            self.buffer_size -= len(episode_to_remove)
+
+    def reset_buffer(self):
+        self.buffer_size = 0
+        self.current_episode = Episode()
+        self.min_heap = []
+
+    def __len__(self) -> int:
+        return self.buffer_size
+
+    def get_obs(self, idx: int) -> ObservationTuple:
+        """Use with caution: this ordering will change as the buffer grows"""
+
+        #
+        assert idx >= 0, "negative indexing not supported"
+        t = idx
+
+        for episode in self.min_heap:
+            if t >= len(episode):
+                t -= len(episode)
+            else:
+                return ObservationTuple(
+                    episode.obs[t],
+                    episode.actions[t],
+                    episode.rewards[t],
+                    episode.next_obs[t],
+                )
+        return ObservationTuple(
+            self.current_episode.obs[t],
+            self.current_episode.actions[t],
+            self.current_episode.rewards[t],
+            self.current_episode.next_obs[t],
+        )
+
+        raise IndexError(f"Index {idx} out of range (buffer size = {len(self)})")
+
+    def get_dataset(self) -> dict[str, Union[Any, Tensor]]:
+        """This is meant to be consistent with the dataset in d4RL. Note,
+        this is not ordered consistent with the visitation order"""
+
+        obs, next_obs, actions, rewards, terminated, truncated = [], [], [], [], [], []
+        infos = []
+
+        episode: Episode
+
+        for episode in self.min_heap:
+            obs.extend(episode.obs)
+            next_obs.extend(episode.next_obs)
+            actions.extend(episode.actions)
+            rewards.extend(episode.rewards)
+            terminated.extend(episode.terminated)
+            truncated.extend(episode.truncated)
+            infos.extend(episode.info)
+
+        return {
+            "observations": np.stack(obs),
+            "next_observations": np.stack(next_obs),
+            "actions": np.stack(actions),
+            "rewards": np.stack(rewards),
+            "terminated": np.stack(terminated),
+            "timouts": np.stack(truncated),  # timeouts are truncated
+            "infos": infos,
+        }

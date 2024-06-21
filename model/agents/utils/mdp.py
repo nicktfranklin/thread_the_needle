@@ -138,12 +138,14 @@ class TabularRewardEstimator:
         reward_dict = self.counts.get(state, None)
         if reward_dict is None:
             return np.nan
+        # TODO: add a default value for no reward seen
         r = np.array(list(self.counts[state].keys()))
         n = np.array(list(self.counts[state].values()))
         vs = r @ n / n.sum()
         return vs
 
     def sample(self, state):
+        # TODO add a default value for no reward seen
         r = np.array(list(self.counts[state].keys()))
         n = np.array(list(self.counts[state].values()))
         return choices(r, n / n.sum())[0]
