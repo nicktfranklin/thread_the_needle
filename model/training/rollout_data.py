@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from collections import namedtuple
+from collections import deque, namedtuple
 from heapq import heappop, heappush
 from typing import Any, Callable, Dict, List, Optional, Union
 
@@ -179,6 +179,17 @@ class PriorityReplayBuffer(BaseBuffer):
         self.min_heap = []
         self.aggregation = aggregation
 
+    def _store_episode(self, episode: Episode) -> None:
+        heappush(self.min_heap, episode)
+
+        if (
+            self.capacity is not None and self.buffer_size > self.capacity
+        ):  # remove an episode with low reward
+            episode_to_remove = heappop(self.min_heap)
+
+            # account for the change in buffer size
+            self.buffer_size -= len(episode_to_remove)
+
     def add(self, obs: ObsType, action: ActType, obs_tuple: OutcomeTuple):
 
         if self.current_episode is None:
@@ -190,7 +201,7 @@ class PriorityReplayBuffer(BaseBuffer):
 
         if self.current_episode.is_terminated:
             # add the new episode to the heap (only adds completed episodes)
-            heappush(self.min_heap, self.current_episode)
+            self._store_episode(self.current_episode)
 
             # we never want an empty episode
             self.current_episode = None
@@ -200,17 +211,9 @@ class PriorityReplayBuffer(BaseBuffer):
             # # capacity is exceeded
             # self.current_episode = Episode()
 
-        if self.capacity is not None and self.buffer_size > self.capacity:
-
-            # remove an episode with low reward
-            episode_to_remove = heappop(self.min_heap)
-
-            # account for the change in buffer size
-            self.buffer_size -= len(episode_to_remove)
-
     def reset_buffer(self):
         self.buffer_size = 0
-        self.current_episode = Episode()
+        self.current_episode = None
         self.min_heap = []
 
     def __len__(self) -> int:
@@ -269,3 +272,30 @@ class PriorityReplayBuffer(BaseBuffer):
             "timouts": np.stack(truncated),  # timeouts are truncated
             "infos": infos,
         }
+
+
+class EpisodeBuffer(PriorityReplayBuffer):
+
+    def __init__(self, capacity: int | None = None, **kwargs):
+        self.capacity = capacity
+        self.buffer_size = 0
+
+        self.current_episode = None
+
+        self.queue = deque()
+
+    def _store_episode(self, episode: Episode) -> None:
+        self.queue.append(episode)
+
+        if (
+            self.capacity is not None and self.buffer_size > self.capacity
+        ):  # remove an episode with low reward
+            episode_to_remove = self.queue.popleft()
+
+            # account for the change in buffer size
+            self.buffer_size -= len(episode_to_remove)
+
+    def reset_buffer(self):
+        self.buffer_size = 0
+        self.current_episode = Episode()
+        self.queue = deque()
