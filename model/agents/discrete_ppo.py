@@ -13,7 +13,7 @@ import model.state_inference.vae
 from model.agents.utils.base_agent import BaseAgent
 from model.state_inference.nets.mlp import MLP
 from model.state_inference.vae import StateVae
-from model.training.rollout_data import RolloutBuffer
+from model.training.rollout_data import EpisodeBuffer
 from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
@@ -90,35 +90,35 @@ class DiscretePPO(BaseAgent):
     ) -> tuple[ActType, None]:
         raise NotImplementedError()
 
-    def compute_rewards_to_go(self, buffer: RolloutBuffer) -> FloatTensor:
+    def compute_rewards_to_go(self, buffer: EpisodeBuffer) -> FloatTensor:
         raise NotImplementedError()
 
-    def compute_advantages(self, buffer: RolloutBuffer) -> FloatTensor:
+    def compute_advantages(self, buffer: EpisodeBuffer) -> FloatTensor:
         raise NotImplementedError()
 
-    def update_policy(self, buffer: RolloutBuffer, advantages: FloatTensor):
+    def update_policy(self, buffer: EpisodeBuffer, advantages: FloatTensor):
         raise NotImplementedError()
 
-    def update_value_function(self, buffer: RolloutBuffer, rewards_to_go: FloatTensor):
+    def update_value_function(self, buffer: EpisodeBuffer, rewards_to_go: FloatTensor):
         raise NotImplementedError()
 
     def policy_loss(
-        self, buffer: RolloutBuffer, advantages: FloatTensor
+        self, buffer: EpisodeBuffer, advantages: FloatTensor
     ) -> FloatTensor:
         raise NotImplementedError()
 
-    def entropy_loss(self, buffer: RolloutBuffer) -> FloatTensor:
+    def entropy_loss(self, buffer: EpisodeBuffer) -> FloatTensor:
         raise NotImplementedError()
 
     def value_loss(
-        self, buffer: RolloutBuffer, rewards_to_go: FloatTensor
+        self, buffer: EpisodeBuffer, rewards_to_go: FloatTensor
     ) -> FloatTensor:
         raise NotImplementedError()
 
-    def vae_loss(self, buffer: RolloutBuffer) -> FloatTensor:
+    def vae_loss(self, buffer: EpisodeBuffer) -> FloatTensor:
         raise NotImplementedError()
 
-    def update_from_batch(self, buffer: RolloutBuffer, progress_bar: bool = False):
+    def update_from_batch(self, buffer: EpisodeBuffer, progress_bar: bool = False):
         """
         Pseudoe code steps for the inner loop:
 
