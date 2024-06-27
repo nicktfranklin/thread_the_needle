@@ -145,7 +145,20 @@ class Episode:
         return len(self.obs)
 
     def __lt__(self, obj):
-        # used for the heap
+        """used for the min heap"""
+
+        if self.aggregation(self.rewards) == self.aggregation(obj.rewards):
+            # logic here is to use a metric of dispersion between the observations
+            # as a tie-breaker. I.e. episodes that have a lot of different state
+            # are better.  Variance of each dimension is a natural choice, as
+            # it is fast to calculate and will penalize the episodes that have
+            # cycles.
+
+            def mean_var(obs: List[np.array]):
+                return np.stack(obs).reshape(len(obs), -1).var(axis=0).mean()
+
+            return mean_var(self.obs) < mean_var(obj.obs)
+
         return self.aggregation(self.rewards) < self.aggregation(obj.rewards)
 
     @property
