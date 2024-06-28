@@ -273,6 +273,9 @@ class PriorityReplayBuffer(BaseBuffer):
             "infos": infos,
         }
 
+    def iterator(self):
+        return iter(self.min_heap)
+
 
 class EpisodeBuffer(PriorityReplayBuffer):
 
@@ -299,3 +302,6 @@ class EpisodeBuffer(PriorityReplayBuffer):
         self.buffer_size = 0
         self.current_episode = Episode()
         self.queue = deque()
+
+    def iterator(self):
+        return iter(self.queue)
