@@ -165,6 +165,20 @@ class Episode:
     def is_terminated(self) -> bool:
         return self.terminated[-1] or self.truncated[-1]
 
+    def get_dataset(self) -> dict[str, Union[Any, Tensor]]:
+        """This is meant to be consistent with the dataset in d4RL. Note,
+        this is not ordered consistent with the visitation order"""
+
+        return {
+            "observations": np.stack(self.obs),
+            "next_observations": np.stack(self.next_obs),
+            "actions": np.stack(self.actions),
+            "rewards": np.stack(self.rewards),
+            "terminated": np.stack(self.terminated),
+            "timouts": np.stack(self.truncated),  # timeouts are truncated
+            "infos": self.infos,
+        }
+
 
 class PriorityReplayBuffer(BaseBuffer):
     ### use a min queue
@@ -254,7 +268,7 @@ class PriorityReplayBuffer(BaseBuffer):
 
         episode: Episode
 
-        for episode in self.min_heap:
+        for episode in self.iterator:
             obs.extend(episode.obs)
             next_obs.extend(episode.next_obs)
             actions.extend(episode.actions)
