@@ -157,7 +157,7 @@ class StateVae(nn.Module):
         # sum loss over dimensions in each example, average over batch
         kl = kl_divergence(q, p).view(B, N).sum(1).mean()
 
-        return kl
+        return kl * self.beta
 
     def recontruction_loss(self, x: FloatTensor, x_hat: FloatTensor) -> FloatTensor:
         mse_loss = F.mse_loss(x_hat, x, reduction="none")
@@ -175,7 +175,7 @@ class StateVae(nn.Module):
         kl_loss = self.kl_loss(logits)
         recon_loss = self.recontruction_loss(target, y_hat)
 
-        return recon_loss + kl_loss * self.beta
+        return recon_loss + kl_loss
 
     def diagnose_loss(self, x):
         with torch.no_grad():
@@ -186,7 +186,7 @@ class StateVae(nn.Module):
             kl_loss = self.kl_loss(logits)
             recon_loss = self.recontruction_loss(x, x_hat)
 
-            loss = recon_loss - kl_loss * self.beta
+            loss = recon_loss - kl_loss
             print(
                 f"Total Loss: {loss:.4f}, Reconstruction: {recon_loss:.4f}, "
                 + f"KL-Loss: {kl_loss:.4f}, beta: {self.beta}"
