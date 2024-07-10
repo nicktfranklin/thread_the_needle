@@ -4,6 +4,7 @@ from heapq import heappop, heappush
 from typing import Any, Callable, Dict, List, Optional, Union
 
 import numpy as np
+import torch
 from torch import Tensor
 
 from task.gridworld import ActType, ObsType, OutcomeTuple
@@ -257,8 +258,6 @@ class PriorityReplayBuffer(BaseBuffer):
             self.current_episode.next_obs[t],
         )
 
-        raise IndexError(f"Index {idx} out of range (buffer size = {len(self)})")
-
     def get_dataset(self) -> dict[str, Union[Any, Tensor]]:
         """This is meant to be consistent with the dataset in d4RL. Note,
         this is not ordered consistent with the visitation order"""
@@ -296,9 +295,7 @@ class EpisodeBuffer(PriorityReplayBuffer):
     def __init__(self, capacity: int | None = None, **kwargs):
         self.capacity = capacity
         self.buffer_size = 0
-
         self.current_episode = None
-
         self.queue = deque()
 
     def _store_episode(self, episode: Episode) -> None:
@@ -319,3 +316,84 @@ class EpisodeBuffer(PriorityReplayBuffer):
 
     def iterator(self):
         return iter(self.queue)
+
+
+class PpoEpisode(Episode):
+    def __init__(self, aggregation: Callable | None = None):
+        self.actions = []
+        self.obs = []
+        self.next_obs = []
+        self.rewards = []
+        self.terminated = []
+        self.truncated = []
+        self.info = []
+        self.log_probs = []
+
+        # used in the priority buffer
+        self.total_reward = 0
+
+        self.aggregation = aggregation if aggregation else np.mean
+
+    def add(
+        self,
+        obs: ObsType,
+        action: ActType,
+        obs_tuple: OutcomeTuple,
+        log_probs: torch.Tensor,
+    ):
+
+        next_obs, reward, terminated, truncated, info = obs_tuple
+
+        self.actions.append(action)
+        self.obs.append(obs)
+        self.next_obs.append(next_obs)  # these are sucessor observations
+        self.rewards.append(reward)
+        self.terminated.append(terminated)
+        self.truncated.append(truncated)
+        self.info.append(info)
+        self.log_probs.append(log_probs)
+
+        self.total_reward += reward
+
+    def get_dataset(self) -> dict[str, Union[Any, Tensor]]:
+        """This is no longer consistent with the dataset in d4RL. Note,
+        this is not ordered consistent with the visitation order"""
+
+        return {
+            "observations": np.stack(self.obs),
+            "next_observations": np.stack(self.next_obs),
+            "actions": np.stack(self.actions),
+            "rewards": np.stack(self.rewards),
+            "terminated": np.stack(self.terminated),
+            "timouts": np.stack(self.truncated),  # timeouts are truncated
+            "infos": self.infos,
+            "log_probs": torch.stack(self.log_probs),
+        }
+
+
+class PpoBuffer(EpisodeBuffer):
+
+    def add(
+        self,
+        obs: ObsType,
+        action: ActType,
+        obs_tuple: OutcomeTuple,
+        log_probs: torch.Tensor,
+    ):
+
+        if self.current_episode is None:
+            self.current_episode = PpoEpisode(self.aggregation)
+
+        self.current_episode.add(obs, action, obs_tuple)
+        self.most_recent_episode = self.current_episode
+        self.buffer_size += 1
+
+        if self.current_episode.is_terminated:
+            # add the new episode to the heap (only adds completed episodes)
+            self._store_episode(self.current_episode)
+
+            # we never want an empty episode
+            self.current_episode = None
+
+    def get_dataset(self) -> Dict[str, Any | Tensor]:
+        raise NotImplementedError("Ppo Buffer doesnt support this method")
