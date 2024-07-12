@@ -328,6 +328,7 @@ class PpoEpisode(Episode):
         self.truncated = []
         self.info = []
         self.log_probs = []
+        self.embedding_logits = []
         self.obs_estimate = []
 
         # used in the priority buffer
@@ -341,6 +342,7 @@ class PpoEpisode(Episode):
         action: ActType,
         obs_tuple: OutcomeTuple,
         log_probs: torch.Tensor,
+        embedding_logits: torch.Tensor,
         obs_estimate: torch.Tensor,
     ):
 
@@ -354,9 +356,27 @@ class PpoEpisode(Episode):
         self.truncated.append(truncated)
         self.info.append(info)
         self.log_probs.append(log_probs)
+        self.embedding_logits.append(embedding_logits)
         self.obs_estimate.append(obs_estimate)
 
         self.total_reward += reward
+
+    def calculate_rewards_to_go(self, gamma: float = 0.95):
+        def rtg_recursive(rewards, gamma):
+
+            # base case 1
+            if len(rewards) == 0:
+                return []
+
+            # base case 2
+            rtg = rtg_recursive(rewards[1:], gamma)
+            if len(rtg) == 0:
+                return [rewards[0]]
+
+            # recursive case
+            return [rewards[0] + gamma * rtg[0]] + rtg
+
+        return rtg_recursive(self.rewards, gamma)
 
     def get_dataset(self) -> dict[str, Union[Any, Tensor]]:
         """This is no longer consistent with the dataset in d4RL. Note,
@@ -371,6 +391,7 @@ class PpoEpisode(Episode):
             "timouts": np.stack(self.truncated),  # timeouts are truncated
             "infos": self.infos,
             "log_probs": torch.stack(self.log_probs),
+            "embedding_logits": torch.stack(self.embedding_logits),
             "obs_estimate": torch.stack(self.obs_estimate),
         }
 
@@ -383,13 +404,16 @@ class PpoBuffer(EpisodeBuffer):
         action: ActType,
         obs_tuple: OutcomeTuple,
         log_probs: torch.Tensor,
+        embedding_logits: torch.Tensor,
         obs_estimate: torch.Tensor,
     ):
 
         if self.current_episode is None:
             self.current_episode = PpoEpisode(self.aggregation)
 
-        self.current_episode.add(obs, action, obs_tuple, log_probs, obs_estimate)
+        self.current_episode.add(
+            obs, action, obs_tuple, log_probs, embedding_logits, obs_estimate
+        )
         self.most_recent_episode = self.current_episode
         self.buffer_size += 1
 
