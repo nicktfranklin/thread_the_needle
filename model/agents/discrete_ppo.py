@@ -98,40 +98,43 @@ class DiscretePPO(BaseAgent):
     ) -> tuple[ActType, None]:
         raise NotImplementedError()
 
-    def compute_rewards_to_go(self, episode: Episode) -> FloatTensor:
-        return episode.compute_rewards_to_go(self.gamma)
+    def compute_rewards_to_go(self, rewards: np.array) -> FloatTensor:
+        """Compute the rewards to go for a given episode via recursion."""
 
-    def compute_advantages(
-        self, state_vec: FloatTensor, rtg: FloatTensor
-    ) -> FloatTensor:
-        V = self.critic(state_vec).detach()
+        # base case 1
+        if len(rewards) == 0:
+            return []
+
+        # base case 2
+        rtg = self.compute_rewards_to_go(rewards[1:])
+        if len(rtg) == 0:
+            return [rewards[0]]
+
+        # recursive case
+        return [rewards[0] + self.gamma * rtg[0]] + rtg
+
+    @torch.no_grad()
+    def compute_advantages(self, obs: FloatTensor, rtg: FloatTensor) -> FloatTensor:
+        """Compute the advantages for a given episode. Does not require gradients."""
+
+        # get the embeddings
+        (_, z), _ = self.embed(obs)
+
+        # get the value function
+        V = self.critic(z)
+
+        # advantages = rewards to go - value function
         A = rtg - V
 
         # normalize the advantages for stability
         A = (A - A.mean()) / (A.std() + 1e-10)
+
         return A
 
     def _configure_optimizers(self, **kwargs):
         raise NotImplementedError()
 
-    # def calculate_loss(self, episode: Episode):
-
-    #     batch = episode.get_dataset()
-
-    #     rewards_to_go = batch["rewards"].cumsum()[::-1]
-
-    #     # vae encode
-    #     (logits, z), y_hat = self.state_inference_model(batch[self.obs])
-
-    #     # vae-loss component
-    #     loss = self.state_inference_model.kl_loss(logits)
-    #     loss += self.state_inference_model.recontruction_loss(
-    #         batch["next_observations"], y_hat
-    #     )
-
-    #     # sample
-
-    def update_from_batch(self, buffer: EpisodeBuffer, progress_bar: bool = False):
+    def update_from_batch(self, buffer: PpoBuffer, progress_bar: bool = False):
         """
         Pseudo code steps for the inner loop:
 
@@ -143,22 +146,28 @@ class DiscretePPO(BaseAgent):
         self.train()
 
         for episode in buffer.iterator:
-            self.calculate_loss(episode)
 
-        ##### should all go in the loss function?
-        # # 1) Compute Rewards to go
-        # self.compute_rewards_to_go(buffer)
+            episode_data = episode.get_dataset()
 
-        # # 0) Embed
+            # 1) Compute Rewards to go
+            rewards_to_go = self.compute_rewards_to_go(episode_data["rewards"])
 
-        # # 2) Compute Advantage based on current value function
-        # advantages = self.compute_advantages(buffer)
+            # 2) Compute Advantage based on current value function
+            advantages = self.compute_advantages(
+                episode_data["observations"], rewards_to_go
+            )
 
-        # # 3) Update the policy by maximizing the PPO loss
-        # self.update_policy(buffer, advantages)
+            for _ in range(self.iterations_per_batch):
+                # all loss computations go here!
+                pass
 
-        # # 4) Update the value function by minimizing the value loss
-        # self.update_value_function(buffer)
+            # 3) Update the policy by maximizing the PPO loss
+            # self.update_policy(episode, advantages)
+
+            # 4) Update the value function by minimizing the value loss
+            # self.update_value_function(episode)
+
+            # 5) Update the state inference model
 
         raise NotImplementedError()
 
@@ -177,16 +186,21 @@ class DiscretePPO(BaseAgent):
         for _ in range(n_rollout_steps):
             self.num_timesteps += 1
 
-            # vae encode
-            (embedding_logits, z), y_hat = self.embed(obs)
+            # do not collect the gradient for the rollout
+            with torch.no_grad():
+                # vae encode
+                (embedding_logits, z), y_hat = self.embed(obs)
 
-            # policy
-            action, log_probs = self.get_action(z)
+                # policy
+                action, log_probs = self.get_action(z)
 
             outcome_tuple = task.step(action)
 
             rollout_buffer.add(
-                obs, action, outcome_tuple, log_probs, embedding_logits, y_hat
+                obs,
+                action,
+                outcome_tuple,
+                log_probs,
             )
 
             # get the next obs from the observation tuple
