@@ -133,8 +133,11 @@ class StateVae(nn.Module):
         z = self.reparameterize(logits)
         return logits, z
 
+    def flatten_z(self, z):
+        return z.view(-1, self.z_layers * self.z_dim)
+
     def decode(self, z):
-        return self.decoder(z.view(-1, self.z_layers * self.z_dim).float())
+        return self.decoder(self.flatten_z(z).float())
 
     def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
         logits, z = self.encode(x)
