@@ -355,23 +355,6 @@ class PpoEpisode(Episode):
 
         self.total_reward += reward
 
-    def calculate_rewards_to_go(self, gamma: float = 0.95):
-        def rtg_recursive(rewards, gamma):
-
-            # base case 1
-            if len(rewards) == 0:
-                return []
-
-            # base case 2
-            rtg = rtg_recursive(rewards[1:], gamma)
-            if len(rtg) == 0:
-                return [rewards[0]]
-
-            # recursive case
-            return [rewards[0] + gamma * rtg[0]] + rtg
-
-        return rtg_recursive(self.rewards, gamma)
-
     def get_dataset(self) -> dict[str, Union[Any, Tensor]]:
         """This is no longer consistent with the dataset in d4RL. Note,
         this is not ordered consistent with the visitation order"""
