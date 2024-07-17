@@ -20,7 +20,7 @@ from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
 
-class DiscretePPO(BaseAgent):
+class DiscretePPO(BaseAgent, torch.nn.Module):
 
     def __init__(
         self,
@@ -29,6 +29,7 @@ class DiscretePPO(BaseAgent):
         gamma: float = 0.95,
         lr: float = 0.005,
         clip: float = 0.2,
+        grad_clip: Optional[float] = 0.25,
         optim_kwargs: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
@@ -38,6 +39,9 @@ class DiscretePPO(BaseAgent):
         self.state_inference_model = state_inference_model.to(DEVICE)
         self.optim = self._configure_optimizers(optim_kwargs)
         self.gamma = gamma
+        self.clip = clip
+        self.lr = lr
+        self.grad_clip = grad_clip
 
         self.hash_vector = np.array(
             [
@@ -63,6 +67,16 @@ class DiscretePPO(BaseAgent):
             output_size=1,
         )
 
+    def _configure_optimizers(self, optim_kwargs: Optional[Dict[str, Any]] = None):
+        optim_kwargs = optim_kwargs if optim_kwargs else dict()
+        return torch.optim.AdamW(
+            list(self.policy.parameters())
+            + list(self.critic.parameters())
+            + list(self.state_inference_model.parameters()),
+            lr=self.lr,
+            **optim_kwargs,
+        )
+
     def _init_state(self):
         return None
 
@@ -75,7 +89,9 @@ class DiscretePPO(BaseAgent):
         return obs.permute(0, 3, 1, 2)
 
     def embed(self, obs: Tensor) -> tuple[Tensor, Tensor]:
-        return self.state_inference_model(self._preprocess_obs(obs))
+        (logits, z), y_hat = self.state_inference_model(self._preprocess_obs(obs))
+        z = self.state_inference_model.flatten_z(z)
+        return (logits, z), y_hat
 
     def get_action(self, state_vec: FloatTensor) -> tuple[int, FloatTensor]:
         logits = self.policy(state_vec)
@@ -131,10 +147,11 @@ class DiscretePPO(BaseAgent):
 
         return A
 
-    def _configure_optimizers(self, **kwargs):
-        raise NotImplementedError()
-
-    def update_from_batch(self, buffer: PpoBuffer, progress_bar: bool = False):
+    def update_from_batch(
+        self,
+        buffer: PpoBuffer,
+        progress_bar: bool = False,
+    ):
         """
         Pseudo code steps for the inner loop:
 
@@ -159,17 +176,40 @@ class DiscretePPO(BaseAgent):
 
             for _ in range(self.iterations_per_batch):
                 # all loss computations go here!
-                pass
+                self.optim.zero_grad()
 
-            # 3) Update the policy by maximizing the PPO loss
-            # self.update_policy(episode, advantages)
+                # embeddings -- this is required for all the losses
+                (logits, z), y_hat = self.embed(episode_data["observations"])
 
-            # 4) Update the value function by minimizing the value loss
-            # self.update_value_function(episode)
+                # ELBO loss of the VAE
+                # get the two components of the ELBO loss
+                kl_loss = self.kl_loss(logits)
+                recon_loss = self.recontruction_loss(
+                    episode_data["next_observations"], y_hat
+                )
+                vae_elbo = recon_loss + kl_loss
 
-            # 5) Update the state inference model
+                # ppo loss
+                # get the policy logits
+                _, cur_log_probs = self.get_action(z)
+                old_log_probs = episode_data["log_probs"]
 
-        raise NotImplementedError()
+                ratio = torch.exp(cur_log_probs - old_log_probs)
+                surr1 = ratio * advantages
+                surr2 = torch.clamp(ratio, 1 - self.clip, 1 + self.clip) * advantages
+                actor_loss = -torch.min(surr1, surr2).mean()
+
+                # value loss
+                V = self.critic(z)
+                value_loss = (rewards_to_go - V).pow(2).mean()
+
+                # overall loss
+                loss = actor_loss + value_loss + vae_elbo
+                loss.backward()
+
+                if self.grad_clip is not None:
+                    torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_clip)
+                self.optim.step()
 
     def collect_rollouts(
         self,
@@ -183,13 +223,14 @@ class DiscretePPO(BaseAgent):
 
         callback.on_rollout_start()
 
+        self.eval()
         for _ in range(n_rollout_steps):
             self.num_timesteps += 1
 
             # do not collect the gradient for the rollout
             with torch.no_grad():
                 # vae encode
-                (embedding_logits, z), y_hat = self.embed(obs)
+                (_, z), _ = self.embed(obs)
 
                 # policy
                 action, log_probs = self.get_action(z)
@@ -227,7 +268,6 @@ class DiscretePPO(BaseAgent):
         reset_buffer: bool = False,
         capacity: Optional[int] = None,
         callback: MaybeCallback = None,
-        buffer_class: str | None = None,
         buffer_kwargs: Dict[str, Any] | None = None,
         **kwargs,
     ):
