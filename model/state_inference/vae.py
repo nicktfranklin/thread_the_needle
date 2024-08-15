@@ -166,7 +166,7 @@ class StateVae(nn.Module):
     def kl_loss(self, logits):
         """
         Logits are shape (B, N, K), where B is the number of batches, N is the number
-            of categorical distributions and wheåre K is the number of classes
+            of categorical distributions and where K is the number of classes
         # returns kl-divergence, in nats
         """
         assert logits.ndim == 3
