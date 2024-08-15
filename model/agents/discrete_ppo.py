@@ -15,7 +15,7 @@ import model.state_inference.vae
 from model.agents.utils.base_agent import BaseAgent
 from model.state_inference.nets.mlp import MLP
 from model.state_inference.vae import StateVae
-from model.training.rollout_data import Episode, EpisodeBuffer, PpoBuffer
+from model.training.rollout_data import PpoBuffer
 from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
@@ -27,13 +27,27 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         env: gym.Env,
         state_inference_model: StateVae,
         gamma: float = 0.95,
-        lr: float = 0.005,
+        lr: float = 3e-4,
         clip: float = 0.2,
-        grad_clip: Optional[float] = 0.25,
+        grad_clip: Optional[float] = 0.5,
         optim_kwargs: Optional[Dict[str, Any]] = None,
+        n_epochs: int = 10,
     ) -> None:
         """
-        :param n_steps: The number of steps to run for each environment per update
+        Initializes the DiscretePPO agent.
+
+        Args:
+            env (gym.Env): The environment.
+            state_inference_model (StateVae): The state inference model.
+            gamma (float): Discount factor for future rewards. Defaults to 0.95.
+            lr (float): Learning rate for the optimizer. Defaults to 3e-4.
+            clip (float): Clipping parameter for the PPO loss. Defaults to 0.2.
+            grad_clip (float, optional): Gradient clipping parameter. Defaults to 0.5.
+            optim_kwargs (Dict[str, Any], optional): Additional keyword arguments for the optimizer. Defaults to None.
+            n_epochs (int, optional): Number of epochs for training per rollout batch. Defaults to 10.
+
+        Todo:
+            - Add more detailed description for each parameter.
         """
         super().__init__(env)
         self.state_inference_model = state_inference_model.to(DEVICE)
@@ -42,6 +56,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         self.clip = clip
         self.lr = lr
         self.grad_clip = grad_clip
+        self.n_epochs = n_epochs
 
         self.hash_vector = np.array(
             [
@@ -55,7 +70,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         )
         self.n_actions = env.action_space.n
 
-        self.policy = MLP(
+        self.actor = MLP(
             input_size=self.embedding_size,
             hidden_sizes=[self.embedding_size],
             output_size=self.n_actions,
@@ -70,7 +85,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
     def _configure_optimizers(self, optim_kwargs: Optional[Dict[str, Any]] = None):
         optim_kwargs = optim_kwargs if optim_kwargs else dict()
         return torch.optim.AdamW(
-            list(self.policy.parameters())
+            list(self.actor.parameters())
             + list(self.critic.parameters())
             + list(self.state_inference_model.parameters()),
             lr=self.lr,
@@ -88,13 +103,42 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
             return obs.permute(2, 0, 1)
         return obs.permute(0, 3, 1, 2)
 
+    def get_pmf(self, obs: FloatTensor) -> FloatTensor:
+        raise NotImplementedError
+
+    def predict(
+        self, obs: Tensor, state=None, episode_start=None, deterministic: bool = False
+    ) -> tuple[ActType, None]:
+        raise NotImplementedError()
+
+    def save(self, model_path: str):
+        """
+        Save the model parameters to a file.
+
+        :param model_path: The path to save the model.
+        """
+        torch.save(self.state_dict(), model_path)
+
     def embed(self, obs: Tensor) -> tuple[Tensor, Tensor]:
+        """
+        Embeds the given observation into a latent space representation.
+
+        Args:
+            obs (Tensor): The input observation tensor. It should have the shape (batch_size, H, W, C).
+
+        Returns:
+            tuple[Tensor, Tensor]: A tuple containing the logits tensor and the flattened latent representation tensor.
+            - logits (Tensor): The logits tensor with shape (batch_size, z_layers, z_dim).
+            - z (Tensor): The flattened latent representation tensor with shape (batch_size, latent_dim).
+
+        """
         (logits, z), y_hat = self.state_inference_model(self._preprocess_obs(obs))
         z = self.state_inference_model.flatten_z(z)
         return (logits, z), y_hat
 
     def get_action(self, state_vec: FloatTensor) -> tuple[int, FloatTensor]:
-        logits = self.policy(state_vec)
+        """returns action and log probability of the action. Log probability is needed for the PPO loss"""
+        logits = self.actor(state_vec)
 
         dist = torch.distributions.Categorical(logits=logits)
 
@@ -109,25 +153,20 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
     def get_value(self, state_vec: FloatTensor) -> FloatTensor:
         return self.critic(state_vec)
 
-    def predict(
-        self, obs: Tensor, state=None, episode_start=None, deterministic: bool = False
-    ) -> tuple[ActType, None]:
-        raise NotImplementedError()
-
-    def compute_rewards_to_go(self, rewards: np.array) -> FloatTensor:
+    def compute_rewards_to_go(self, rewards: torch.Tensor) -> torch.Tensor:
         """Compute the rewards to go for a given episode via recursion."""
 
         # base case 1
         if len(rewards) == 0:
-            return []
+            return torch.tensor([])
 
         # base case 2
         rtg = self.compute_rewards_to_go(rewards[1:])
         if len(rtg) == 0:
-            return [rewards[0]]
+            return torch.tensor([rewards[0.0]])
 
         # recursive case
-        return [rewards[0] + self.gamma * rtg[0]] + rtg
+        return torch.cat([torch.tensor([rewards[0] + self.gamma * rtg[0]]), rtg])
 
     @torch.no_grad()
     def compute_advantages(self, obs: FloatTensor, rtg: FloatTensor) -> FloatTensor:
@@ -174,7 +213,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
                 episode_data["observations"], rewards_to_go
             )
 
-            for _ in range(self.iterations_per_batch):
+            for _ in range(self.n_epochs):
                 # all loss computations go here!
                 self.optim.zero_grad()
 
@@ -182,29 +221,32 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
                 (logits, z), y_hat = self.embed(episode_data["observations"])
 
                 # ELBO loss of the VAE
-                # get the two components of the ELBO loss
-                kl_loss = self.kl_loss(logits)
-                recon_loss = self.recontruction_loss(
+                # get the two components of the ELBO loss. Note, the VAE predicts the next oberservation
+                kl_loss = self.state_inference_model.kl_loss(logits)
+                recon_loss = self.state_inference_model.recontruction_loss(
                     episode_data["next_observations"], y_hat
                 )
                 vae_elbo = recon_loss + kl_loss
 
                 # ppo loss
-                # get the policy logits
-                _, cur_log_probs = self.get_action(z)
+                # get the policy logits (shape: batch_size x n_actions)
+                action_logits = self.actor(z)
+                dist = torch.distributions.Categorical(logits=action_logits)
+                cur_log_probs = dist.log_prob(episode_data["actions"])
                 old_log_probs = episode_data["log_probs"]
 
                 ratio = torch.exp(cur_log_probs - old_log_probs)
                 surr1 = ratio * advantages
                 surr2 = torch.clamp(ratio, 1 - self.clip, 1 + self.clip) * advantages
-                actor_loss = -torch.min(surr1, surr2).mean()
+                actor_loss = (-torch.min(surr1, surr2)).mean()
 
                 # value loss
                 V = self.critic(z)
-                value_loss = (rewards_to_go - V).pow(2).mean()
+                value_loss = (rewards_to_go.view(-1) - V.view(-1)).pow(2).mean()
 
                 # overall loss
-                loss = actor_loss + value_loss + vae_elbo
+                ppo_loss = actor_loss + value_loss
+                loss = ppo_loss + vae_elbo
                 loss.backward()
 
                 if self.grad_clip is not None:
