@@ -110,7 +110,14 @@ class StateVae(nn.Module):
 
     def reparameterize(self, logits):
         """
-        Assume input shape of NxLxD
+        Reparameterize the input logits to obtain the latent variable tensor.
+
+        Args:
+            logits (Tensor): The input logits tensor of shape (batch_size, z_layers, z_dim).
+
+        Returns:
+            Tensor: The latent variable tensor of shape (batch_size, z_layers, z_dim).
+
         """
         assert logits.ndim == 3
         assert logits.shape[1] == self.z_layers
@@ -140,6 +147,18 @@ class StateVae(nn.Module):
         return self.decoder(self.flatten_z(z).float())
 
     def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
+        """
+        Forward pass of the Variational Autoencoder (VAE) model.
+
+        Args:
+            x (Tensor): The input tensor of shape (batch_size, input_dim).
+
+        Returns:
+            Tuple[Tensor, Tensor]: A tuple containing two tensors:
+                - logits (Tensor): The output logits tensor of shape (batch_size, z_layers, z_dim).
+                - z (Tensor): The latent variable tensor of shape (batch_size, z_layers, z_dim).
+
+        """
         logits, z = self.encode(x)
         x_hat = self.decode(z)
         return (logits, z), x_hat.view(x.shape)  # preserve original shape
