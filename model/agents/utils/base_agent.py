@@ -38,7 +38,7 @@ class BaseAgent(ABC):
         return BaseAlgorithm._wrap_env(self.task, verbose=False, monitor_wrapper=True)
 
     def get_task(self) -> gym.Env:
-        return self.task if isinstance(self.task, gym.Env) else self.envs[0]
+        return self.task if isinstance(self.task, gym.Env) else self.task[0]
 
     def save(self, model_path: str):
         """this is a stable baselines method we don't use"""

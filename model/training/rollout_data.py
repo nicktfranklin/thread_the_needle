@@ -366,7 +366,7 @@ class PpoEpisode(Episode):
             "rewards": np.stack(self.rewards),
             "terminated": np.stack(self.terminated),
             "timouts": np.stack(self.truncated),  # timeouts are truncated
-            "infos": self.infos,
+            "infos": self.info,
             "log_probs": torch.stack(self.log_probs),
         }
 
@@ -382,7 +382,7 @@ class PpoBuffer(EpisodeBuffer):
     ):
 
         if self.current_episode is None:
-            self.current_episode = PpoEpisode(self.aggregation)
+            self.current_episode = PpoEpisode()
 
         self.current_episode.add(obs, action, obs_tuple, log_probs)
         self.most_recent_episode = self.current_episode

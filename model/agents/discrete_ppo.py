@@ -15,7 +15,7 @@ import model.state_inference.vae
 from model.agents.utils.base_agent import BaseAgent
 from model.state_inference.nets.mlp import MLP
 from model.state_inference.vae import StateVae
-from model.training.rollout_data import PpoBuffer
+from model.training.rollout_data import BaseBuffer, PpoBuffer
 from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
@@ -28,6 +28,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         state_inference_model: StateVae,
         gamma: float = 0.95,
         lr: float = 3e-4,
+        n_steps: int = 2048,
         clip: float = 0.2,
         grad_clip: Optional[float] = 0.5,
         optim_kwargs: Optional[Dict[str, Any]] = None,
@@ -51,12 +52,12 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         """
         super().__init__(env)
         self.state_inference_model = state_inference_model.to(DEVICE)
-        self.optim = self._configure_optimizers(optim_kwargs)
         self.gamma = gamma
         self.clip = clip
         self.lr = lr
         self.grad_clip = grad_clip
         self.n_epochs = n_epochs
+        self.n_steps = n_steps
 
         self.hash_vector = np.array(
             [
@@ -81,6 +82,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
             hidden_sizes=[self.embedding_size],
             output_size=1,
         )
+        self.optim = self._configure_optimizers(optim_kwargs)
 
     def _configure_optimizers(self, optim_kwargs: Optional[Dict[str, Any]] = None):
         optim_kwargs = optim_kwargs if optim_kwargs else dict()
@@ -94,6 +96,10 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
 
     def _init_state(self):
         return None
+
+    @property
+    def device(self):
+        return next(self.parameters()).device
 
     def _preprocess_obs(self, obs: Tensor) -> Tensor:
         # take in 8bit with shape NxHxWxC
@@ -138,6 +144,9 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
 
     def get_action(self, state_vec: FloatTensor) -> tuple[int, FloatTensor]:
         """returns action and log probability of the action. Log probability is needed for the PPO loss"""
+        assert isinstance(state_vec, torch.Tensor)
+        assert state_vec.dtype == torch.float32
+
         logits = self.actor(state_vec)
 
         dist = torch.distributions.Categorical(logits=logits)
@@ -201,7 +210,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
 
         self.train()
 
-        for episode in buffer.iterator:
+        for episode in buffer.iterator():
 
             episode_data = episode.get_dataset()
 
@@ -242,7 +251,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
 
                 # value loss
                 V = self.critic(z)
-                value_loss = (rewards_to_go.view(-1) - V.view(-1)).pow(2).mean()
+                value_loss = (rewards_to_go.view(-1).float() - V.view(-1)).pow(2).mean()
 
                 # overall loss
                 ppo_loss = actor_loss + value_loss
@@ -272,10 +281,10 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
             # do not collect the gradient for the rollout
             with torch.no_grad():
                 # vae encode
-                (_, z), _ = self.embed(obs)
+                (_, z), _ = self.embed(torch.from_numpy(obs).float().to(self.device))
 
                 # policy
-                action, log_probs = self.get_action(z)
+                action, log_probs = self.get_action(z.float())
 
             outcome_tuple = task.step(action)
 
@@ -313,18 +322,18 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         buffer_kwargs: Dict[str, Any] | None = None,
         **kwargs,
     ):
-
         buffer_kwargs = buffer_kwargs if buffer_kwargs else dict()
+        capacity = capacity if capacity else self.n_steps
         self.rollout_buffer = PpoBuffer(capacity=capacity, **buffer_kwargs)
 
         callback = self._init_callback(callback, progress_bar=progress_bar)
         callback.on_training_start(locals(), globals())
-
         # alternate between collecting rollouts and batch updates
         n_rollout_steps = self.n_steps if self.n_steps is not None else total_timesteps
 
         self.num_timesteps = 0
         while self.num_timesteps < total_timesteps:
+
             if reset_buffer:
                 self.rollout_buffer.reset_buffer()
 
@@ -369,17 +378,24 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
             else:
                 kwargs.append(param.name)
 
-        print(args, kwargs)
-
         state_inference_kwargs = {
             k: v
             for k, v in agent_config["state_inference_model"].items()
             if k in args + kwargs
         }
-        print(state_inference_kwargs)
         return cls(task, vae, **state_inference_kwargs)
 
     def get_graph_laplacian(
         self, normalized: bool = True
     ) -> tuple[np.ndarray, Dict[Hashable, int]]:
         return self.transition_estimator.get_graph_laplacian(normalized=normalized)
+
+    def collect_buffer(
+        self,
+        task: gym.Env,
+        buffer: BaseBuffer,
+        n: int,
+        epsilon: float = 0.05,
+        start_state: int | None = None,
+    ):
+        raise NotImplementedError
