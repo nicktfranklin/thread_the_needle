@@ -1,6 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, Optional, Union
 
 import gymnasium as gym
 import numpy as np
@@ -27,6 +27,29 @@ class BaseAgent(ABC):
         super().__init__()
         self.task = task if isinstance(task, gym.Env) else task.envs[0]
         self.num_timesteps = 0
+
+    def collocate(
+        self,
+        x: (
+            Union[torch.tensor, np.ndarray]
+            | Dict[str, Union[torch.tensor, np.ndarray, Any]]
+            | Any
+        ),
+    ) -> torch.tensor:
+        if isinstance(x, dict):
+            return {k: self.collocate(v) for k, v in x.items()}
+
+        if isinstance(x, np.ndarray):
+            if x.dtype == np.float64:
+                x = x.astype(np.float32)
+            return torch.tensor(x, device=self.device)
+
+        if torch.is_tensor(x):
+            if x.dtype == torch.float64:
+                x = x.float()
+            return x.to(self.device)
+
+        return x
 
     @abstractmethod
     def get_pmf(self, x: FloatTensor) -> FloatTensor: ...
