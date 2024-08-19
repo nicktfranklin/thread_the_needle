@@ -21,6 +21,7 @@ from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
 
 class DiscretePPO(BaseAgent, torch.nn.Module):
+    minimum_episode_length = 2
 
     def __init__(
         self,
@@ -104,7 +105,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
     def _preprocess_obs(self, obs: Tensor) -> Tensor:
         # take in 8bit with shape NxHxWxC
         # convert to float with shape NxCxHxW
-        obs = convert_8bit_to_float(obs)
+        obs = convert_8bit_to_float(self.collocate(obs))
         if obs.ndim == 3:
             return obs.permute(2, 0, 1)
         return obs.permute(0, 3, 1, 2)
@@ -162,7 +163,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
     def get_value(self, state_vec: FloatTensor) -> FloatTensor:
         return self.critic(state_vec)
 
-    def compute_rewards_to_go(self, rewards: torch.Tensor) -> torch.Tensor:
+    def compute_rewards_to_go(self, rewards: np.ndarray | torch.Tensor) -> torch.Tensor:
         """Compute the rewards to go for a given episode via recursion."""
 
         # base case 1
@@ -172,7 +173,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         # base case 2
         rtg = self.compute_rewards_to_go(rewards[1:])
         if len(rtg) == 0:
-            return torch.tensor([rewards[0.0]])
+            return torch.tensor([rewards[0]])
 
         # recursive case
         return torch.cat([torch.tensor([rewards[0] + self.gamma * rtg[0]]), rtg])
@@ -180,6 +181,8 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
     @torch.no_grad()
     def compute_advantages(self, obs: FloatTensor, rtg: FloatTensor) -> FloatTensor:
         """Compute the advantages for a given episode. Does not require gradients."""
+        assert isinstance(obs, torch.Tensor)
+        assert isinstance(rtg, torch.Tensor)
 
         # get the embeddings
         (_, z), _ = self.embed(obs)
@@ -213,9 +216,17 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         for episode in buffer.iterator():
 
             episode_data = episode.get_dataset()
+            episode_data = self.collocate(episode_data)
+            if episode_data["observations"].shape[0] < self.minimum_episode_length:
+                print(
+                    f"Skipping episode with length {episode_data['observations'].shape[0]}"
+                )
+                continue
 
             # 1) Compute Rewards to go
-            rewards_to_go = self.compute_rewards_to_go(episode_data["rewards"])
+            rewards_to_go = self.collocate(
+                self.compute_rewards_to_go(episode_data["rewards"])
+            )
 
             # 2) Compute Advantage based on current value function
             advantages = self.compute_advantages(
@@ -227,13 +238,14 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
                 self.optim.zero_grad()
 
                 # embeddings -- this is required for all the losses
-                (logits, z), y_hat = self.embed(episode_data["observations"])
+                (logits, z), y_hat = self.embed(episode_data["observations"].float())
 
                 # ELBO loss of the VAE
                 # get the two components of the ELBO loss. Note, the VAE predicts the next oberservation
                 kl_loss = self.state_inference_model.kl_loss(logits)
                 recon_loss = self.state_inference_model.recontruction_loss(
-                    episode_data["next_observations"], y_hat
+                    self._preprocess_obs(episode_data["next_observations"]),
+                    y_hat,
                 )
                 vae_elbo = recon_loss + kl_loss
 
