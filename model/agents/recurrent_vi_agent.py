@@ -71,7 +71,7 @@ class RecurrentViAgent(ValueIterationAgent):
         obs = convert_8bit_to_float(obs)
         return obs
 
-    def _get_state_hashkey(self, obs: Tensor):
+    def get_state_hashkey(self, obs: Tensor):
         """
         obs: (L, B, C, H, W) or (L, C, H, W) or (C, H, W)
 
@@ -94,8 +94,8 @@ class RecurrentViAgent(ValueIterationAgent):
 
         # pass the obseration tuple through the state-inference network
         next_obs, reward, _, _, _ = outcome_tuple
-        s = self._get_state_hashkey(obs)[0]
-        sp = self._get_state_hashkey(next_obs)[0]
+        s = self.get_state_hashkey(obs)[0]
+        sp = self.get_state_hashkey(next_obs)[0]
 
         # update the model
         self.transition_estimator.update(s, a, sp)
@@ -111,7 +111,7 @@ class RecurrentViAgent(ValueIterationAgent):
 
             obs, a, _, _ = rollout_buffer.get_obs(idx)
 
-            s = self._get_state_hashkey(obs)[0]
+            s = self.get_state_hashkey(obs)[0]
 
             # draw r, sp from the model
             sp = self.transition_estimator.sample(s, a)
@@ -121,7 +121,7 @@ class RecurrentViAgent(ValueIterationAgent):
 
     def get_policy(self, obs: Tensor):
         raise NotImplementedError()
-        s = self._get_state_hashkey(obs)
+        s = self.get_state_hashkey(obs)
         p = self.policy.get_distribution(s)
         return p
 
@@ -136,7 +136,7 @@ class RecurrentViAgent(ValueIterationAgent):
         if not deterministic and np.random.rand() < self.policy.epsilon:
             return np.random.randint(self.policy.n_actions), None
 
-        s = self._get_state_hashkey(obs)
+        s = self.get_state_hashkey(obs)
         p = self.policy.get_distribution(s)
         return p.get_actions(deterministic=deterministic).item(), None
 
@@ -193,7 +193,7 @@ class RecurrentViAgent(ValueIterationAgent):
         s, sp, a, r = [], [], [], []
         for batch in recurrent_dataset:
 
-            s_seq = self._get_state_hashkey(batch["obs"])
+            s_seq = self.get_state_hashkey(batch["obs"])
             print(s_seq)
 
             # to avoid double counting, we only take a single sars tuple per batch

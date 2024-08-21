@@ -106,7 +106,7 @@ class ValueIterationAgent(BaseAgent):
             return obs.permute(2, 0, 1)
         return obs.permute(0, 3, 1, 2)
 
-    def _get_state_hashkey(self, obs: Tensor):
+    def get_state_hashkey(self, obs: Tensor):
         obs = obs if isinstance(obs, Tensor) else torch.tensor(obs)
         obs_ = self._preprocess_obs(obs)
         with torch.no_grad():
@@ -127,8 +127,8 @@ class ValueIterationAgent(BaseAgent):
 
         # pass the obseration tuple through the state-inference network
         next_obs, r, _, _, _ = outcome_tuple
-        s = self._get_state_hashkey(obs)[0]
-        sp = self._get_state_hashkey(next_obs)[0]
+        s = self.get_state_hashkey(obs)[0]
+        sp = self.get_state_hashkey(next_obs)[0]
 
         # update the model
         self.transition_estimator.update(s, a, sp)
@@ -144,7 +144,7 @@ class ValueIterationAgent(BaseAgent):
 
             obs, a, _, _ = rollout_buffer.get_obs(idx)
 
-            s = self._get_state_hashkey(obs)[0]
+            s = self.get_state_hashkey(obs)[0]
 
             # draw r, sp from the model
             sp = self.transition_estimator.sample(s, a)
@@ -153,7 +153,7 @@ class ValueIterationAgent(BaseAgent):
             self.update_qvalues(s, a, r, sp)
 
     def get_policy(self, obs: Tensor):
-        s = self._get_state_hashkey(obs)
+        s = self.get_state_hashkey(obs)
         p = self.policy.get_distribution(s)
         return p
 
@@ -166,7 +166,7 @@ class ValueIterationAgent(BaseAgent):
         if not deterministic and np.random.rand() < self.policy.epsilon:
             return np.random.randint(self.policy.n_actions), None
 
-        s = self._get_state_hashkey(obs)
+        s = self.get_state_hashkey(obs)
         p = self.policy.get_distribution(s)
         return p.get_actions(deterministic=deterministic).item(), None
 
@@ -247,8 +247,8 @@ class ValueIterationAgent(BaseAgent):
         )
         s, sp, a, r = [], [], [], []
         for batch in dataloader:
-            s.append(self._get_state_hashkey(batch["observations"]))
-            sp.append(self._get_state_hashkey(batch["next_observations"]))
+            s.append(self.get_state_hashkey(batch["observations"]))
+            sp.append(self.get_state_hashkey(batch["next_observations"]))
             a.append(batch["actions"])
             r.append(batch["rewards"])
         s = np.concatenate(s)
