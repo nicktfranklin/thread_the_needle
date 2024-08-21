@@ -52,7 +52,7 @@ class BaseAgent(ABC):
         return x
 
     @abstractmethod
-    def get_pmf(self, x: FloatTensor) -> FloatTensor: ...
+    def get_pmf(self, x: FloatTensor) -> np.ndarray: ...
 
     def get_env(self) -> VecEnv:
         ## used for compatibility with stablebaseline code, use with caution
