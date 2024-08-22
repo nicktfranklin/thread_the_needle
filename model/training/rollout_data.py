@@ -177,7 +177,7 @@ class Episode:
             "rewards": np.stack(self.rewards),
             "terminated": np.stack(self.terminated),
             "timouts": np.stack(self.truncated),  # timeouts are truncated
-            "infos": self.infos,
+            "infos": self.info,
         }
 
 
@@ -267,7 +267,7 @@ class PriorityReplayBuffer(BaseBuffer):
 
         episode: Episode
 
-        for episode in self.iterator:
+        for episode in self.iterator():
             obs.extend(episode.obs)
             next_obs.extend(episode.next_obs)
             actions.extend(episode.actions)

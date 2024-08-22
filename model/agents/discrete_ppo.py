@@ -110,8 +110,21 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
             return obs.permute(2, 0, 1)
         return obs.permute(0, 3, 1, 2)
 
-    def get_pmf(self, obs: FloatTensor) -> FloatTensor:
-        raise NotImplementedError
+    @torch.no_grad()
+    def get_pmf(self, obs: FloatTensor) -> np.ndarray:
+        (logits, z), _ = self.embed(obs)
+
+        logits = self.actor(z)
+        dist = torch.distributions.Categorical(logits=logits)
+
+        return dist.probs.detach().cpu().numpy()
+
+    def get_state_hashkey(self, obs: Tensor) -> Hashable:
+        obs = obs if isinstance(obs, Tensor) else torch.tensor(obs)
+        obs_ = self._preprocess_obs(obs)
+        with torch.no_grad():
+            z = self.state_inference_model.get_state(obs_)
+        return z.dot(self.hash_vector)
 
     def predict(
         self, obs: Tensor, state=None, episode_start=None, deterministic: bool = False
@@ -396,18 +409,3 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
             if k in args + kwargs
         }
         return cls(task, vae, **state_inference_kwargs)
-
-    def get_graph_laplacian(
-        self, normalized: bool = True
-    ) -> tuple[np.ndarray, Dict[Hashable, int]]:
-        return self.transition_estimator.get_graph_laplacian(normalized=normalized)
-
-    def collect_buffer(
-        self,
-        task: gym.Env,
-        buffer: BaseBuffer,
-        n: int,
-        epsilon: float = 0.05,
-        start_state: int | None = None,
-    ):
-        raise NotImplementedError
