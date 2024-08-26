@@ -1,3 +1,4 @@
+from .discrete_ppo import DiscretePPO
 from .oracle import Oracle
 from .ppo import PPO
 from .recurrent_vi_agent import RecurrentViAgent

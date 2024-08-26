@@ -1,5 +1,6 @@
 import inspect
 import logging
+import os
 from typing import Any, Dict, Hashable, Iterable, Optional
 
 import gymnasium as gym
@@ -10,6 +11,7 @@ from stable_baselines3.common.type_aliases import MaybeCallback
 
 # from stable_baselines3.common.policies import ActorCriticPolicy
 from torch import FloatTensor, Tensor
+from torch.utils.data import DataLoader
 
 import model.state_inference.vae
 from model.agents.utils.base_agent import BaseAgent
@@ -18,6 +20,29 @@ from model.state_inference.vae import StateVae
 from model.training.rollout_data import BaseBuffer, PpoBuffer
 from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
+
+
+class PpoDataset(torch.utils.data.Dataset):
+    def __init__(self, data):
+        self.data = data
+
+    def __getitem__(self, idx):
+        return {k: v[idx] for k, v in self.data.items()}
+
+    def __len__(self):
+        return len(self.data["observations"])
+
+    def collate_fn(batch):
+        return {
+            "observations": torch.stack([item["observations"] for item in batch]),
+            "next_observations": torch.stack(
+                [item["next_observations"] for item in batch]
+            ),
+            "rewards_to_go": torch.cat([item["rewards_to_go"] for item in batch]),
+            "advantages": torch.cat([item["advantages"] for item in batch]),
+            "actions": torch.cat([item["actions"] for item in batch]),
+            "log_probs": torch.cat([item["log_probs"] for item in batch]),
+        }
 
 
 class DiscretePPO(BaseAgent, torch.nn.Module):
@@ -34,6 +59,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         grad_clip: Optional[float] = 0.5,
         optim_kwargs: Optional[Dict[str, Any]] = None,
         n_epochs: int = 10,
+        batch_size: int = 64,
     ) -> None:
         """
         Initializes the DiscretePPO agent.
@@ -59,6 +85,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         self.grad_clip = grad_clip
         self.n_epochs = n_epochs
         self.n_steps = n_steps
+        self.batch_size = batch_size
 
         self.hash_vector = np.array(
             [
@@ -204,12 +231,59 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         V = self.critic(z)
 
         # advantages = rewards to go - value function
-        A = rtg - V
+        A = rtg.view(-1) - V.view(-1)
 
         # normalize the advantages for stability
         A = (A - A.mean()) / (A.std() + 1e-10)
 
         return A
+
+    def make_dataset(self, buffer: PpoBuffer) -> dict[str, torch.Tensor]:
+        observations_list = []
+        next_observations_list = []
+        rewards_to_go_list = []
+        advantages_list = []
+        actions_list = []
+        log_probs_list = []
+
+        for episode in buffer.iterator():
+            episode_data = episode.get_dataset()
+            episode_data = self.collocate(episode_data)
+
+            # 1) Compute Rewards to go
+            rewards_to_go = self.collocate(
+                self.compute_rewards_to_go(episode_data["rewards"])
+            )
+
+            # 2) Compute Advantage based on current value function
+            advantages = self.compute_advantages(
+                episode_data["observations"], rewards_to_go
+            )
+
+            observations_list.append(episode_data["observations"])
+            next_observations_list.append(episode_data["next_observations"])
+            rewards_to_go_list.append(rewards_to_go)
+            advantages_list.append(advantages)
+            actions_list.append(episode_data["actions"])
+            log_probs_list.append(episode_data["log_probs"])
+
+        observations = torch.cat(observations_list, dim=0).cpu()
+        next_observations = torch.cat(next_observations_list, dim=0).cpu()
+        rewards_to_go = torch.cat(rewards_to_go_list, dim=0).cpu()
+        advantages = torch.cat(advantages_list, dim=0).cpu()
+        actions = torch.cat(actions_list, dim=0).cpu()
+        log_probs = torch.cat(log_probs_list, dim=0).cpu()
+
+        return PpoDataset(
+            {
+                "observations": observations,
+                "next_observations": next_observations,
+                "rewards_to_go": rewards_to_go,
+                "advantages": advantages,
+                "actions": actions,
+                "log_probs": log_probs,
+            }
+        )
 
     def update_from_batch(
         self,
@@ -226,38 +300,33 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
 
         self.train()
 
-        for episode in buffer.iterator():
+        datatset = self.make_dataset(buffer)
+        n_cpus = os.cpu_count()
+        dataloader = DataLoader(
+            datatset, batch_size=self.batch_size, shuffle=True, num_workers=n_cpus
+        )
 
-            episode_data = episode.get_dataset()
-            episode_data = self.collocate(episode_data)
-            if episode_data["observations"].shape[0] < self.minimum_episode_length:
-                print(
-                    f"Skipping episode with length {episode_data['observations'].shape[0]}"
-                )
-                continue
+        for _ in range(self.n_epochs):
+            for batch in dataloader:
+                batch = self.collocate(batch)
+                observations = batch["observations"]
+                next_observations = batch["next_observations"]
+                rewards_to_go = batch["rewards_to_go"]
+                advantages = batch["advantages"]
+                actions = batch["actions"]
+                log_probs = batch["log_probs"]
 
-            # 1) Compute Rewards to go
-            rewards_to_go = self.collocate(
-                self.compute_rewards_to_go(episode_data["rewards"])
-            )
-
-            # 2) Compute Advantage based on current value function
-            advantages = self.compute_advantages(
-                episode_data["observations"], rewards_to_go
-            )
-
-            for _ in range(self.n_epochs):
                 # all loss computations go here!
                 self.optim.zero_grad()
 
                 # embeddings -- this is required for all the losses
-                (logits, z), y_hat = self.embed(episode_data["observations"].float())
+                (logits, z), y_hat = self.embed(observations.float())
 
                 # ELBO loss of the VAE
                 # get the two components of the ELBO loss. Note, the VAE predicts the next oberservation
                 kl_loss = self.state_inference_model.kl_loss(logits)
                 recon_loss = self.state_inference_model.recontruction_loss(
-                    self._preprocess_obs(episode_data["next_observations"]),
+                    self._preprocess_obs(next_observations),
                     y_hat,
                 )
                 vae_elbo = recon_loss + kl_loss
@@ -266,8 +335,8 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
                 # get the policy logits (shape: batch_size x n_actions)
                 action_logits = self.actor(z)
                 dist = torch.distributions.Categorical(logits=action_logits)
-                cur_log_probs = dist.log_prob(episode_data["actions"])
-                old_log_probs = episode_data["log_probs"]
+                cur_log_probs = dist.log_prob(actions)
+                old_log_probs = log_probs
 
                 ratio = torch.exp(cur_log_probs - old_log_probs)
                 surr1 = ratio * advantages
