@@ -128,7 +128,7 @@ def main():
 
     rollout_buffer = Buffer()
     rollout_buffer = ppo.collect_buffer(
-        ppo.envs, rollout_buffer, n=1000, epsilon=config.epsilon
+        ppo.task, rollout_buffer, n=1000, epsilon=config.epsilon
     )
 
     with open(f"{config.results_dir}discrete_ppo_rollouts.pkl", "wb") as f:

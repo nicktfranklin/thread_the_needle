@@ -39,6 +39,8 @@ class BaseAgent(ABC):
     ) -> torch.tensor:
         if isinstance(x, dict):
             return {k: self.collocate(v) for k, v in x.items()}
+        elif isinstance(x, list):
+            return [self.collocate(v) for v in x]
 
         if isinstance(x, np.ndarray):
             if x.dtype == np.float64:
@@ -296,3 +298,9 @@ class BaseAgent(ABC):
             transition_estimator.update(s, a, sp)
 
         return transition_estimator.get_graph_laplacian(normalized=normalized)
+
+    def dehash_states(
+        self, rollout_buffer: BaseBuffer, gamma: float = 0.99
+    ) -> np.ndarray:
+        """this require a defined value model or estimator"""
+        raise NotImplementedError

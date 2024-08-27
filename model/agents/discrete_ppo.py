@@ -1,11 +1,12 @@
 import inspect
 import logging
 import os
-from typing import Any, Dict, Hashable, Iterable, Optional
+from typing import Any, Dict, Hashable, Iterable, List, Optional
 
 import gymnasium as gym
 import numpy as np
 import torch
+import torch.nn.functional as F
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.type_aliases import MaybeCallback
 
@@ -152,6 +153,19 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         with torch.no_grad():
             z = self.state_inference_model.get_state(obs_)
         return z.dot(self.hash_vector)
+
+    def dehash_states(self, hashed_states: int | List[int]) -> torch.LongTensor:
+
+        if isinstance(hashed_states, List):
+            return torch.stack([self.dehash_states(h) for h in hashed_states])
+
+        assert isinstance(hashed_states, (int, np.integer, torch.int))
+
+        z = torch.zeros(self.state_inference_model.z_layers, dtype=torch.long)
+        for ii in range(self.state_inference_model.z_layers - 1, -1, -1):
+            z[ii] = hashed_states // self.hash_vector[ii]
+            hashed_states = hashed_states % self.hash_vector[ii]
+        return F.one_hot(z, self.state_inference_model.z_dim)
 
     def predict(
         self, obs: Tensor, state=None, episode_start=None, deterministic: bool = False
@@ -324,12 +338,16 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
 
                 # ELBO loss of the VAE
                 # get the two components of the ELBO loss. Note, the VAE predicts the next oberservation
-                kl_loss = self.state_inference_model.kl_loss(logits)
-                recon_loss = self.state_inference_model.recontruction_loss(
-                    self._preprocess_obs(next_observations),
-                    y_hat,
-                )
-                vae_elbo = recon_loss + kl_loss
+                try:
+                    kl_loss = self.state_inference_model.kl_loss(logits)
+                    recon_loss = self.state_inference_model.recontruction_loss(
+                        self._preprocess_obs(next_observations),
+                        y_hat,
+                    )
+                    vae_elbo = recon_loss + kl_loss
+                except Exception as e:
+                    print(logits)
+                    raise e
 
                 # ppo loss
                 # get the policy logits (shape: batch_size x n_actions)
@@ -351,6 +369,18 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
                 ppo_loss = actor_loss + value_loss
                 loss = ppo_loss + vae_elbo
                 loss.backward()
+
+                if torch.isnan(loss):
+                    print("Loss contains NaN values")
+                    print("PPO Loss:", ppo_loss.item())
+                    print("VAE ELBO Loss:", vae_elbo.item())
+                    print("Actor Loss:", actor_loss.item())
+                    print("Value Loss:", value_loss.item())
+                    print("KL Loss:", kl_loss.item())
+                    print("Reconstruction Loss:", recon_loss.item())
+                    raise Exception("Loss contains NaN values")
+                else:
+                    self.optim.step()
 
                 if self.grad_clip is not None:
                     torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_clip)
@@ -478,3 +508,12 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
             if k in args + kwargs
         }
         return cls(task, vae, **state_inference_kwargs)
+
+    def get_state_values(self, state_key: Dict[int, int]) -> Dict[int, float]:
+
+        z = self.dehash_states(list(state_key.keys()))
+        z = self.collocate(z).float().flatten(start_dim=1)
+
+        V = self.critic(z).detach().cpu().numpy()
+
+        return {z0: v.item() for z0, v in zip(state_key.keys(), V)}
