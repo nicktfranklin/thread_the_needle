@@ -24,9 +24,7 @@ class MLP(nn.Module):
             self.net.extend(
                 [
                     nn.Linear(d_in, d_out),
-                    nn.LayerNorm(
-                        d_out
-                    ),  # use LayerNorm instead of BatchNorm to avoid batch size dependency
+                    nn.BatchNorm1d(d_out),
                     nn.ELU(),
                 ]
             )

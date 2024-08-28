@@ -237,12 +237,17 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         """Compute the advantages for a given episode. Does not require gradients."""
         assert isinstance(obs, torch.Tensor)
         assert isinstance(rtg, torch.Tensor)
+        self.eval()
+
+        # Ensure the inputs are of type float32
+        obs = obs.float()
+        rtg = rtg.float()
 
         # get the embeddings
         (_, z), _ = self.embed(obs)
 
         # get the value function
-        V = self.critic(z)
+        V = self.critic(z.float())
 
         # advantages = rewards to go - value function
         A = rtg.view(-1) - V.view(-1)
@@ -287,6 +292,13 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         advantages = torch.cat(advantages_list, dim=0).cpu()
         actions = torch.cat(actions_list, dim=0).cpu()
         log_probs = torch.cat(log_probs_list, dim=0).cpu()
+
+        print(
+            observations.shape,
+            self.batch_size,
+            observations.shape[0] // self.batch_size,
+            observations.shape[0] % self.batch_size,
+        )
 
         return PpoDataset(
             {
@@ -334,7 +346,8 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
                 self.optim.zero_grad()
 
                 # embeddings -- this is required for all the losses
-                (logits, z), y_hat = self.embed(observations.float())
+                (logits, z), y_hat = self.embed(observations)
+                z = z.float()
 
                 # ELBO loss of the VAE
                 # get the two components of the ELBO loss. Note, the VAE predicts the next oberservation
@@ -353,7 +366,9 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
                 # get the policy logits (shape: batch_size x n_actions)
                 action_logits = self.actor(z)
                 dist = torch.distributions.Categorical(logits=action_logits)
-                cur_log_probs = dist.log_prob(actions)
+                cur_log_probs = dist.log_prob(
+                    actions.long()
+                )  # actions should be long for Categorical
                 old_log_probs = log_probs
 
                 ratio = torch.exp(cur_log_probs - old_log_probs)
@@ -363,7 +378,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
 
                 # value loss
                 V = self.critic(z)
-                value_loss = (rewards_to_go.view(-1).float() - V.view(-1)).pow(2).mean()
+                value_loss = (rewards_to_go.view(-1) - V.view(-1)).pow(2).mean()
 
                 # overall loss
                 ppo_loss = actor_loss + value_loss
@@ -384,7 +399,6 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
 
                 if self.grad_clip is not None:
                     torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_clip)
-                self.optim.step()
 
     def collect_rollouts(
         self,
