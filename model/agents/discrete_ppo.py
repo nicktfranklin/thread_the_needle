@@ -61,6 +61,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         optim_kwargs: Optional[Dict[str, Any]] = None,
         n_epochs: int = 10,
         batch_size: int = 64,
+        epsilon: float = 1e-3,  # for numerical stability
     ) -> None:
         """
         Initializes the DiscretePPO agent.
@@ -87,6 +88,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         self.n_epochs = n_epochs
         self.n_steps = n_steps
         self.batch_size = batch_size
+        self.epsilon = epsilon
 
         self.hash_vector = np.array(
             [
@@ -100,7 +102,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         )
         self.n_actions = env.action_space.n
 
-        self.actor = MLP(
+        self.actor_net = MLP(
             input_size=self.embedding_size,
             hidden_sizes=[self.embedding_size],
             output_size=self.n_actions,
@@ -116,7 +118,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
     def _configure_optimizers(self, optim_kwargs: Optional[Dict[str, Any]] = None):
         optim_kwargs = optim_kwargs if optim_kwargs else dict()
         return torch.optim.AdamW(
-            list(self.actor.parameters())
+            list(self.actor_net.parameters())
             + list(self.critic.parameters())
             + list(self.state_inference_model.parameters()),
             lr=self.lr,
@@ -142,10 +144,33 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
     def get_pmf(self, obs: FloatTensor) -> np.ndarray:
         (logits, z), _ = self.embed(obs)
 
-        logits = self.actor(z)
+        logits = self.actor(z.float())
         dist = torch.distributions.Categorical(logits=logits)
 
         return dist.probs.detach().cpu().numpy()
+
+    def actor(self, x: FloatTensor) -> FloatTensor:
+        """we use e-softmax policy here, mostly for numerical stability during training"""
+
+        logits = self.actor_net(x)
+
+        # Step 1: Normalize the logits using log-softmax
+        log_normalized_probs = F.log_softmax(logits, dim=-1)
+
+        # Step 2: Create a uniform distribution in the log domain
+        log_uniform_probs = -torch.log(
+            torch.tensor(logits.size(-1), dtype=torch.float32, device=self.device)
+        )
+
+        # Step 3: Combine the log probabilities using the log-sum-exp trick
+        log_mixed_probs = torch.logaddexp(
+            torch.log(torch.tensor(self.epsilon, device=self.device))
+            + log_normalized_probs,
+            torch.log(torch.tensor(1 - self.epsilon, device=self.device))
+            + log_uniform_probs,
+        )
+
+        return log_mixed_probs
 
     def get_state_hashkey(self, obs: Tensor) -> Hashable:
         obs = obs if isinstance(obs, Tensor) else torch.tensor(obs)
@@ -293,13 +318,6 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         actions = torch.cat(actions_list, dim=0).cpu()
         log_probs = torch.cat(log_probs_list, dim=0).cpu()
 
-        print(
-            observations.shape,
-            self.batch_size,
-            observations.shape[0] // self.batch_size,
-            observations.shape[0] % self.batch_size,
-        )
-
         return PpoDataset(
             {
                 "observations": observations,
@@ -364,8 +382,8 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
 
                 # ppo loss
                 # get the policy logits (shape: batch_size x n_actions)
-                action_logits = self.actor(z)
-                dist = torch.distributions.Categorical(logits=action_logits)
+                actor_log_probs = self.actor(z)
+                dist = torch.distributions.Categorical(logits=actor_log_probs)
                 cur_log_probs = dist.log_prob(
                     actions.long()
                 )  # actions should be long for Categorical
@@ -393,6 +411,8 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
                     print("Value Loss:", value_loss.item())
                     print("KL Loss:", kl_loss.item())
                     print("Reconstruction Loss:", recon_loss.item())
+                    print("Current Log Probs:", cur_log_probs.item())
+                    print("Old Log Probs:", old_log_probs.item())
                     raise Exception("Loss contains NaN values")
                 else:
                     self.optim.step()
@@ -454,7 +474,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         self,
         total_timesteps: int,
         progress_bar: bool = False,
-        reset_buffer: bool = False,
+        reset_buffer: bool = True,
         capacity: Optional[int] = None,
         callback: MaybeCallback = None,
         buffer_kwargs: Dict[str, Any] | None = None,
@@ -484,6 +504,9 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
                 progress_bar=progress_bar,
             ):
                 break
+
+            if reset_buffer:
+                self.rollout_buffer.finish()
 
             self.update_from_batch(self.rollout_buffer, progress_bar=False)
 

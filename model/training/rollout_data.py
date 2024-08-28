@@ -395,5 +395,9 @@ class PpoBuffer(EpisodeBuffer):
             # we never want an empty episode
             self.current_episode = None
 
+    def finish(self):
+        self._store_episode(self.current_episode)
+        self.current_episode = None
+
     def get_dataset(self) -> Dict[str, Any | Tensor]:
         raise NotImplementedError("Ppo Buffer doesnt support this method")
