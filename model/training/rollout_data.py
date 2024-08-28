@@ -311,7 +311,7 @@ class EpisodeBuffer(PriorityReplayBuffer):
 
     def reset_buffer(self):
         self.buffer_size = 0
-        self.current_episode = Episode()
+        self.current_episode = None
         self.queue = deque()
 
     def iterator(self):
