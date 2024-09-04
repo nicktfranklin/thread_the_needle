@@ -342,13 +342,12 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         3) Update the policy by maximizing the PPO loss
         4) Update the value function by minimizing the value loss"""
 
-        self.train()
-
         datatset = self.make_dataset(buffer)
         n_cpus = os.cpu_count()
         dataloader = DataLoader(
             datatset, batch_size=self.batch_size, shuffle=True, num_workers=n_cpus
         )
+        self.train()
 
         for _ in range(self.n_epochs):
             for batch in dataloader:
@@ -411,8 +410,8 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
                     print("Value Loss:", value_loss.item())
                     print("KL Loss:", kl_loss.item())
                     print("Reconstruction Loss:", recon_loss.item())
-                    print("Current Log Probs:", cur_log_probs.item())
-                    print("Old Log Probs:", old_log_probs.item())
+                    print("Current Log Probs:", cur_log_probs)
+                    print("Old Log Probs:", old_log_probs)
                     raise Exception("Loss contains NaN values")
                 else:
                     self.optim.step()
