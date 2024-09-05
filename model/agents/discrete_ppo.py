@@ -13,12 +13,13 @@ from stable_baselines3.common.type_aliases import MaybeCallback
 # from stable_baselines3.common.policies import ActorCriticPolicy
 from torch import FloatTensor, Tensor
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 
 import model.state_inference.vae
 from model.agents.utils.base_agent import BaseAgent
 from model.state_inference.nets.mlp import MLP
 from model.state_inference.vae import StateVae
-from model.training.rollout_data import BaseBuffer, PpoBuffer
+from model.training.rollout_data import PpoBuffer
 from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
@@ -278,7 +279,8 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         A = rtg.view(-1) - V.view(-1)
 
         # normalize the advantages for stability
-        A = (A - A.mean()) / (A.std() + 1e-10)
+        if A.shape[0] > 1:
+            A = (A - A.mean()) / (A.std() + 1e-10)
 
         return A
 
@@ -412,9 +414,19 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
                     print("Reconstruction Loss:", recon_loss.item())
                     print("Current Log Probs:", cur_log_probs)
                     print("Old Log Probs:", old_log_probs)
+                    print("Ratio:", ratio)
+                    print("Surr1:", surr1)
+                    print("Surr2:", surr2)
+                    print("Advantages:", advantages)
                     raise Exception("Loss contains NaN values")
                 else:
                     self.optim.step()
+
+                if self.log_tensorboard:
+                    self.writer.add_scalar("Loss/Total", loss.item(), self.t)
+                    self.writer.add_scalar("Loss/PPO", ppo_loss.item(), self.t)
+                    self.writer.add_scalar("Loss/VAE_ELBO", vae_elbo.item(), self.t)
+                    self.t += 1
 
                 if self.grad_clip is not None:
                     torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_clip)
@@ -477,6 +489,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         capacity: Optional[int] = None,
         callback: MaybeCallback = None,
         buffer_kwargs: Dict[str, Any] | None = None,
+        log_tensorboard: bool = True,
         **kwargs,
     ):
         buffer_kwargs = buffer_kwargs if buffer_kwargs else dict()
@@ -489,6 +502,10 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         n_rollout_steps = self.n_steps if self.n_steps is not None else total_timesteps
 
         self.num_timesteps = 0
+        if log_tensorboard:
+            self.t = 0
+            self.writer = SummaryWriter()
+        self.log_tensorboard = log_tensorboard
         while self.num_timesteps < total_timesteps:
 
             if reset_buffer:
@@ -510,6 +527,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
             self.update_from_batch(self.rollout_buffer, progress_bar=False)
 
         callback.on_training_end()
+        self.writer.flush()
 
     @classmethod
     def make_from_configs(

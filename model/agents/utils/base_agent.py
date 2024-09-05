@@ -140,6 +140,7 @@ class BaseAgent(ABC):
         self,
         callback: MaybeCallback,
         progress_bar: bool = False,
+        tensorboard: bool = True,
     ) -> BaseCallback:
         """
         :param callback: Callback(s) called at every step with state of the algorithm.
