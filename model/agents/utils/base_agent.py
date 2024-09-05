@@ -254,6 +254,7 @@ class BaseAgent(ABC):
         # options = {"initial_state": start_state} if start_state is not None else None
         obs = task.reset()[0]
         done = False
+        self.eval()
 
         for _ in tqdm(range(n), desc="Collection rollouts"):
             action_pmf = self.get_pmf(torch.tensor(obs).unsqueeze(0))
