@@ -345,10 +345,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         4) Update the value function by minimizing the value loss"""
 
         datatset = self.make_dataset(buffer)
-        n_cpus = os.cpu_count()
-        dataloader = DataLoader(
-            datatset, batch_size=self.batch_size, shuffle=True, num_workers=n_cpus
-        )
+        dataloader = DataLoader(datatset, batch_size=self.batch_size, shuffle=True)
         self.train()
 
         for _ in range(self.n_epochs):
