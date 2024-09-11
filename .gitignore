@@ -13,6 +13,7 @@ tmp
 logs
 Sandbox.ipynb
 scratch.ipynb
+runs/*
 checkpoints/*
 
 # Byte-compiled / optimized / DLL files

@@ -1,3 +1,4 @@
+import datetime
 import inspect
 import logging
 import os
@@ -17,34 +18,12 @@ from torch.utils.tensorboard import SummaryWriter
 
 import model.state_inference.vae
 from model.agents.utils.base_agent import BaseAgent
+from model.agents.utils.data import PpoDataset
 from model.state_inference.nets.mlp import MLP
 from model.state_inference.vae import StateVae
 from model.training.rollout_data import PpoBuffer
 from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
-
-
-class PpoDataset(torch.utils.data.Dataset):
-    def __init__(self, data):
-        self.data = data
-
-    def __getitem__(self, idx):
-        return {k: v[idx] for k, v in self.data.items()}
-
-    def __len__(self):
-        return len(self.data["observations"])
-
-    def collate_fn(batch):
-        return {
-            "observations": torch.stack([item["observations"] for item in batch]),
-            "next_observations": torch.stack(
-                [item["next_observations"] for item in batch]
-            ),
-            "rewards_to_go": torch.cat([item["rewards_to_go"] for item in batch]),
-            "advantages": torch.cat([item["advantages"] for item in batch]),
-            "actions": torch.cat([item["actions"] for item in batch]),
-            "log_probs": torch.cat([item["log_probs"] for item in batch]),
-        }
 
 
 class DiscretePPO(BaseAgent, torch.nn.Module):
@@ -63,6 +42,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         n_epochs: int = 10,
         batch_size: int = 64,
         epsilon: float = 1e-3,  # for numerical stability
+        ppo_loss_weight: float = 1.0,  # for balancing the PPO loss and the VAE loss
     ) -> None:
         """
         Initializes the DiscretePPO agent.
@@ -90,6 +70,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         self.n_steps = n_steps
         self.batch_size = batch_size
         self.epsilon = epsilon
+        self.ppo_loss_weight = ppo_loss_weight
 
         self.hash_vector = np.array(
             [
@@ -291,6 +272,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         advantages_list = []
         actions_list = []
         log_probs_list = []
+        episode_reward = []
 
         for episode in buffer.iterator():
             episode_data = episode.get_dataset()
@@ -300,6 +282,9 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
             rewards_to_go = self.collocate(
                 self.compute_rewards_to_go(episode_data["rewards"])
             )
+            # print(rewards_to_go)
+            # print(episode_data["rewards"])
+            # raise Exception("Stop here")
 
             # 2) Compute Advantage based on current value function
             advantages = self.compute_advantages(
@@ -312,6 +297,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
             advantages_list.append(advantages)
             actions_list.append(episode_data["actions"])
             log_probs_list.append(episode_data["log_probs"])
+            episode_reward.append(episode_data["rewards"])
 
         observations = torch.cat(observations_list, dim=0).cpu()
         next_observations = torch.cat(next_observations_list, dim=0).cpu()
@@ -319,6 +305,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         advantages = torch.cat(advantages_list, dim=0).cpu()
         actions = torch.cat(actions_list, dim=0).cpu()
         log_probs = torch.cat(log_probs_list, dim=0).cpu()
+        episode_reward = torch.cat(episode_reward, dim=0).cpu()
 
         return PpoDataset(
             {
@@ -328,6 +315,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
                 "advantages": advantages,
                 "actions": actions,
                 "log_probs": log_probs,
+                "episode_reward": episode_reward,
             }
         )
 
@@ -349,6 +337,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         self.train()
 
         for _ in range(self.n_epochs):
+            batch_reward = 0
             for batch in dataloader:
                 batch = self.collocate(batch)
                 observations = batch["observations"]
@@ -357,6 +346,8 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
                 advantages = batch["advantages"]
                 actions = batch["actions"]
                 log_probs = batch["log_probs"]
+
+                batch_reward += batch["episode_reward"].sum().item()
 
                 # all loss computations go here!
                 self.optim.zero_grad()
@@ -380,7 +371,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
 
                 # ppo loss
                 # get the policy logits (shape: batch_size x n_actions)
-                actor_log_probs = self.actor(z)
+                actor_log_probs = self.actor(z.detach())
                 dist = torch.distributions.Categorical(logits=actor_log_probs)
                 cur_log_probs = dist.log_prob(
                     actions.long()
@@ -393,12 +384,12 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
                 actor_loss = (-torch.min(surr1, surr2)).mean()
 
                 # value loss
-                V = self.critic(z)
+                V = self.critic(z.detach())
                 value_loss = (rewards_to_go.view(-1) - V.view(-1)).pow(2).mean()
 
                 # overall loss
                 ppo_loss = actor_loss + value_loss
-                loss = ppo_loss + vae_elbo
+                loss = ppo_loss * self.ppo_loss_weight + vae_elbo
                 loss.backward()
 
                 if torch.isnan(loss):
@@ -420,13 +411,30 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
                     self.optim.step()
 
                 if self.log_tensorboard:
-                    self.writer.add_scalar("Loss/Total", loss.item(), self.t)
-                    self.writer.add_scalar("Loss/PPO", ppo_loss.item(), self.t)
-                    self.writer.add_scalar("Loss/VAE_ELBO", vae_elbo.item(), self.t)
-                    self.t += 1
+                    self.writer.add_scalar(
+                        "Loss/Total", loss.item(), self.episode_number
+                    )
+                    self.writer.add_scalar(
+                        "Loss/PPO", ppo_loss.item(), self.episode_number
+                    )
+                    self.writer.add_scalar(
+                        "Loss/VAE_ELBO", vae_elbo.item(), self.episode_number
+                    )
+                    self.writer.add_scalar(
+                        "Loss/KL", kl_loss.item(), self.episode_number
+                    )
+                    self.writer.add_scalar(
+                        "Loss/Y_hat", recon_loss.item(), self.episode_number
+                    )
+                    self.episode_number += 1
 
                 if self.grad_clip is not None:
                     torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_clip)
+            if self.log_tensorboard:
+                self.writer.add_scalar(
+                    "Episode/Reward", batch_reward, self.batch_number
+                )
+                self.batch_number += 1
 
     def collect_rollouts(
         self,
@@ -487,6 +495,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         callback: MaybeCallback = None,
         buffer_kwargs: Dict[str, Any] | None = None,
         log_tensorboard: bool = True,
+        tensoboard_log_tag: str | None = None,
         **kwargs,
     ):
         buffer_kwargs = buffer_kwargs if buffer_kwargs else dict()
@@ -500,8 +509,16 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
 
         self.num_timesteps = 0
         if log_tensorboard:
-            self.t = 0
-            self.writer = SummaryWriter()
+            self.batch_number = 0
+            self.episode_number = 0
+            current_date = datetime.date.today().strftime("%b%d_%H-%M")
+            log_subdir = (
+                f"{current_date}_{tensoboard_log_tag}"
+                if tensoboard_log_tag
+                else current_date
+            )
+            log_dir = os.path.join("runs", log_subdir)
+            self.writer = SummaryWriter(log_dir=log_dir)
         self.log_tensorboard = log_tensorboard
         while self.num_timesteps < total_timesteps:
 

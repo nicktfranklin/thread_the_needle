@@ -11,7 +11,7 @@ import torch
 import yaml
 from stable_baselines3.common.monitor import Monitor
 
-from model.agents.ppo import PPO
+from model.agents.ppo import StableBaselinesPPO
 from model.agents.utils.base_agent import BaseAgent
 from model.agents.value_iteration import ValueIterationAgent as ViAgent
 from task.gridworld import CnnWrapper, GridWorldEnv
@@ -79,7 +79,7 @@ def make_env(configs: Config) -> GridWorldEnv:
 
 
 def train_ppo(configs: Config, task: GridWorldEnv):
-    ppo = PPO(
+    ppo = StableBaselinesPPO(
         "CnnPolicy",
         task,
         verbose=0,

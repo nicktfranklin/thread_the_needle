@@ -1,11 +1,11 @@
-from stable_baselines3 import PPO as StableBaselinesPPO
+from stable_baselines3 import PPO as WrappedPPO
 from torch import FloatTensor
 
 from model.agents.utils.base_agent import BaseAgent
 from model.training.rollout_data import RolloutBuffer
 
 
-class PPO(StableBaselinesPPO, BaseAgent):
+class StableBaselinesPPO(WrappedPPO, BaseAgent):
     """
     wrapper for PPO with useful functions
     """

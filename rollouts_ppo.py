@@ -12,7 +12,7 @@ import torch
 import yaml
 from stable_baselines3.common.monitor import Monitor
 
-from model.agents import PPO
+from model.agents import StableBaselinesPPO
 from model.training.callbacks import ThreadTheNeedleCallback
 from model.training.rollout_data import RolloutBuffer as Buffer
 from model.training.scoring import score_model
@@ -90,7 +90,7 @@ def train_ppo(configs: Config):
 
     callback = ThreadTheNeedleCallback()
 
-    ppo = PPO(
+    ppo = StableBaselinesPPO(
         "CnnPolicy",
         task,
         verbose=0,

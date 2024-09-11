@@ -17,7 +17,7 @@ from stable_baselines3.common.monitor import Monitor
 from model.agents.lookahead_value_iteration import (
     LookaheadViAgent as ValueIterationAgent,
 )
-from model.agents.ppo import PPO
+from model.agents.ppo import StableBaselinesPPO
 from model.training.callbacks import AtariCallback
 from model.training.rollout_data import RolloutBuffer
 from task.gridworld import GridWorldEnv
@@ -131,7 +131,7 @@ def train_agent(configs: Config, batch: int = 0):
             capacity=configs.capacity,
         )
     else:
-        agent = PPO(
+        agent = StableBaselinesPPO(
             "CnnPolicy",
             task,
             verbose=0,
