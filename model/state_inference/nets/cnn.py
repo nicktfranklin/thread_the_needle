@@ -89,12 +89,12 @@ class NewCnnEncoder(nn.Module):
         super().__init__()
 
         if channels is None:
-            channels = [32, 64, 128, 256, 512]
+            channels = [32, 64, 64]
 
         if kernel_sizes is None:
-            kernel_sizes = [3] * len(channels)
+            kernel_sizes = [8, 4, 3]
         if strides is None:
-            strides = [2] * len(channels)
+            strides = [4, 2, 1]
 
         modules = []
         h_in = in_channels
@@ -103,6 +103,7 @@ class NewCnnEncoder(nn.Module):
             h_in = h_dim
 
         self.cnn = nn.Sequential(*modules)
+        self.embedding_dim = embedding_dim
 
         with torch.no_grad():
             # Create a dummy input tensor
