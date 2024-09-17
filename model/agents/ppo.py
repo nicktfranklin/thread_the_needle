@@ -12,7 +12,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.type_aliases import MaybeCallback
 
 # from stable_baselines3.common.policies import ActorCriticPolicy
-from torch import FloatTensor, Tensor
+from torch import FloatTensor, Tensor, nn
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
@@ -41,6 +41,9 @@ class StableBaselinesPPO(WrappedPPO, BaseAgent):
             .detach()
             .numpy()
         )
+
+    def get_state_hashkey(self, obs: Tensor) -> Hashable:
+        raise NotImplementedError
 
 
 class PPO(BaseAgent, torch.nn.Module):
@@ -78,7 +81,7 @@ class PPO(BaseAgent, torch.nn.Module):
             - Add more detailed description for each parameter.
         """
         super().__init__(env)
-        self.state_inference_model = state_inference_model.to(DEVICE)
+        self.encoder = state_inference_model.to(DEVICE)
         self.gamma = gamma
         self.clip = clip
         self.lr = lr
@@ -101,17 +104,8 @@ class PPO(BaseAgent, torch.nn.Module):
         )
         self.n_actions = env.action_space.n
 
-        self.actor_net = MLP(
-            input_size=self.embedding_size,
-            hidden_sizes=[self.embedding_size],
-            output_size=self.n_actions,
-        )
-
-        self.critic = MLP(
-            input_size=self.embedding_size,
-            hidden_sizes=[self.embedding_size],
-            output_size=1,
-        )
+        self.actor_net = nn.Linear(self.embedding_size, self.n_actions)
+        self.critic = nn.Linear(self.embedding_size, 1)
         self.optim = self._configure_optimizers(optim_kwargs)
 
     def _configure_optimizers(self, optim_kwargs: Optional[Dict[str, Any]] = None):
@@ -358,7 +352,6 @@ class PPO(BaseAgent, torch.nn.Module):
             for batch in dataloader:
                 batch = self.collocate(batch)
                 observations = batch["observations"]
-                next_observations = batch["next_observations"]
                 rewards_to_go = batch["rewards_to_go"]
                 advantages = batch["advantages"]
                 actions = batch["actions"]
@@ -372,19 +365,6 @@ class PPO(BaseAgent, torch.nn.Module):
                 # embeddings -- this is required for all the losses
                 (logits, z), y_hat = self.embed(observations)
                 z = z.float()
-
-                # ELBO loss of the VAE
-                # get the two components of the ELBO loss. Note, the VAE predicts the next oberservation
-                try:
-                    kl_loss = self.state_inference_model.kl_loss(logits)
-                    recon_loss = self.state_inference_model.recontruction_loss(
-                        self._preprocess_obs(next_observations),
-                        y_hat,
-                    )
-                    vae_elbo = recon_loss + kl_loss
-                except Exception as e:
-                    print(logits)
-                    raise e
 
                 # ppo loss
                 # get the policy logits (shape: batch_size x n_actions)
@@ -405,44 +385,15 @@ class PPO(BaseAgent, torch.nn.Module):
                 value_loss = (rewards_to_go.view(-1) - V.view(-1)).pow(2).mean()
 
                 # overall loss
-                ppo_loss = actor_loss + value_loss
-                loss = ppo_loss * self.ppo_loss_weight + vae_elbo
+                loss = actor_loss + value_loss
                 loss.backward()
-
-                if torch.isnan(loss):
-                    print("Loss contains NaN values")
-                    print("PPO Loss:", ppo_loss.item())
-                    print("VAE ELBO Loss:", vae_elbo.item())
-                    print("Actor Loss:", actor_loss.item())
-                    print("Value Loss:", value_loss.item())
-                    print("KL Loss:", kl_loss.item())
-                    print("Reconstruction Loss:", recon_loss.item())
-                    print("Current Log Probs:", cur_log_probs)
-                    print("Old Log Probs:", old_log_probs)
-                    print("Ratio:", ratio)
-                    print("Surr1:", surr1)
-                    print("Surr2:", surr2)
-                    print("Advantages:", advantages)
-                    raise Exception("Loss contains NaN values")
-                else:
-                    self.optim.step()
 
                 if self.log_tensorboard:
                     self.writer.add_scalar(
                         "Loss/Total", loss.item(), self.episode_number
                     )
-                    self.writer.add_scalar(
-                        "Loss/PPO", ppo_loss.item(), self.episode_number
-                    )
-                    self.writer.add_scalar(
-                        "Loss/VAE_ELBO", vae_elbo.item(), self.episode_number
-                    )
-                    self.writer.add_scalar(
-                        "Loss/KL", kl_loss.item(), self.episode_number
-                    )
-                    self.writer.add_scalar(
-                        "Loss/Y_hat", recon_loss.item(), self.episode_number
-                    )
+                    self.writer.add_scalar("Loss/PPO", loss.item(), self.episode_number)
+
                     self.episode_number += 1
 
                 if self.grad_clip is not None:

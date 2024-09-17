@@ -36,9 +36,9 @@ parser.add_argument("--task_name", default="thread_the_needle")
 parser.add_argument("--model_name", default="cnn_vae")
 parser.add_argument("--results_dir", default=f"simulations/")
 parser.add_argument("--log_dir", default=f"logs/{BASE_FILE_NAME}_{date.today()}/")
-parser.add_argument("--n_training_samples", default=10000)
+parser.add_argument("--n_training_samples", default=50000)
 parser.add_argument("--n_rollout_samples", default=10000)
-parser.add_argument("--n_batch", default=1)
+parser.add_argument("--n_batch", default=12)
 
 
 @dataclass

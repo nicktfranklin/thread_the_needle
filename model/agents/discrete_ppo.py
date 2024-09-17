@@ -11,7 +11,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.type_aliases import MaybeCallback
 
 # from stable_baselines3.common.policies import ActorCriticPolicy
-from torch import FloatTensor, Tensor
+from torch import FloatTensor, Tensor, nn
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
@@ -36,12 +36,13 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         lr: float = 3e-4,
         n_steps: int = 2048,
         clip: float = 0.2,
-        grad_clip: Optional[float] = 0.5,
+        grad_clip: Optional[float] = 0.2,
         optim_kwargs: Optional[Dict[str, Any]] = None,
         n_epochs: int = 10,
         batch_size: int = 64,
         epsilon: float = 1e-3,  # for numerical stability
         ppo_loss_weight: float = 1.0,  # for balancing the PPO loss and the VAE loss
+        entropy_weight: float = 1.0,
     ) -> None:
         """
         Initializes the DiscretePPO agent.
@@ -70,6 +71,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         self.batch_size = batch_size
         self.epsilon = epsilon
         self.ppo_loss_weight = ppo_loss_weight
+        self.entropy_weight = entropy_weight
 
         self.hash_vector = np.array(
             [
@@ -83,17 +85,8 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         )
         self.n_actions = env.action_space.n
 
-        self.actor_net = MLP(
-            input_size=self.embedding_size,
-            hidden_sizes=[self.embedding_size],
-            output_size=self.n_actions,
-        )
-
-        self.critic = MLP(
-            input_size=self.embedding_size,
-            hidden_sizes=[self.embedding_size],
-            output_size=1,
-        )
+        self.actor_net = nn.Linear(self.embedding_size, self.n_actions)
+        self.critic = nn.Linear(self.embedding_size, 1)
         self.optim = self._configure_optimizers(optim_kwargs)
 
     def _configure_optimizers(self, optim_kwargs: Optional[Dict[str, Any]] = None):
@@ -123,12 +116,11 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
 
     @torch.no_grad()
     def get_pmf(self, obs: FloatTensor) -> np.ndarray:
-        (logits, z), _ = self.embed(obs)
+        (_, z), _ = self.embed(obs)
 
-        logits = self.actor(z.float())
-        dist = torch.distributions.Categorical(logits=logits)
+        actor_logprobs = self.actor(z.float())
 
-        return dist.probs.detach().cpu().numpy()
+        return torch.exp(actor_logprobs).detach().cpu().numpy()
 
     def actor(self, x: FloatTensor) -> FloatTensor:
         """we use e-softmax policy here, mostly for numerical stability during training"""
@@ -136,22 +128,9 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         logits = self.actor_net(x)
 
         # Step 1: Normalize the logits using log-softmax
-        log_normalized_probs = F.log_softmax(logits, dim=-1)
+        log_normalized_probs = F.log_softmax(logits * self.entropy_weight, dim=-1)
 
-        # Step 2: Create a uniform distribution in the log domain
-        log_uniform_probs = -torch.log(
-            torch.tensor(logits.size(-1), dtype=torch.float32, device=self.device)
-        )
-
-        # Step 3: Combine the log probabilities using the log-sum-exp trick
-        log_mixed_probs = torch.logaddexp(
-            torch.log(torch.tensor(self.epsilon, device=self.device))
-            + log_normalized_probs,
-            torch.log(torch.tensor(1 - self.epsilon, device=self.device))
-            + log_uniform_probs,
-        )
-
-        return log_mixed_probs
+        return log_normalized_probs
 
     def get_state_hashkey(self, obs: Tensor) -> Hashable:
         obs = obs if isinstance(obs, Tensor) else torch.tensor(obs)
@@ -335,6 +314,17 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         dataloader = DataLoader(datatset, batch_size=self.batch_size, shuffle=True)
         self.train()
 
+        # pretrain the VAE
+        # for _ in range(self.n_epochs):
+        #     for batch in dataloader:
+        #         observations = self._preprocess_obs(batch["observations"])
+        #         next_observations = self._preprocess_obs(batch["next_observations"])
+        #         vae_elbo = self.state_inference_model.loss(
+        #             observations, next_observations
+        #         )
+        #         vae_elbo.backward()
+        #         self.optim.step()
+
         for _ in range(self.n_epochs):
             batch_reward = 0
             for batch in dataloader:
@@ -344,7 +334,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
                 rewards_to_go = batch["rewards_to_go"]
                 advantages = batch["advantages"]
                 actions = batch["actions"]
-                log_probs = batch["log_probs"]
+                old_log_probs = batch["log_probs"]
 
                 batch_reward += batch["episode_reward"].sum().item()
 
@@ -370,12 +360,9 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
 
                 # ppo loss
                 # get the policy logits (shape: batch_size x n_actions)
-                actor_log_probs = self.actor(z.detach())
+                actor_log_probs = self.actor(z)
                 dist = torch.distributions.Categorical(logits=actor_log_probs)
-                cur_log_probs = dist.log_prob(
-                    actions.long()
-                )  # actions should be long for Categorical
-                old_log_probs = log_probs
+                cur_log_probs = dist.log_prob(actions.long())
 
                 ratio = torch.exp(cur_log_probs - old_log_probs)
                 surr1 = ratio * advantages
@@ -383,13 +370,13 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
                 actor_loss = (-torch.min(surr1, surr2)).mean()
 
                 # value loss
-                V = self.critic(z.detach())
+                V = self.critic(z)
                 value_loss = (rewards_to_go.view(-1) - V.view(-1)).pow(2).mean()
 
                 # overall loss
                 ppo_loss = actor_loss + value_loss
-                loss = ppo_loss * self.ppo_loss_weight + vae_elbo
-                loss.backward()
+                # loss = ppo_loss * self.ppo_loss_weight + vae_elbo
+                ppo_loss.backward()
 
                 if torch.isnan(loss):
                     print("Loss contains NaN values")
