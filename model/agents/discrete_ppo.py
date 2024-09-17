@@ -314,17 +314,6 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         dataloader = DataLoader(datatset, batch_size=self.batch_size, shuffle=True)
         self.train()
 
-        # pretrain the VAE
-        # for _ in range(self.n_epochs):
-        #     for batch in dataloader:
-        #         observations = self._preprocess_obs(batch["observations"])
-        #         next_observations = self._preprocess_obs(batch["next_observations"])
-        #         vae_elbo = self.state_inference_model.loss(
-        #             observations, next_observations
-        #         )
-        #         vae_elbo.backward()
-        #         self.optim.step()
-
         for _ in range(self.n_epochs):
             batch_reward = 0
             for batch in dataloader:
@@ -375,8 +364,8 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
 
                 # overall loss
                 ppo_loss = actor_loss + value_loss
-                # loss = ppo_loss * self.ppo_loss_weight + vae_elbo
-                ppo_loss.backward()
+                loss = ppo_loss * self.ppo_loss_weight + vae_elbo
+                loss.backward()
 
                 if torch.isnan(loss):
                     print("Loss contains NaN values")
