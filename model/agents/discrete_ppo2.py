@@ -1,5 +1,5 @@
 import warnings
-from typing import Hashable, List, Tuple, Union
+from typing import ClassVar, Dict, Hashable, List, Tuple, Type, Union
 
 import gymnasium as gym
 import numpy as np
@@ -16,6 +16,11 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 import model.state_inference.vae
+from model.agents.stable_baseline_clone.policies import (
+    ActorCriticCnnPolicy,
+    ActorCriticPolicy,
+    BasePolicy,
+)
 from model.agents.utils.base_agent import BaseAgent
 from model.agents.utils.data import PpoDataset
 from model.state_inference.nets.mlp import MLP
@@ -30,6 +35,10 @@ class DiscretePpo2(WrappedPPO, BaseAgent):
     wrapper for PPO with useful functions
     """
 
+    policy_aliases: ClassVar[Dict[str, Type[BasePolicy]]] = {
+        "CnnPolicy": ActorCriticCnnPolicy,
+    }
+
     def update_from_batch(self, buffer: PpoBuffer, progress_bar: bool = False):
         raise NotImplementedError
 
@@ -41,46 +50,17 @@ class DiscretePpo2(WrappedPPO, BaseAgent):
             .numpy()
         )
 
+    def get_value_fn(self, x: FloatTensor) -> FloatTensor:
+        raise NotImplementedError
+
     def get_state_hashkey(self, obs: Tensor) -> Hashable:
         raise NotImplementedError
 
     def _setup_model(self) -> None:
         super()._setup_model()
+        print(self.policy)
 
-        raise NotImplementedError
-
-    def extract_features(  # type: ignore[override]
-        self,
-        obs: PyTorchObs,
-        features_extractor=None,
-    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        """
-        Preprocess the observation if needed and extract features.
-
-        :param obs: Observation
-        :param features_extractor: The features extractor to use. If None, then ``self.features_extractor`` is used.
-        :return: The extracted features. If features extractor is not shared, returns a tuple with the
-            features for the actor and the features for the critic.
-        """
-        if self.share_features_extractor:
-            return super().extract_features(
-                obs,
-                (
-                    self.features_extractor
-                    if features_extractor is None
-                    else features_extractor
-                ),
-            )
-        else:
-            if features_extractor is not None:
-                warnings.warn(
-                    "Provided features_extractor will be ignored because the features extractor is not shared.",
-                    UserWarning,
-                )
-
-            pi_features = super().extract_features(obs, self.pi_features_extractor)
-            vf_features = super().extract_features(obs, self.vf_features_extractor)
-            return pi_features, vf_features
+        # raise NotImplementedError
 
     def train(self) -> None:
         """
