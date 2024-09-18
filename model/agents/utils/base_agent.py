@@ -57,6 +57,9 @@ class BaseAgent(ABC):
     @abstractmethod
     def get_pmf(self, x: FloatTensor) -> np.ndarray: ...
 
+    @abstractmethod
+    def get_value_fn(self, x: FloatTensor) -> FloatTensor: ...
+
     def get_env(self) -> VecEnv:
         ## used for compatibility with stablebaseline code, use with caution
         if isinstance(self.task, VecEnv):
@@ -237,6 +240,35 @@ class BaseAgent(ABC):
         obs = torch.stack(obs)
         with torch.no_grad():
             return self.get_pmf(obs)
+
+    def get_value_function(
+        self, env: VecEnv, n_states: int, map_height: int, cnn: bool = True
+    ) -> FloatTensor:
+        """
+        Wrapper for getting the value function for each state in the environment.
+        Requires a gridworld environment, and samples an observation from each state.
+
+        Returns a tensor of shape (n_states, 1)
+
+        :param env:
+            :param n_states:
+            :param map_height:
+        """
+        assert isinstance(env, VecEnv)
+        env = env.envs[0]
+
+        # reshape to match env standard (HxWxC) -> not standard
+        shape = [map_height, map_height]
+        if cnn:
+            shape = [map_height, map_height, 1]
+
+        obs = [
+            torch.tensor(env.unwrapped.generate_observation(s)).view(*shape)
+            for s in range(n_states)
+        ]
+        obs = torch.stack(obs)
+        with torch.no_grad():
+            return self.get_value_fn(obs)
 
     # todo: implement a progressbar, max steps, etc.  Should be an inplace method
     # look to the BaseAgent method for inspiration

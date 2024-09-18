@@ -1,14 +1,15 @@
 import datetime
 import inspect
 import os
-from typing import Any, Dict, Hashable, Iterable, List, Optional
+from typing import Any, Dict, Hashable, Iterable, List, Optional, Union
 
 import gymnasium as gym
 import numpy as np
 import torch
 import torch.nn.functional as F
 from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common.type_aliases import MaybeCallback
+from stable_baselines3.common.type_aliases import MaybeCallback, PyTorchObs, Schedule
+from stable_baselines3.common.utils import get_schedule_fn
 
 # from stable_baselines3.common.policies import ActorCriticPolicy
 from torch import FloatTensor, Tensor, nn
@@ -199,8 +200,13 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
 
         return action.item(), log_probs
 
-    def get_value(self, state_vec: FloatTensor) -> FloatTensor:
-        return self.critic(state_vec)
+    @torch.no_grad()
+    def get_value_fn(self, obs: FloatTensor) -> FloatTensor:
+        self.eval()
+
+        (_, z), _ = self.embed(obs)
+
+        return self.critic(z.float()).detach().cpu().numpy()
 
     def compute_rewards_to_go(self, rewards: np.ndarray | torch.Tensor) -> torch.Tensor:
         """Compute the rewards to go for a given episode via recursion."""
