@@ -19,8 +19,7 @@ from torch.utils.tensorboard import SummaryWriter
 import model.state_inference.vae
 from model.agents.utils.base_agent import BaseAgent
 from model.agents.utils.data import PpoDataset
-from model.state_inference.nets.mlp import MLP
-from model.state_inference.vae import StateVae
+from model.state_inference.nets.cnn import NewCnnEncoder
 from model.training.rollout_data import PpoBuffer, RolloutBuffer
 from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
@@ -52,9 +51,8 @@ class PPO(BaseAgent, torch.nn.Module):
     def __init__(
         self,
         env: gym.Env,
-        state_inference_model: StateVae,
+        feature_extractor: NewCnnEncoder,
         gamma: float = 0.95,
-        lr: float = 3e-4,
         n_steps: int = 2048,
         clip: float = 0.2,
         grad_clip: Optional[float] = 0.5,
@@ -63,6 +61,7 @@ class PPO(BaseAgent, torch.nn.Module):
         batch_size: int = 64,
         epsilon: float = 1e-3,  # for numerical stability
         ppo_loss_weight: float = 1.0,  # for balancing the PPO loss and the VAE loss
+        entropy_weight: float = 1.0,  # for balancing the entropy loss and the value loss
     ) -> None:
         """
         Initializes the DiscretePPO agent.
@@ -81,27 +80,18 @@ class PPO(BaseAgent, torch.nn.Module):
             - Add more detailed description for each parameter.
         """
         super().__init__(env)
-        self.encoder = state_inference_model.to(DEVICE)
+        self.feature_extractor = feature_extractor
         self.gamma = gamma
         self.clip = clip
-        self.lr = lr
         self.grad_clip = grad_clip
         self.n_epochs = n_epochs
         self.n_steps = n_steps
         self.batch_size = batch_size
         self.epsilon = epsilon
         self.ppo_loss_weight = ppo_loss_weight
+        self.entropy_weight = entropy_weight
 
-        self.hash_vector = np.array(
-            [
-                self.state_inference_model.z_dim**ii
-                for ii in range(self.state_inference_model.z_layers)
-            ]
-        )
-
-        self.embedding_size = (
-            self.state_inference_model.z_dim * self.state_inference_model.z_layers
-        )
+        self.embedding_size = self.feature_extractor.embedding_dim
         self.n_actions = env.action_space.n
 
         self.actor_net = nn.Linear(self.embedding_size, self.n_actions)
@@ -110,11 +100,12 @@ class PPO(BaseAgent, torch.nn.Module):
 
     def _configure_optimizers(self, optim_kwargs: Optional[Dict[str, Any]] = None):
         optim_kwargs = optim_kwargs if optim_kwargs else dict()
+        if not hasattr(optim_kwargs, "lr"):
+            optim_kwargs["lr"] = 3e-4
         return torch.optim.AdamW(
             list(self.actor_net.parameters())
             + list(self.critic.parameters())
-            + list(self.state_inference_model.parameters()),
-            lr=self.lr,
+            + list(self.feature_extractor.parameters()),
             **optim_kwargs,
         )
 
@@ -135,12 +126,17 @@ class PPO(BaseAgent, torch.nn.Module):
 
     @torch.no_grad()
     def get_pmf(self, obs: FloatTensor) -> np.ndarray:
-        (logits, z), _ = self.embed(obs)
+        z = self.embed(obs)
 
         logits = self.actor(z.float())
         dist = torch.distributions.Categorical(logits=logits)
 
         return dist.probs.detach().cpu().numpy()
+
+    @torch.no_grad()
+    def get_value_fn(self, obs: FloatTensor) -> FloatTensor:
+        z = self.embed(obs.float())
+        return self.critic(z.float()).detach().cpu().numpy()
 
     def actor(self, x: FloatTensor) -> FloatTensor:
         """we use e-softmax policy here, mostly for numerical stability during training"""
@@ -148,42 +144,15 @@ class PPO(BaseAgent, torch.nn.Module):
         logits = self.actor_net(x)
 
         # Step 1: Normalize the logits using log-softmax
-        log_normalized_probs = F.log_softmax(logits, dim=-1)
+        log_normalized_probs = F.log_softmax(logits * self.entropy_weight, dim=-1)
 
-        # Step 2: Create a uniform distribution in the log domain
-        log_uniform_probs = -torch.log(
-            torch.tensor(logits.size(-1), dtype=torch.float32, device=self.device)
-        )
-
-        # Step 3: Combine the log probabilities using the log-sum-exp trick
-        log_mixed_probs = torch.logaddexp(
-            torch.log(torch.tensor(self.epsilon, device=self.device))
-            + log_normalized_probs,
-            torch.log(torch.tensor(1 - self.epsilon, device=self.device))
-            + log_uniform_probs,
-        )
-
-        return log_mixed_probs
+        return log_normalized_probs
 
     def get_state_hashkey(self, obs: Tensor) -> Hashable:
-        obs = obs if isinstance(obs, Tensor) else torch.tensor(obs)
-        obs_ = self._preprocess_obs(obs)
-        with torch.no_grad():
-            z = self.state_inference_model.get_state(obs_)
-        return z.dot(self.hash_vector)
+        raise NotImplementedError()
 
     def dehash_states(self, hashed_states: int | List[int]) -> torch.LongTensor:
-
-        if isinstance(hashed_states, List):
-            return torch.stack([self.dehash_states(h) for h in hashed_states])
-
-        assert isinstance(hashed_states, (int, np.integer, torch.int))
-
-        z = torch.zeros(self.state_inference_model.z_layers, dtype=torch.long)
-        for ii in range(self.state_inference_model.z_layers - 1, -1, -1):
-            z[ii] = hashed_states // self.hash_vector[ii]
-            hashed_states = hashed_states % self.hash_vector[ii]
-        return F.one_hot(z, self.state_inference_model.z_dim)
+        raise NotImplementedError()
 
     def predict(
         self, obs: Tensor, state=None, episode_start=None, deterministic: bool = False
@@ -207,13 +176,11 @@ class PPO(BaseAgent, torch.nn.Module):
 
         Returns:
             tuple[Tensor, Tensor]: A tuple containing the logits tensor and the flattened latent representation tensor.
-            - logits (Tensor): The logits tensor with shape (batch_size, z_layers, z_dim).
             - z (Tensor): The flattened latent representation tensor with shape (batch_size, latent_dim).
 
         """
-        (logits, z), y_hat = self.state_inference_model(self._preprocess_obs(obs))
-        z = self.state_inference_model.flatten_z(z)
-        return (logits, z), y_hat
+
+        return self.feature_extractor(self._preprocess_obs(obs))
 
     def get_action(self, state_vec: FloatTensor) -> tuple[int, FloatTensor]:
         """returns action and log probability of the action. Log probability is needed for the PPO loss"""
@@ -231,9 +198,6 @@ class PPO(BaseAgent, torch.nn.Module):
         log_probs = dist.log_prob(action)
 
         return action.item(), log_probs
-
-    def get_value(self, state_vec: FloatTensor) -> FloatTensor:
-        return self.critic(state_vec)
 
     def compute_rewards_to_go(self, rewards: np.ndarray | torch.Tensor) -> torch.Tensor:
         """Compute the rewards to go for a given episode via recursion."""
@@ -262,13 +226,13 @@ class PPO(BaseAgent, torch.nn.Module):
         rtg = rtg.float()
 
         # get the embeddings
-        (_, z), _ = self.embed(obs)
+        z = self.embed(obs)
 
         # get the value function
         V = self.critic(z.float())
 
         # advantages = rewards to go - value function
-        A = rtg.view(-1) - V.view(-1)
+        A = rtg.view(-1) - V.view(-1).detach()
 
         # normalize the advantages for stability
         if A.shape[0] > 1:
@@ -343,11 +307,13 @@ class PPO(BaseAgent, torch.nn.Module):
         3) Update the policy by maximizing the PPO loss
         4) Update the value function by minimizing the value loss"""
 
-        datatset = self.make_dataset(buffer)
-        dataloader = DataLoader(datatset, batch_size=self.batch_size, shuffle=True)
         self.train()
 
         for _ in range(self.n_epochs):
+
+            datatset = self.make_dataset(buffer)
+            dataloader = DataLoader(datatset, batch_size=self.batch_size, shuffle=True)
+
             batch_reward = 0
             for batch in dataloader:
                 batch = self.collocate(batch)
@@ -363,12 +329,18 @@ class PPO(BaseAgent, torch.nn.Module):
                 self.optim.zero_grad()
 
                 # embeddings -- this is required for all the losses
-                (logits, z), y_hat = self.embed(observations)
+                z = self.embed(observations)
                 z = z.float()
+
+                # critic
+                V = self.critic(z)
+                value_loss = (rewards_to_go.view(-1) - V.view(-1)).pow(2).mean()
+
+                # advantages = rewards_to_go - V.detach()
 
                 # ppo loss
                 # get the policy logits (shape: batch_size x n_actions)
-                actor_log_probs = self.actor(z.detach())
+                actor_log_probs = self.actor(z)
                 dist = torch.distributions.Categorical(logits=actor_log_probs)
                 cur_log_probs = dist.log_prob(
                     actions.long()
@@ -379,10 +351,6 @@ class PPO(BaseAgent, torch.nn.Module):
                 surr1 = ratio * advantages
                 surr2 = torch.clamp(ratio, 1 - self.clip, 1 + self.clip) * advantages
                 actor_loss = (-torch.min(surr1, surr2)).mean()
-
-                # value loss
-                V = self.critic(z.detach())
-                value_loss = (rewards_to_go.view(-1) - V.view(-1)).pow(2).mean()
 
                 # overall loss
                 loss = actor_loss + value_loss
@@ -423,7 +391,7 @@ class PPO(BaseAgent, torch.nn.Module):
             # do not collect the gradient for the rollout
             with torch.no_grad():
                 # vae encode
-                (_, z), _ = self.embed(torch.from_numpy(obs).float().to(self.device))
+                z = self.embed(torch.from_numpy(obs).float().to(self.device))
 
                 # policy
                 action, log_probs = self.get_action(z.float())
@@ -516,11 +484,15 @@ class PPO(BaseAgent, torch.nn.Module):
         cls,
         task,
         agent_config: Dict[str, Any],
-        vae_config: Dict[str, Any],
         env_kwargs: Dict[str, Any],
     ):
-        VaeClass = getattr(model.state_inference.vae, agent_config["vae_model_class"])
-        vae = VaeClass.make_from_configs(vae_config, env_kwargs)
+        input_shape = (1, env_kwargs["map_height"], env_kwargs["map_height"])
+        FeatureExtractor = getattr(
+            model.state_inference.nets, agent_config["feature_extractor"]["class"]
+        )
+        feature_extractor = FeatureExtractor(
+            input_shape=input_shape, **agent_config["feature_extractor"]["kwargs"]
+        )
 
         # figure out what the accepatble args and kwargs are
         # Get the signature of the __init__ method of DiscretePPO
@@ -538,12 +510,11 @@ class PPO(BaseAgent, torch.nn.Module):
             else:
                 kwargs.append(param.name)
 
-        state_inference_kwargs = {
-            k: v
-            for k, v in agent_config["state_inference_model"].items()
-            if k in args + kwargs
-        }
-        return cls(task, vae, **state_inference_kwargs)
+        return cls(
+            task,
+            feature_extractor,
+            **agent_config["optimizer_kwargs"],
+        )
 
     def get_state_values(self, state_key: Dict[int, int]) -> Dict[int, float]:
 
