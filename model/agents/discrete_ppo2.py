@@ -1,0 +1,227 @@
+import warnings
+from typing import Hashable, List, Tuple, Union
+
+import gymnasium as gym
+import numpy as np
+import torch
+import torch.nn.functional as F
+from gymnasium import spaces
+from stable_baselines3 import PPO as WrappedPPO
+from stable_baselines3.common.type_aliases import PyTorchObs
+from stable_baselines3.common.utils import explained_variance, get_schedule_fn
+
+# from stable_baselines3.common.policies import ActorCriticPolicy
+from torch import FloatTensor, Tensor, nn
+from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
+
+import model.state_inference.vae
+from model.agents.utils.base_agent import BaseAgent
+from model.agents.utils.data import PpoDataset
+from model.state_inference.nets.mlp import MLP
+from model.state_inference.vae import StateVae
+from model.training.rollout_data import PpoBuffer
+from task.utils import ActType
+from utils.pytorch_utils import DEVICE, convert_8bit_to_float
+
+
+class DiscretePpo2(WrappedPPO, BaseAgent):
+    """
+    wrapper for PPO with useful functions
+    """
+
+    def update_from_batch(self, buffer: PpoBuffer, progress_bar: bool = False):
+        raise NotImplementedError
+
+    def get_pmf(self, obs: FloatTensor) -> FloatTensor:
+        return (
+            self.policy.get_distribution(obs.permute(0, 3, 1, 2))
+            .distribution.probs.clone()
+            .detach()
+            .numpy()
+        )
+
+    def get_state_hashkey(self, obs: Tensor) -> Hashable:
+        raise NotImplementedError
+
+    def _setup_model(self) -> None:
+        super()._setup_model()
+
+        raise NotImplementedError
+
+    def extract_features(  # type: ignore[override]
+        self,
+        obs: PyTorchObs,
+        features_extractor=None,
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        """
+        Preprocess the observation if needed and extract features.
+
+        :param obs: Observation
+        :param features_extractor: The features extractor to use. If None, then ``self.features_extractor`` is used.
+        :return: The extracted features. If features extractor is not shared, returns a tuple with the
+            features for the actor and the features for the critic.
+        """
+        if self.share_features_extractor:
+            return super().extract_features(
+                obs,
+                (
+                    self.features_extractor
+                    if features_extractor is None
+                    else features_extractor
+                ),
+            )
+        else:
+            if features_extractor is not None:
+                warnings.warn(
+                    "Provided features_extractor will be ignored because the features extractor is not shared.",
+                    UserWarning,
+                )
+
+            pi_features = super().extract_features(obs, self.pi_features_extractor)
+            vf_features = super().extract_features(obs, self.vf_features_extractor)
+            return pi_features, vf_features
+
+    def train(self) -> None:
+        """
+        Update policy using the currently gathered rollout buffer.
+        """
+        # Switch to train mode (this affects batch norm / dropout)
+        self.policy.set_training_mode(True)
+        # Update optimizer learning rate
+        self._update_learning_rate(self.policy.optimizer)
+        # Compute current clip range
+        clip_range = self.clip_range(self._current_progress_remaining)  # type: ignore[operator]
+        # Optional: clip range for the value function
+        if self.clip_range_vf is not None:
+            clip_range_vf = self.clip_range_vf(self._current_progress_remaining)  # type: ignore[operator]
+
+        entropy_losses = []
+        pg_losses, value_losses = [], []
+        clip_fractions = []
+
+        continue_training = True
+        # train for n_epochs epochs
+        for epoch in range(self.n_epochs):
+            approx_kl_divs = []
+            # Do a complete pass on the rollout buffer
+            for rollout_data in self.rollout_buffer.get(self.batch_size):
+                actions = rollout_data.actions
+                if isinstance(self.action_space, spaces.Discrete):
+                    # Convert discrete action from float to long
+                    actions = rollout_data.actions.long().flatten()
+
+                # Re-sample the noise matrix because the log_std has changed
+                if self.use_sde:
+                    self.policy.reset_noise(self.batch_size)
+
+                values, log_prob, entropy = self.policy.evaluate_actions(
+                    rollout_data.observations, actions
+                )
+                values = values.flatten()
+                # Normalize advantage
+                advantages = rollout_data.advantages
+                # Normalization does not make sense if mini batchsize == 1, see GH issue #325
+                if self.normalize_advantage and len(advantages) > 1:
+                    advantages = (advantages - advantages.mean()) / (
+                        advantages.std() + 1e-8
+                    )
+
+                # ratio between old and new policy, should be one at the first iteration
+                ratio = torch.exp(log_prob - rollout_data.old_log_prob)
+
+                # clipped surrogate loss
+                policy_loss_1 = advantages * ratio
+                policy_loss_2 = advantages * torch.clamp(
+                    ratio, 1 - clip_range, 1 + clip_range
+                )
+                policy_loss = -torch.min(policy_loss_1, policy_loss_2).mean()
+
+                # Logging
+                pg_losses.append(policy_loss.item())
+                clip_fraction = torch.mean(
+                    (torch.abs(ratio - 1) > clip_range).float()
+                ).item()
+                clip_fractions.append(clip_fraction)
+
+                if self.clip_range_vf is None:
+                    # No clipping
+                    values_pred = values
+                else:
+                    # Clip the difference between old and new value
+                    # NOTE: this depends on the reward scaling
+                    values_pred = rollout_data.old_values + torch.clamp(
+                        values - rollout_data.old_values, -clip_range_vf, clip_range_vf
+                    )
+                # Value loss using the TD(gae_lambda) target
+                value_loss = F.mse_loss(rollout_data.returns, values_pred)
+                value_losses.append(value_loss.item())
+
+                # Entropy loss favor exploration
+                if entropy is None:
+                    # Approximate entropy when no analytical form
+                    entropy_loss = -torch.mean(-log_prob)
+                else:
+                    entropy_loss = -torch.mean(entropy)
+
+                entropy_losses.append(entropy_loss.item())
+
+                loss = (
+                    policy_loss
+                    + self.ent_coef * entropy_loss
+                    + self.vf_coef * value_loss
+                )
+
+                # Calculate approximate form of reverse KL Divergence for early stopping
+                # see issue #417: https://github.com/DLR-RM/stable-baselines3/issues/417
+                # and discussion in PR #419: https://github.com/DLR-RM/stable-baselines3/pull/419
+                # and Schulman blog: http://joschu.net/blog/kl-approx.html
+                with torch.no_grad():
+                    log_ratio = log_prob - rollout_data.old_log_prob
+                    approx_kl_div = (
+                        torch.mean((torch.exp(log_ratio) - 1) - log_ratio).cpu().numpy()
+                    )
+                    approx_kl_divs.append(approx_kl_div)
+
+                if self.target_kl is not None and approx_kl_div > 1.5 * self.target_kl:
+                    continue_training = False
+                    if self.verbose >= 1:
+                        print(
+                            f"Early stopping at step {epoch} due to reaching max kl: {approx_kl_div:.2f}"
+                        )
+                    break
+
+                # Optimization step
+                self.policy.optimizer.zero_grad()
+                loss.backward()
+                # Clip grad norm
+                torch.nn.utils.clip_grad_norm_(
+                    self.policy.parameters(), self.max_grad_norm
+                )
+                self.policy.optimizer.step()
+
+            self._n_updates += 1
+            if not continue_training:
+                break
+
+        explained_var = explained_variance(
+            self.rollout_buffer.values.flatten(), self.rollout_buffer.returns.flatten()
+        )
+
+        # Logs
+        self.logger.record("train/entropy_loss", np.mean(entropy_losses))
+        self.logger.record("train/policy_gradient_loss", np.mean(pg_losses))
+        self.logger.record("train/value_loss", np.mean(value_losses))
+        self.logger.record("train/approx_kl", np.mean(approx_kl_divs))
+        self.logger.record("train/clip_fraction", np.mean(clip_fractions))
+        self.logger.record("train/loss", loss.item())
+        self.logger.record("train/explained_variance", explained_var)
+        if hasattr(self.policy, "log_std"):
+            self.logger.record(
+                "train/std", torch.exp(self.policy.log_std).mean().item()
+            )
+
+        self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
+        self.logger.record("train/clip_range", clip_range)
+        if self.clip_range_vf is not None:
+            self.logger.record("train/clip_range_vf", clip_range_vf)
