@@ -1,2 +1,2 @@
-from .cnn import AutoregressiveDeconvNet, CnnDecoder, CnnEncoder, NewCnnEncoder
+from .cnn import AutoregressiveDeconvNet, CnnDecoder, CnnEncoder
 from .mlp import MlpDecoder, MlpEncoder

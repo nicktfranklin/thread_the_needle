@@ -328,6 +328,7 @@ class PpoEpisode(Episode):
         self.truncated = []
         self.info = []
         self.log_probs = []
+        self.values = []
 
         # used in the priority buffer
         self.total_reward = 0
@@ -338,8 +339,9 @@ class PpoEpisode(Episode):
         self,
         obs: ObsType,
         action: ActType,
-        obs_tuple: OutcomeTuple,
+        values: torch.Tensor,
         log_probs: torch.Tensor,
+        obs_tuple: OutcomeTuple,
     ):
 
         next_obs, reward, terminated, truncated, info = obs_tuple
@@ -352,6 +354,7 @@ class PpoEpisode(Episode):
         self.truncated.append(truncated)
         self.info.append(info)
         self.log_probs.append(log_probs)
+        self.values.append(values)
 
         self.total_reward += reward
 
@@ -364,6 +367,7 @@ class PpoEpisode(Episode):
             "next_observations": np.stack(self.next_obs),
             "actions": np.stack(self.actions),
             "rewards": np.stack(self.rewards),
+            "values": torch.stack(self.values),
             "terminated": np.stack(self.terminated),
             "timouts": np.stack(self.truncated),  # timeouts are truncated
             "infos": self.info,
@@ -377,14 +381,15 @@ class PpoBuffer(EpisodeBuffer):
         self,
         obs: ObsType,
         action: ActType,
-        obs_tuple: OutcomeTuple,
+        values: torch.Tensor,
         log_probs: torch.Tensor,
+        obs_tuple: OutcomeTuple,
     ):
 
         if self.current_episode is None:
             self.current_episode = PpoEpisode()
 
-        self.current_episode.add(obs, action, obs_tuple, log_probs)
+        self.current_episode.add(obs, action, values, log_probs, obs_tuple)
         self.most_recent_episode = self.current_episode
         self.buffer_size += 1
 

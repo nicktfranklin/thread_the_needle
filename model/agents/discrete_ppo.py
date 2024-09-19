@@ -33,7 +33,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         self,
         env: gym.Env,
         state_inference_model: StateVae,
-        gamma: float = 0.95,
+        gamma: float = 0.99,
         lr: float = 3e-4,
         n_steps: int = 2048,
         clip: float = 0.2,
@@ -43,7 +43,9 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         batch_size: int = 64,
         epsilon: float = 1e-3,  # for numerical stability
         ppo_loss_weight: float = 1.0,  # for balancing the PPO loss and the VAE loss
-        entropy_weight: float = 1.0,
+        vf_coef: float = 0.5,
+        ent_coef: float = 0.0,
+        max_grad_norm: float = 0.5,
     ) -> None:
         """
         Initializes the DiscretePPO agent.
@@ -72,7 +74,9 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         self.batch_size = batch_size
         self.epsilon = epsilon
         self.ppo_loss_weight = ppo_loss_weight
-        self.entropy_weight = entropy_weight
+        self.ent_coef = ent_coef
+        self.vf_coef = vf_coef
+        self.max_grad_norm = max_grad_norm
 
         self.hash_vector = np.array(
             [
@@ -119,19 +123,16 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
     def get_pmf(self, obs: FloatTensor) -> np.ndarray:
         (_, z), _ = self.embed(obs)
 
-        actor_logprobs = self.actor(z.float())
+        actor_dist = self.actor(z.float())
 
-        return torch.exp(actor_logprobs).detach().cpu().numpy()
+        return actor_dist.probs.detach().cpu().numpy()
 
-    def actor(self, x: FloatTensor) -> FloatTensor:
-        """we use e-softmax policy here, mostly for numerical stability during training"""
+    def actor(self, x: FloatTensor) -> torch.distributions.Distribution:
+        """we use a categorical policy here"""
 
         logits = self.actor_net(x)
 
-        # Step 1: Normalize the logits using log-softmax
-        log_normalized_probs = F.log_softmax(logits * self.entropy_weight, dim=-1)
-
-        return log_normalized_probs
+        return torch.distributions.Categorical(logits=logits)
 
     def get_state_hashkey(self, obs: Tensor) -> Hashable:
         obs = obs if isinstance(obs, Tensor) else torch.tensor(obs)
@@ -183,22 +184,24 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         z = self.state_inference_model.flatten_z(z)
         return (logits, z), y_hat
 
-    def get_action(self, state_vec: FloatTensor) -> tuple[int, FloatTensor]:
+    def policy(self, obs: FloatTensor) -> tuple[int, FloatTensor, FloatTensor]:
         """returns action and log probability of the action. Log probability is needed for the PPO loss"""
-        assert isinstance(state_vec, torch.Tensor)
-        assert state_vec.dtype == torch.float32
+        assert isinstance(obs, torch.Tensor)
+        assert obs.dtype == torch.float32
 
-        logits = self.actor(state_vec)
-
-        dist = torch.distributions.Categorical(logits=logits)
+        (_, z), _ = self.embed(obs)
+        policy_dist = self.actor(z.float())
 
         # Sample (detached from computation graph)
-        action = dist.sample()
+        action = policy_dist.sample()
 
         # Compute log probability (connected to computation graph)
-        log_probs = dist.log_prob(action)
+        log_probs = policy_dist.log_prob(action)
 
-        return action.item(), log_probs
+        # compute the value function (connected to computation graph)
+        value = self.critic(z.float())
+
+        return action.item(), value, log_probs
 
     @torch.no_grad()
     def get_value_fn(self, obs: FloatTensor) -> FloatTensor:
@@ -224,7 +227,9 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         return torch.cat([torch.tensor([rewards[0] + self.gamma * rtg[0]]), rtg])
 
     @torch.no_grad()
-    def compute_advantages(self, obs: FloatTensor, rtg: FloatTensor) -> FloatTensor:
+    def compute_advantages(
+        self, obs: FloatTensor, rtg: FloatTensor, values: FloatTensor
+    ) -> FloatTensor:
         """Compute the advantages for a given episode. Does not require gradients."""
         assert isinstance(obs, torch.Tensor)
         assert isinstance(rtg, torch.Tensor)
@@ -237,11 +242,8 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
         # get the embeddings
         (_, z), _ = self.embed(obs)
 
-        # get the value function
-        V = self.critic(z.float())
-
         # advantages = rewards to go - value function
-        A = rtg.view(-1) - V.view(-1)
+        A = rtg.view(-1) - values.view(-1)
 
         # normalize the advantages for stability
         if A.shape[0] > 1:
@@ -272,7 +274,7 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
 
             # 2) Compute Advantage based on current value function
             advantages = self.compute_advantages(
-                episode_data["observations"], rewards_to_go
+                episode_data["observations"], rewards_to_go, episode_data["values"]
             )
 
             observations_list.append(episode_data["observations"])
@@ -334,7 +336,6 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
                 batch_reward += batch["episode_reward"].sum().item()
 
                 # all loss computations go here!
-                self.optim.zero_grad()
 
                 # embeddings -- this is required for all the losses
                 (logits, z), y_hat = self.embed(observations)
@@ -355,29 +356,32 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
 
                 # ppo loss
                 # get the policy logits (shape: batch_size x n_actions)
-                actor_log_probs = self.actor(z)
-                dist = torch.distributions.Categorical(logits=actor_log_probs)
-                cur_log_probs = dist.log_prob(actions.long())
+                policy_dist = self.actor(z)
+                cur_log_probs = policy_dist.log_prob(actions.long())
+
+                # encourage exploration
+                entropy = policy_dist.entropy().mean()
 
                 ratio = torch.exp(cur_log_probs - old_log_probs)
                 surr1 = ratio * advantages
                 surr2 = torch.clamp(ratio, 1 - self.clip, 1 + self.clip) * advantages
-                actor_loss = (-torch.min(surr1, surr2)).mean()
+                policy_loss = (-torch.min(surr1, surr2)).mean()
 
                 # value loss
                 V = self.critic(z)
                 value_loss = (rewards_to_go.view(-1) - V.view(-1)).pow(2).mean()
 
                 # overall loss
-                ppo_loss = actor_loss + value_loss
+                ppo_loss = (
+                    policy_loss + value_loss * self.vf_coef + entropy * self.ent_coef
+                )
                 loss = ppo_loss * self.ppo_loss_weight + vae_elbo
-                loss.backward()
 
                 if torch.isnan(loss):
                     print("Loss contains NaN values")
                     print("PPO Loss:", ppo_loss.item())
                     print("VAE ELBO Loss:", vae_elbo.item())
-                    print("Actor Loss:", actor_loss.item())
+                    print("Policy Loss:", policy_loss.item())
                     print("Value Loss:", value_loss.item())
                     print("KL Loss:", kl_loss.item())
                     print("Reconstruction Loss:", recon_loss.item())
@@ -388,8 +392,12 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
                     print("Surr2:", surr2)
                     print("Advantages:", advantages)
                     raise Exception("Loss contains NaN values")
-                else:
-                    self.optim.step()
+
+                # optimization step
+                self.optim.zero_grad()
+                loss.backward()
+                nn.utils.clip_grad_norm_(self.parameters(), self.max_grad_norm)
+                self.optim.step()
 
                 if self.log_tensorboard:
                     self.writer.add_scalar(
@@ -436,18 +444,18 @@ class DiscretePPO(BaseAgent, torch.nn.Module):
             # do not collect the gradient for the rollout
             with torch.no_grad():
                 # vae encode
-                (_, z), _ = self.embed(torch.from_numpy(obs).float().to(self.device))
-
-                # policy
-                action, log_probs = self.get_action(z.float())
+                action, values, log_probs = self.policy(
+                    torch.tensor(obs).float().to(self.device)
+                )
 
             outcome_tuple = task.step(action)
 
             rollout_buffer.add(
                 obs,
                 action,
-                outcome_tuple,
+                values.cpu().detach(),
                 log_probs,
+                outcome_tuple,
             )
 
             # get the next obs from the observation tuple

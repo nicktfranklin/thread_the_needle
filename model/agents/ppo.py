@@ -19,7 +19,7 @@ from torch.utils.tensorboard import SummaryWriter
 import model.state_inference.vae
 from model.agents.utils.base_agent import BaseAgent
 from model.agents.utils.data import PpoDataset
-from model.state_inference.nets.cnn import NewCnnEncoder
+from model.state_inference.nets.cnn import CnnEncoder
 from model.training.rollout_data import PpoBuffer, RolloutBuffer
 from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
@@ -51,7 +51,7 @@ class PPO(BaseAgent, torch.nn.Module):
     def __init__(
         self,
         env: gym.Env,
-        feature_extractor: NewCnnEncoder,
+        feature_extractor: CnnEncoder,
         gamma: float = 0.95,
         n_steps: int = 2048,
         clip: float = 0.2,

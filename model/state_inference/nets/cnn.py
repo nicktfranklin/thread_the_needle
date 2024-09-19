@@ -32,63 +32,6 @@ class CnnEncoder(nn.Module):
         super().__init__()
 
         if channels is None:
-            channels = [32, 64, 128, 256, 512]
-
-        if kernel_sizes is None:
-            kernel_sizes = [3] * len(channels)
-        if strides is None:
-            strides = [2] * len(channels)
-
-        modules = []
-        h_in = in_channels
-        for h_dim, kernel_size, stride in zip(channels, kernel_sizes, strides):
-            modules.append(ConvBlock(h_in, h_dim, kernel_size, stride, padding=1))
-            h_in = h_dim
-
-        self.cnn = nn.Sequential(*modules)
-        self.mlp = nn.Sequential(
-            nn.LayerNorm(channels[-1] * 4),
-            nn.Linear(channels[-1] * 4, channels[-1] * 4),
-            nn.ELU(),
-            nn.Linear(channels[-1] * 4, embedding_dim),
-        )
-
-        assert in_channels == input_shape[0], "Input channels do not match shape!"
-
-        self.input_shape = input_shape
-
-    def forward(self, x):
-        # Assume NxCxHxW input or CxHxW input
-        assert x.ndim == 4 or x.ndim == 3
-        assert_correct_end_shape(x, self.input_shape)
-        x = maybe_expand_batch(x, self.input_shape)
-        x = self.cnn(x)
-        x = self.mlp(torch.flatten(x, start_dim=1))
-        return x
-
-    def encode_sequence(self, x: Tensor, batch_first: bool = True) -> Tensor:
-        assert x.ndim == 5
-        if batch_first:
-            x = x.permute(1, 0, 2, 3, 4)
-        x = torch.stack([self(xt) for xt in x])
-        if batch_first:
-            x = x.permute(1, 0, 2, 3, 4)
-        return x
-
-
-class NewCnnEncoder(nn.Module):
-    def __init__(
-        self,
-        in_channels: int,
-        embedding_dim: int,
-        input_shape: Tuple[int, int, int],
-        channels: Optional[List[int]] = None,
-        kernel_sizes: Optional[List[int]] = None,
-        strides: Optional[List[int]] = None,
-    ):
-        super().__init__()
-
-        if channels is None:
             channels = [32, 64, 64]
 
         if kernel_sizes is None:
