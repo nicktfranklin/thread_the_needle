@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 import model.state_inference.vae
-from model.agents.utils.base_agent import BaseAgent
+from model.agents.utils.base_agent import BaseVaeAgent
 from model.agents.utils.data import PpoDataset
 from model.state_inference.nets.mlp import MLP
 from model.state_inference.vae import StateVae
@@ -26,7 +26,7 @@ from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
 
-class DiscretePPO(BaseAgent, torch.nn.Module):
+class DiscretePPO(BaseVaeAgent, torch.nn.Module):
     minimum_episode_length = 2
 
     def __init__(

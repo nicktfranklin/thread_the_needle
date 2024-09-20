@@ -133,12 +133,6 @@ class BaseAgent(ABC):
 
         return True
 
-    @abstractmethod
-    def update_from_batch(self, batch: BaseBuffer): ...
-
-    @abstractmethod
-    def get_state_hashkey(self, obs: Tensor) -> Hashable: ...
-
     def _init_callback(
         self,
         callback: MaybeCallback,
@@ -338,3 +332,11 @@ class BaseAgent(ABC):
     ) -> np.ndarray:
         """this require a defined value model or estimator"""
         raise NotImplementedError
+
+
+class BaseVaeAgent(BaseAgent, ABC):
+    @abstractmethod
+    def update_from_batch(self, batch: BaseBuffer): ...
+
+    @abstractmethod
+    def get_state_hashkey(self, obs: Tensor) -> Hashable: ...

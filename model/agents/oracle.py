@@ -1,14 +1,14 @@
 import numpy as np
 from torch import FloatTensor
 
-from model.agents.utils.base_agent import BaseAgent
+from model.agents.utils.base_agent import BaseVaeAgent
 from model.training.rollout_data import RolloutBuffer
 from task.gridworld import GridWorldEnv
 from task.utils import ActType, ObsType
 from utils.sampling_functions import inverse_cmf_sampler
 
 
-class Oracle(BaseAgent):
+class Oracle(BaseVaeAgent):
     """uses the optimal policy to collect rollouts"""
 
     def __init__(self, task: GridWorldEnv, epsilon: float = 0.0) -> None:

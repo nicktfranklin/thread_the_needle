@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from tqdm import trange
 
 import model.state_inference.vae
-from model.agents.utils.base_agent import BaseAgent
+from model.agents.utils.base_agent import BaseVaeAgent
 from model.agents.utils.mdp import (
     TabularRewardEstimator,
     TabularStateActionTransitionEstimator,
@@ -23,7 +23,7 @@ from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
 
-class ValueIterationAgent(BaseAgent):
+class ValueIterationAgent(BaseVaeAgent):
     TRANSITION_MODEL_CLASS = TabularStateActionTransitionEstimator
     REWARD_MODEL_CLASS = TabularRewardEstimator
     POLICY_CLASS = SoftmaxPolicy
