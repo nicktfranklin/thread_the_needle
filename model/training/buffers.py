@@ -1,6 +1,6 @@
 import warnings
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Generator, List, Optional, Tuple, Union
+from typing import Any, Dict, Generator, List, NamedTuple, Optional, Tuple, Union
 
 import numpy as np
 import torch as th
@@ -16,6 +16,16 @@ try:
     import psutil
 except ImportError:
     psutil = None
+
+
+class RolloutBufferSamples(NamedTuple):
+    observations: th.Tensor
+    next_observations: th.Tensor
+    actions: th.Tensor
+    old_values: th.Tensor
+    old_log_prob: th.Tensor
+    advantages: th.Tensor
+    returns: th.Tensor
 
 
 class RolloutBuffer(BaseBuffer):

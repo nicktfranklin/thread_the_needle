@@ -65,7 +65,6 @@ class DiscretePpo2(WrappedPPO, BaseAgent):
             n_envs=self.n_envs,
             **self.rollout_buffer_kwargs,
         )
-        print(type(self.rollout_buffer))
         self.policy = self.policy_class(  # type: ignore[assignment]
             self.observation_space,
             self.action_space,
@@ -112,7 +111,6 @@ class DiscretePpo2(WrappedPPO, BaseAgent):
 
         n_steps = 0
         rollout_buffer.reset()
-        print(type(rollout_buffer))
         # Sample new weights for the state dependent exploration
         if self.use_sde:
             self.policy.reset_noise(env.num_envs)
