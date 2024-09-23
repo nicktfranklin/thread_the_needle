@@ -24,7 +24,7 @@ from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
 
-class DiscretePpo2(WrappedPPO, BaseAgent):
+class SbDiscretePpo(WrappedPPO, BaseAgent):
     """
     wrapper for PPO with useful functions
     """
