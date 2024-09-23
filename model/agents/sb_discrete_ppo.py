@@ -16,8 +16,10 @@ from stable_baselines3.common.utils import (
 from stable_baselines3.common.vec_env import VecEnv
 from torch import FloatTensor
 
-import model.state_inference.vae
-from model.agents.stable_baseline_clone.policies import ActorCriticCnnPolicy, BasePolicy
+from model.agents.stable_baseline_clone.policies import (
+    ActorCriticCnnDiscreteVaePolicy,
+    BasePolicy,
+)
 from model.agents.utils.base_agent import BaseAgent
 from model.training.buffers import RolloutBuffer
 from task.utils import ActType
@@ -30,7 +32,7 @@ class SbDiscretePpo(WrappedPPO, BaseAgent):
     """
 
     policy_aliases: ClassVar[Dict[str, Type[BasePolicy]]] = {
-        "CnnPolicy": ActorCriticCnnPolicy,
+        "CnnPolicy": ActorCriticCnnDiscreteVaePolicy,
     }
     rollout_buffer: RolloutBuffer
 
