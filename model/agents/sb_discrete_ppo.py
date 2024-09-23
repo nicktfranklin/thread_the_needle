@@ -85,6 +85,9 @@ class SbDiscretePpo(WrappedPPO, BaseAgent):
 
             self.clip_range_vf = get_schedule_fn(self.clip_range_vf)
 
+    def eval(self):
+        self.policy.set_training_mode(False)
+
     def collect_rollouts(
         self,
         env: VecEnv,
