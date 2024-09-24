@@ -265,7 +265,7 @@ class SbDiscretePpo(WrappedPPO, BaseAgent):
                 )
                 policy_loss = -torch.min(policy_loss_1, policy_loss_2).mean()
 
-                vae_elbo = vae_loss.kl_loss + vae_loss.reconstruction_loss
+                vae_elbo = vae_loss.kl_div + vae_loss.recon_loss
 
                 # Logging
                 pg_losses.append(policy_loss.item())

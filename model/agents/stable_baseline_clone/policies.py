@@ -26,6 +26,7 @@ from torch import nn
 from model.agents.stable_baseline_clone.feature_extractors import (
     BaseVaeFeatureExtractor,
     DiscreteVaeExtractor,
+    VaeLoss,
 )
 
 
@@ -373,7 +374,7 @@ class ActorCriticVaePolicy(BasePolicy):
         obs: PyTorchObs,
         actions: th.Tensor,
         next_obs: Optional[PyTorchObs] = None,
-    ) -> Tuple[th.Tensor, th.Tensor, Optional[th.Tensor]]:
+    ) -> Tuple[th.Tensor, th.Tensor, Optional[th.Tensor], Type[VaeLoss]]:
         """
         Evaluate actions according to the current policy,
         given the observations.

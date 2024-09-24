@@ -15,6 +15,7 @@ from torch.distributions.categorical import Categorical
 from torch.distributions.kl import kl_divergence
 
 from model.state_inference.gumbel_softmax import gumbel_softmax
+from model.state_inference.nets.cnn import AutoregressiveDeconvNet
 
 VaeLoss = namedtuple("VaeLoss", ["recon_loss", "kl_div"])
 
@@ -179,7 +180,6 @@ class BaseVaeFeatureExtractor(BaseFeaturesExtractor, ABC):
         latents = self.reparameterize(logits)
 
         if return_loss:
-            print(latents.shape)
             reconstruction = self._decode(latents)
 
             if targets is not None:
@@ -259,17 +259,10 @@ class DiscreteVaeExtractor(BaseVaeFeatureExtractor):
 
         self.linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
 
-        self.decoder = nn.Sequential(
-            nn.Linear(features_dim, 64 * 7 * 7),
-            nn.ReLU(),
-            nn.ConvTranspose2d(64, 64, kernel_size=3, stride=1, padding=0),
-            nn.ReLU(),
-            nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=0),
-            nn.ReLU(),
-            nn.ConvTranspose2d(
-                32, n_input_channels, kernel_size=8, stride=4, padding=0
-            ),
-            nn.Sigmoid(),
+        self.decoder = AutoregressiveDeconvNet(
+            embedding_dim=features_dim,
+            hidden_channels=64,
+            output_channels=n_input_channels,
         )
         self.z_layers = z_layers
         self.z_dim = z_dim
