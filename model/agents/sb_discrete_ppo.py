@@ -16,10 +16,7 @@ from stable_baselines3.common.utils import (
 from stable_baselines3.common.vec_env import VecEnv
 from torch import FloatTensor
 
-from model.agents.stable_baseline_clone.policies import (
-    ActorCriticCnnDiscreteVaePolicy,
-    BasePolicy,
-)
+from model.agents.stable_baseline_clone.policies import ActorCriticVaePolicy, BasePolicy
 from model.agents.utils.base_agent import BaseAgent
 from model.training.buffers import RolloutBuffer
 from task.utils import ActType
@@ -31,10 +28,13 @@ class SbDiscretePpo(WrappedPPO, BaseAgent):
     wrapper for PPO with useful functions
     """
 
+    vae_coef: float = 1.0
+
     policy_aliases: ClassVar[Dict[str, Type[BasePolicy]]] = {
-        "CnnPolicy": ActorCriticCnnDiscreteVaePolicy,
+        "CnnPolicy": ActorCriticVaePolicy,
     }
     rollout_buffer: RolloutBuffer
+    policy: ActorCriticVaePolicy
 
     def get_pmf(self, obs: FloatTensor) -> FloatTensor:
         return (
@@ -225,7 +225,7 @@ class SbDiscretePpo(WrappedPPO, BaseAgent):
             clip_range_vf = self.clip_range_vf(self._current_progress_remaining)  # type: ignore[operator]
 
         entropy_losses = []
-        pg_losses, value_losses = [], []
+        pg_losses, value_losses, vae_elbos = [], [], []
         clip_fractions = []
 
         continue_training = True
@@ -243,8 +243,8 @@ class SbDiscretePpo(WrappedPPO, BaseAgent):
                 if self.use_sde:
                     self.policy.reset_noise(self.batch_size)
 
-                values, log_prob, entropy = self.policy.evaluate_actions(
-                    rollout_data.observations, actions
+                values, log_prob, entropy, vae_loss = self.policy.evaluate_actions(
+                    rollout_data.observations, actions, rollout_data.next_observations
                 )
                 values = values.flatten()
                 # Normalize advantage
@@ -265,8 +265,11 @@ class SbDiscretePpo(WrappedPPO, BaseAgent):
                 )
                 policy_loss = -torch.min(policy_loss_1, policy_loss_2).mean()
 
+                vae_elbo = vae_loss.kl_loss + vae_loss.reconstruction_loss
+
                 # Logging
                 pg_losses.append(policy_loss.item())
+                vae_elbos.append(vae_elbo.item())
                 clip_fraction = torch.mean(
                     (torch.abs(ratio - 1) > clip_range).float()
                 ).item()
@@ -298,6 +301,7 @@ class SbDiscretePpo(WrappedPPO, BaseAgent):
                     policy_loss
                     + self.ent_coef * entropy_loss
                     + self.vf_coef * value_loss
+                    + self.vae_coef * vae_elbo
                 )
 
                 # Calculate approximate form of reverse KL Divergence for early stopping
@@ -339,6 +343,7 @@ class SbDiscretePpo(WrappedPPO, BaseAgent):
         # Logs
         self.logger.record("train/entropy_loss", np.mean(entropy_losses))
         self.logger.record("train/policy_gradient_loss", np.mean(pg_losses))
+        self.logger.record("train/elbo", np.mean(vae_elbos))
         self.logger.record("train/value_loss", np.mean(value_losses))
         self.logger.record("train/approx_kl", np.mean(approx_kl_divs))
         self.logger.record("train/clip_fraction", np.mean(clip_fractions))

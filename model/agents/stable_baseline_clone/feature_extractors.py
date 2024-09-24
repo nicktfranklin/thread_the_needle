@@ -1,3 +1,5 @@
+from abc import ABC, abstractmethod
+from collections import namedtuple
 from typing import Dict, List, Optional, Tuple, Type, Union
 
 import gymnasium as gym
@@ -13,6 +15,8 @@ from torch.distributions.categorical import Categorical
 from torch.distributions.kl import kl_divergence
 
 from model.state_inference.gumbel_softmax import gumbel_softmax
+
+VaeLoss = namedtuple("VaeLoss", ["recon_loss", "kl_div"])
 
 
 class BaseFeaturesExtractor(nn.Module):
@@ -116,7 +120,80 @@ class NatureCNN(BaseFeaturesExtractor):
         return self.linear(self.cnn(observations))
 
 
-class DiscreteVaeExtractor(BaseFeaturesExtractor):
+class BaseVaeFeatureExtractor(BaseFeaturesExtractor, ABC):
+
+    z_dim: int
+    z_layers: int
+
+    tau: float = 0.85
+
+    def reparameterize(self, logits):
+        logits = logits.view(-1, self.z_layers, self.z_dim)
+        if self.training:
+            z = gumbel_softmax(logits, hard=False, tau=self.tau)
+        else:
+            s = torch.argmax(logits, dim=-1)
+            z = F.one_hot(s, num_classes=logits.size(-1))
+
+        return z.float().view(-1, self.z_layers * self.z_dim)
+
+    def kl_loss(self, logits: th.Tensor) -> th.Tensor:
+
+        # Flatten the logits, the last dimenions z_dim
+        N = logits.shape[0]
+        logits = logits.view(-1, self.z_dim)
+
+        # Compute the KL divergence
+        q = Categorical(logits=logits)
+        p = Categorical(
+            probs=th.full((N * self.z_layers, self.z_dim), 1.0 / self.z_dim).to(
+                logits.device
+            )
+        )
+
+        # sum loss over dimensions in each example, average over batch
+        kl = kl_divergence(q, p).view(N, self.z_layers).sum(1).mean()
+
+        return kl
+
+    def reconstruction_loss(
+        self, observations: th.Tensor, targets: th.Tensor
+    ) -> th.Tensor:
+        mse_loss = F.mse_loss(observations, targets, reduction="none")
+        # sum loss over dimensions in each example, average over batch
+        return mse_loss.view(observations.shape[0], -1).sum(1).mean()
+
+    @abstractmethod
+    def _encode(self, observations: th.Tensor) -> th.Tensor: ...
+
+    @abstractmethod
+    def _decode(self, latents: th.Tensor) -> th.Tensor: ...
+
+    def forward(
+        self,
+        observations: th.Tensor,
+        targets: Optional[th.Tensor] = None,
+        return_loss: bool = False,
+    ) -> Union[th.Tensor, Tuple[th.Tensor, Dict[str, th.Tensor]]]:
+        logits = self._encode(observations)
+        latents = self.reparameterize(logits)
+
+        if return_loss:
+            print(latents.shape)
+            reconstruction = self._decode(latents)
+
+            if targets is not None:
+                target = observations
+
+            kl_loss = self.kl_loss(logits)
+            reconstruction_loss = self.reconstruction_loss(reconstruction, target)
+
+            return latents, VaeLoss(recon_loss=reconstruction_loss, kl_div=kl_loss)
+
+        return latents
+
+
+class DiscreteVaeExtractor(BaseVaeFeatureExtractor):
     """
     Modified version of the CNN from DQN Nature paper:
         Mnih, Volodymyr, et al.
@@ -197,65 +274,11 @@ class DiscreteVaeExtractor(BaseFeaturesExtractor):
         self.z_layers = z_layers
         self.z_dim = z_dim
 
-    def reparameterize(self, logits):
-        logits = logits.view(-1, self.z_layers, self.z_dim)
-        if self.training:
-            z = gumbel_softmax(logits, hard=False, tau=self.tau)
-        else:
-            s = torch.argmax(logits, dim=-1)
-            z = F.one_hot(s, num_classes=logits.size(-1)).float()
+    def _encode(self, observations: torch.Tensor) -> torch.Tensor:
+        return self.linear(self.cnn(observations))
 
-    def kl_loss(self, logits: th.Tensor) -> th.Tensor:
-
-        # Flatten the logits, the last dimenions z_dim
-        N = logits.shape[0]
-        logits = logits.view(-1, self.z_dim)
-
-        # Compute the KL divergence
-        q = Categorical(logits=logits)
-        p = Categorical(
-            probs=th.full((N * self.z_layers, self.z_dim), 1.0 / self.z_dim).to(
-                logits.device
-            )
-        )
-
-        # sum loss over dimensions in each example, average over batch
-        kl = kl_divergence(q, p).view(N, self.z_layers).sum(1).mean()
-
-        return kl
-
-    def reconstruction_loss(
-        self, observations: th.Tensor, targets: th.Tensor
-    ) -> th.Tensor:
-        mse_loss = F.mse_loss(observations, targets, reduction="none")
-        # sum loss over dimensions in each example, average over batch
-        return mse_loss.view(observations.shape[0], -1).sum(1).mean()
-
-    def forward(
-        self,
-        observations: th.Tensor,
-        targets: Optional[th.Tensor] = None,
-        return_loss: bool = False,
-    ) -> Union[th.Tensor, Tuple[th.Tensor, Dict[str, th.Tensor]]]:
-        logits = self.linear(self.cnn(observations))
-        latents = self.reparameterize(logits)
-
-        if return_loss:
-
-            reconstruction = self.decoder(latents)
-
-            if targets is not None:
-                target = observations
-
-            kl_loss = self.kl_loss(logits)
-            reconstruction_loss = self.reconstruction_loss(reconstruction, target)
-
-            return latents, {
-                "kl_loss": kl_loss,
-                "reconstruction_loss": reconstruction_loss,
-            }
-
-        return latents
+    def _decode(self, latents: torch.Tensor) -> torch.Tensor:
+        return self.decoder(latents)
 
 
 def create_mlp(

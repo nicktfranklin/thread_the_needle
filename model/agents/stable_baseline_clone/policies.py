@@ -1,9 +1,7 @@
 """Policies: abstract base class and concrete implementations."""
 
 import collections
-import copy
 import warnings
-from abc import ABC, abstractmethod
 from functools import partial
 from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
@@ -20,30 +18,18 @@ from stable_baselines3.common.distributions import (
     make_proba_distribution,
 )
 from stable_baselines3.common.policies import BasePolicy
-from stable_baselines3.common.preprocessing import (
-    get_action_dim,
-    is_image_space,
-    maybe_transpose,
-    preprocess_obs,
-)
-from stable_baselines3.common.torch_layers import (
-    BaseFeaturesExtractor,
-    CombinedExtractor,
-    FlattenExtractor,
-    MlpExtractor,
-    NatureCNN,
-    create_mlp,
-)
+from stable_baselines3.common.preprocessing import preprocess_obs
+from stable_baselines3.common.torch_layers import MlpExtractor
 from stable_baselines3.common.type_aliases import PyTorchObs, Schedule
-from stable_baselines3.common.utils import (
-    get_device,
-    is_vectorized_observation,
-    obs_as_tensor,
-)
 from torch import nn
 
+from model.agents.stable_baseline_clone.feature_extractors import (
+    BaseVaeFeatureExtractor,
+    DiscreteVaeExtractor,
+)
 
-class ActorCriticPolicy(BasePolicy):
+
+class ActorCriticVaePolicy(BasePolicy):
     """
     Policy class for actor-critic algorithms (has both policy and value prediction).
     Used by A2C, PPO and the likes.
@@ -75,6 +61,8 @@ class ActorCriticPolicy(BasePolicy):
         excluding the learning rate, to pass to the optimizer
     """
 
+    features_extractor: BaseVaeFeatureExtractor
+
     def __init__(
         self,
         observation_space: spaces.Space,
@@ -88,7 +76,7 @@ class ActorCriticPolicy(BasePolicy):
         full_std: bool = True,
         use_expln: bool = False,
         squash_output: bool = False,
-        features_extractor_class: Type[BaseFeaturesExtractor] = FlattenExtractor,
+        features_extractor_class: Type[BaseVaeFeatureExtractor] = DiscreteVaeExtractor,
         features_extractor_kwargs: Optional[Dict[str, Any]] = None,
         share_features_extractor: bool = True,
         normalize_images: bool = True,
@@ -111,6 +99,7 @@ class ActorCriticPolicy(BasePolicy):
             squash_output=squash_output,
             normalize_images=normalize_images,
         )
+        assert share_features_extractor, "Only shared feature extractor is supported"
 
         if (
             isinstance(net_arch, list)
@@ -128,7 +117,7 @@ class ActorCriticPolicy(BasePolicy):
 
         # Default network architecture, from stable-baselines
         if net_arch is None:
-            if features_extractor_class == NatureCNN:
+            if features_extractor_class == DiscreteVaeExtractor:
                 net_arch = []
             else:
                 net_arch = dict(pi=[64, 64], vf=[64, 64])
@@ -299,9 +288,10 @@ class ActorCriticPolicy(BasePolicy):
         if self.share_features_extractor:
             latent_pi, latent_vf = self.mlp_extractor(features)
         else:
-            pi_features, vf_features = features
-            latent_pi = self.mlp_extractor.forward_actor(pi_features)
-            latent_vf = self.mlp_extractor.forward_critic(vf_features)
+            raise NotImplementedError(
+                "Not implemented for non-shared feature extractor"
+            )
+
         # Evaluate the values for the given observations
         values = self.value_net(latent_vf)
         distribution = self._get_action_dist_from_latent(latent_pi)
@@ -313,7 +303,7 @@ class ActorCriticPolicy(BasePolicy):
     def extract_features(  # type: ignore[override]
         self,
         obs: PyTorchObs,
-        features_extractor: Optional[BaseFeaturesExtractor] = None,
+        features_extractor: Optional[BaseVaeFeatureExtractor] = None,
     ) -> Union[th.Tensor, Tuple[th.Tensor, th.Tensor]]:
         """
         Preprocess the observation if needed and extract features.
@@ -333,15 +323,9 @@ class ActorCriticPolicy(BasePolicy):
                 ),
             )
         else:
-            if features_extractor is not None:
-                warnings.warn(
-                    "Provided features_extractor will be ignored because the features extractor is not shared.",
-                    UserWarning,
-                )
-
-            pi_features = super().extract_features(obs, self.pi_features_extractor)
-            vf_features = super().extract_features(obs, self.vf_features_extractor)
-            return pi_features, vf_features
+            raise NotImplementedError(
+                "Not implemented for non-shared feature extractor"
+            )
 
     def _get_action_dist_from_latent(self, latent_pi: th.Tensor) -> Distribution:
         """
@@ -385,7 +369,10 @@ class ActorCriticPolicy(BasePolicy):
         )
 
     def evaluate_actions(
-        self, obs: PyTorchObs, actions: th.Tensor
+        self,
+        obs: PyTorchObs,
+        actions: th.Tensor,
+        next_obs: Optional[PyTorchObs] = None,
     ) -> Tuple[th.Tensor, th.Tensor, Optional[th.Tensor]]:
         """
         Evaluate actions according to the current policy,
@@ -396,19 +383,30 @@ class ActorCriticPolicy(BasePolicy):
         :return: estimated value, log likelihood of taking those actions
             and entropy of the action distribution.
         """
-        # Preprocess the observation if needed
-        features = self.extract_features(obs)
+        # Preprocess the observation
+        preprocessed_obs = preprocess_obs(
+            obs, self.observation_space, normalize_images=self.normalize_images
+        )
+        if next_obs is not None:
+            preprocessed_next_obs = preprocess_obs(
+                next_obs, self.observation_space, normalize_images=self.normalize_images
+            )
+
+        features, vae_losses = self.features_extractor(
+            preprocessed_obs, targets=preprocessed_next_obs, return_loss=True
+        )
+
         if self.share_features_extractor:
             latent_pi, latent_vf = self.mlp_extractor(features)
         else:
-            pi_features, vf_features = features
-            latent_pi = self.mlp_extractor.forward_actor(pi_features)
-            latent_vf = self.mlp_extractor.forward_critic(vf_features)
+            raise NotImplementedError(
+                "Not implemented for non-shared feature extractor"
+            )
         distribution = self._get_action_dist_from_latent(latent_pi)
         log_prob = distribution.log_prob(actions)
         values = self.value_net(latent_vf)
         entropy = distribution.entropy()
-        return values, log_prob, entropy
+        return values, log_prob, entropy, vae_losses
 
     def get_distribution(self, obs: PyTorchObs) -> Distribution:
         """
@@ -431,118 +429,3 @@ class ActorCriticPolicy(BasePolicy):
         features = super().extract_features(obs, self.vf_features_extractor)
         latent_vf = self.mlp_extractor.forward_critic(features)
         return self.value_net(latent_vf)
-
-
-class ActorCriticCnnPolicy(ActorCriticPolicy):
-    """
-    CNN policy class for actor-critic algorithms (has both policy and value prediction).
-    Used by A2C, PPO and the likes.
-
-    :param observation_space: Observation space
-    :param action_space: Action space
-    :param lr_schedule: Learning rate schedule (could be constant)
-    :param net_arch: The specification of the policy and value networks.
-    :param activation_fn: Activation function
-    :param ortho_init: Whether to use or not orthogonal initialization
-    :param use_sde: Whether to use State Dependent Exploration or not
-    :param log_std_init: Initial value for the log standard deviation
-    :param full_std: Whether to use (n_features x n_actions) parameters
-        for the std instead of only (n_features,) when using gSDE
-    :param use_expln: Use ``expln()`` function instead of ``exp()`` to ensure
-        a positive standard deviation (cf paper). It allows to keep variance
-        above zero and prevent it from growing too fast. In practice, ``exp()`` is usually enough.
-    :param squash_output: Whether to squash the output using a tanh function,
-        this allows to ensure boundaries when using gSDE.
-    :param features_extractor_class: Features extractor to use.
-    :param features_extractor_kwargs: Keyword arguments
-        to pass to the features extractor.
-    :param share_features_extractor: If True, the features extractor is shared between the policy and value networks.
-    :param normalize_images: Whether to normalize images or not,
-         dividing by 255.0 (True by default)
-    :param optimizer_class: The optimizer to use,
-        ``th.optim.Adam`` by default
-    :param optimizer_kwargs: Additional keyword arguments,
-        excluding the learning rate, to pass to the optimizer
-    """
-
-    def __init__(
-        self,
-        observation_space: spaces.Space,
-        action_space: spaces.Space,
-        lr_schedule: Schedule,
-        net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
-        activation_fn: Type[nn.Module] = nn.Tanh,
-        ortho_init: bool = True,
-        use_sde: bool = False,
-        log_std_init: float = 0.0,
-        full_std: bool = True,
-        use_expln: bool = False,
-        squash_output: bool = False,
-        features_extractor_class: Type[BaseFeaturesExtractor] = NatureCNN,
-        features_extractor_kwargs: Optional[Dict[str, Any]] = None,
-        share_features_extractor: bool = True,
-        normalize_images: bool = True,
-        optimizer_class: Type[th.optim.Optimizer] = th.optim.Adam,
-        optimizer_kwargs: Optional[Dict[str, Any]] = None,
-    ):
-        super().__init__(
-            observation_space,
-            action_space,
-            lr_schedule,
-            net_arch,
-            activation_fn,
-            ortho_init,
-            use_sde,
-            log_std_init,
-            full_std,
-            use_expln,
-            squash_output,
-            features_extractor_class,
-            features_extractor_kwargs,
-            share_features_extractor,
-            normalize_images,
-            optimizer_class,
-            optimizer_kwargs,
-        )
-
-
-class ActorCriticCnnDiscreteVaePolicy(ActorCriticPolicy):
-    def __init__(
-        self,
-        observation_space: spaces.Space,
-        action_space: spaces.Space,
-        lr_schedule: Schedule,
-        net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
-        activation_fn: Type[nn.Module] = nn.Tanh,
-        ortho_init: bool = True,
-        use_sde: bool = False,
-        log_std_init: float = 0.0,
-        full_std: bool = True,
-        use_expln: bool = False,
-        squash_output: bool = False,
-        features_extractor_class: Type[BaseFeaturesExtractor] = NatureCNN,
-        features_extractor_kwargs: Optional[Dict[str, Any]] = None,
-        share_features_extractor: bool = True,
-        normalize_images: bool = True,
-        optimizer_class: Type[th.optim.Optimizer] = th.optim.Adam,
-        optimizer_kwargs: Optional[Dict[str, Any]] = None,
-    ):
-        super().__init__(
-            observation_space,
-            action_space,
-            lr_schedule,
-            net_arch,
-            activation_fn,
-            ortho_init,
-            use_sde,
-            log_std_init,
-            full_std,
-            use_expln,
-            squash_output,
-            features_extractor_class,
-            features_extractor_kwargs,
-            share_features_extractor,
-            normalize_images,
-            optimizer_class,
-            optimizer_kwargs,
-        )
