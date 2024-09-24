@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple, Type, Union
+from typing import Dict, List, Optional, Tuple, Type, Union
 
 import gymnasium as gym
 import torch
@@ -9,6 +9,8 @@ from stable_baselines3.common.preprocessing import get_flattened_obs_dim, is_ima
 from stable_baselines3.common.type_aliases import TensorDict
 from stable_baselines3.common.utils import get_device
 from torch import nn
+from torch.distributions.categorical import Categorical
+from torch.distributions.kl import kl_divergence
 
 from model.state_inference.gumbel_softmax import gumbel_softmax
 
@@ -135,13 +137,15 @@ class DiscreteVaeExtractor(BaseFeaturesExtractor):
     def __init__(
         self,
         observation_space: gym.Space,
-        features_dim: int = 512,
         normalized_image: bool = False,
+        z_dim: int = 32,
+        z_layers: int = 16,
     ) -> None:
         assert isinstance(observation_space, spaces.Box), (
             "NatureCNN must be used with a gym.spaces.Box ",
             f"observation space, not {observation_space}",
         )
+        features_dim = z_dim * z_layers
         super().__init__(observation_space, features_dim)
         # We assume CxHxW images (channels first)
         # Re-ordering will be done by pre-preprocessing or wrapper
@@ -158,6 +162,7 @@ class DiscreteVaeExtractor(BaseFeaturesExtractor):
             "you should pass `normalize_images=False`: \n"
             "https://stable-baselines3.readthedocs.io/en/master/guide/custom_env.html"
         )
+        assert features_dim
         n_input_channels = observation_space.shape[0]
         self.cnn = nn.Sequential(
             nn.Conv2d(n_input_channels, 32, kernel_size=8, stride=4, padding=0),
@@ -189,20 +194,68 @@ class DiscreteVaeExtractor(BaseFeaturesExtractor):
             ),
             nn.Sigmoid(),
         )
+        self.z_layers = z_layers
+        self.z_dim = z_dim
 
     def reparameterize(self, logits):
+        logits = logits.view(-1, self.z_layers, self.z_dim)
         if self.training:
             z = gumbel_softmax(logits, hard=False, tau=self.tau)
         else:
             s = torch.argmax(logits, dim=-1)
             z = F.one_hot(s, num_classes=logits.size(-1)).float()
 
-    def forward(self, observations: th.Tensor) -> th.Tensor:
-        logits = self.linear(self.cnn(observations))
-        z = self.reparameterize(logits)
-        reconstruction = self.decoder(z)
+    def kl_loss(self, logits: th.Tensor) -> th.Tensor:
 
-        return (logits, z), reconstruction
+        # Flatten the logits, the last dimenions z_dim
+        N = logits.shape[0]
+        logits = logits.view(-1, self.z_dim)
+
+        # Compute the KL divergence
+        q = Categorical(logits=logits)
+        p = Categorical(
+            probs=th.full((N * self.z_layers, self.z_dim), 1.0 / self.z_dim).to(
+                logits.device
+            )
+        )
+
+        # sum loss over dimensions in each example, average over batch
+        kl = kl_divergence(q, p).view(N, self.z_layers).sum(1).mean()
+
+        return kl
+
+    def reconstruction_loss(
+        self, observations: th.Tensor, targets: th.Tensor
+    ) -> th.Tensor:
+        mse_loss = F.mse_loss(observations, targets, reduction="none")
+        # sum loss over dimensions in each example, average over batch
+        return mse_loss.view(observations.shape[0], -1).sum(1).mean()
+
+    def forward(
+        self,
+        observations: th.Tensor,
+        targets: Optional[th.Tensor] = None,
+        return_loss: bool = False,
+    ) -> Union[th.Tensor, Tuple[th.Tensor, Dict[str, th.Tensor]]]:
+        logits = self.linear(self.cnn(observations))
+        latents = self.reparameterize(logits)
+
+        if return_loss:
+
+            reconstruction = self.decoder(latents)
+
+            if targets is not None:
+                target = observations
+
+            kl_loss = self.kl_loss(logits)
+            reconstruction_loss = self.reconstruction_loss(reconstruction, target)
+
+            return latents, {
+                "kl_loss": kl_loss,
+                "reconstruction_loss": reconstruction_loss,
+            }
+
+        return latents
 
 
 def create_mlp(
