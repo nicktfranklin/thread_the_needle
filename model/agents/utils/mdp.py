@@ -93,6 +93,7 @@ class TabularStateActionTransitionEstimator:
         # the graph is equivalent to a permutation of the states, so
         # we can just pick an arbitrary order for them.
         state_key = {s: ii for ii, s in enumerate(self.set_states)}
+        print(f"Found {len(self.set_states)} states")
 
         adjacency = np.zeros((len(self.set_states), len(self.set_states)))
 

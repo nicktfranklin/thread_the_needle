@@ -1,4 +1,4 @@
-from typing import ClassVar, Dict, List, Type
+from typing import ClassVar, Dict, Hashable, List, Type
 
 import gymnasium as gym
 import numpy as np
@@ -19,6 +19,7 @@ from torch import FloatTensor
 from model.agents.stable_baseline_clone.policies import ActorCriticVaePolicy, BasePolicy
 from model.agents.utils.base_agent import BaseAgent
 from model.training.buffers import RolloutBuffer
+from model.training.rollout_data import BaseBuffer
 from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
@@ -210,6 +211,9 @@ class SbDiscretePpo(WrappedPPO, BaseAgent):
 
         return True
 
+    def _anneal_vae(self) -> None:
+        self.policy.anneal_vae_tau()
+
     def train(self) -> None:
         """
         Update policy using the currently gathered rollout buffer.
@@ -223,6 +227,9 @@ class SbDiscretePpo(WrappedPPO, BaseAgent):
         # Optional: clip range for the value function
         if self.clip_range_vf is not None:
             clip_range_vf = self.clip_range_vf(self._current_progress_remaining)  # type: ignore[operator]
+
+        # anneal the vae tau
+        self._anneal_vae()
 
         entropy_losses = []
         pg_losses, value_losses, vae_elbos = [], [], []
@@ -358,3 +365,9 @@ class SbDiscretePpo(WrappedPPO, BaseAgent):
         self.logger.record("train/clip_range", clip_range)
         if self.clip_range_vf is not None:
             self.logger.record("train/clip_range_vf", clip_range_vf)
+
+    def get_state_hashkey(self, obs: FloatTensor) -> Hashable:
+        self.eval()
+        with torch.no_grad():
+            # obs_tensor = obs_as_tensor(obs, self.device)
+            return self.policy.get_state_hashkey(obs)

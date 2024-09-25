@@ -312,10 +312,12 @@ class BaseAgent(ABC):
 
         transition_estimator = TabularStateActionTransitionEstimator()
 
-        states = self.get_state_hashkey(self.collocate(dataset["observations"]))
+        states = self.get_state_hashkey(
+            self.collocate(dataset["observations"])
+        ).tolist()
         next_states = self.get_state_hashkey(
             self.collocate(dataset["next_observations"])
-        )
+        ).tolist()
 
         for s, a, sp in zip(
             states,

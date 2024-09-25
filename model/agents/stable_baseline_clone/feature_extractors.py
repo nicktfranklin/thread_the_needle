@@ -125,8 +125,14 @@ class BaseVaeFeatureExtractor(BaseFeaturesExtractor, ABC):
 
     z_dim: int
     z_layers: int
+    hash_vector: torch.Tensor
 
-    tau: float = 0.85
+    def __init__(
+        self, *args, tau: float = 0.01, tau_annealing_rate: float = 0.85, **kwargs
+    ):
+        super().__init__(*args, **kwargs)
+        self.tau = tau
+        self.tau_annealing_rate = tau_annealing_rate
 
     def reparameterize(self, logits):
         logits = logits.view(-1, self.z_layers, self.z_dim)
@@ -191,6 +197,18 @@ class BaseVaeFeatureExtractor(BaseFeaturesExtractor, ABC):
             return latents, VaeLoss(recon_loss=reconstruction_loss, kl_div=kl_loss)
 
         return latents
+
+    def get_state_hashkey(self, observations: torch.Tensor) -> torch.Tensor:
+        with torch.no_grad():
+            latents = self._encode(observations).view(-1, self.z_layers, self.z_dim)
+            states = torch.argmax(latents, dim=-1)
+
+        return torch.matmul(states.long(), self.hash_vector.long())
+
+    def anneal_vae_tau(self):
+        if self.tau_annealing_rate - 1 < 1e-4:
+            return
+        self.tau *= self.tau_annealing_rate
 
 
 class DiscreteVaeExtractor(BaseVaeFeatureExtractor):
@@ -266,6 +284,9 @@ class DiscreteVaeExtractor(BaseVaeFeatureExtractor):
         )
         self.z_layers = z_layers
         self.z_dim = z_dim
+
+        ### for hashing
+        self.hash_vector = torch.tensor([z_dim * ii for ii in range(z_layers)])
 
     def _encode(self, observations: torch.Tensor) -> torch.Tensor:
         return self.linear(self.cnn(observations))

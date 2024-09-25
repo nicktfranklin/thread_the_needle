@@ -430,3 +430,19 @@ class ActorCriticVaePolicy(BasePolicy):
         features = super().extract_features(obs, self.vf_features_extractor)
         latent_vf = self.mlp_extractor.forward_critic(features)
         return self.value_net(latent_vf)
+
+    def get_state_hashkey(self, obs: PyTorchObs) -> int:
+        """
+        Get the hashkey of the state.
+
+        :param obs: Observation
+        :return: the hashkey of the state.
+        """
+        preprocessed_obs = preprocess_obs(
+            obs, self.observation_space, normalize_images=self.normalize_images
+        )
+
+        return self.features_extractor.get_state_hashkey(preprocessed_obs)
+
+    def anneal_vae_tau(self) -> None:
+        self.features_extractor.anneal_vae_tau()

@@ -111,6 +111,12 @@ class RolloutBuffer(BaseBuffer):
         self.truncated = []
         self.info = []
 
+    def transpose_obs(self, axis_order: List[int]) -> None:
+        self.obs = [np.transpose(obs, axis_order) for obs in self.obs]
+        self.next_obs = [
+            np.transpose(next_obs, axis_order) for next_obs in self.next_obs
+        ]
+
 
 class Episode:
 
@@ -288,6 +294,13 @@ class PriorityReplayBuffer(BaseBuffer):
 
     def iterator(self):
         return iter(self.min_heap)
+
+    def transpose_obs(self, axis_order: List[int]) -> None:
+        for episode in self.iterator():
+            episode.obs = [np.transpose(obs, axis_order) for obs in episode.obs]
+            episode.next_obs = [
+                np.transpose(next_obs, axis_order) for next_obs in episode.next_obs
+            ]
 
 
 class EpisodeBuffer(PriorityReplayBuffer):
