@@ -235,13 +235,20 @@ class DiscreteVaeExtractor(BaseVaeFeatureExtractor):
         normalized_image: bool = False,
         z_dim: int = 32,
         z_layers: int = 16,
+        tau: float = 0.01,
+        tau_annealing_rate: float = 0.85,
     ) -> None:
         assert isinstance(observation_space, spaces.Box), (
             "NatureCNN must be used with a gym.spaces.Box ",
             f"observation space, not {observation_space}",
         )
         features_dim = z_dim * z_layers
-        super().__init__(observation_space, features_dim)
+        super().__init__(
+            observation_space,
+            features_dim,
+            tau=tau,
+            tau_annealing_rate=tau_annealing_rate,
+        )
         # We assume CxHxW images (channels first)
         # Re-ordering will be done by pre-preprocessing or wrapper
         assert is_image_space(
