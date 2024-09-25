@@ -444,5 +444,14 @@ class ActorCriticVaePolicy(BasePolicy):
 
         return self.features_extractor.get_state_hashkey(preprocessed_obs)
 
+    def dehash_states(self, hashed_states: int | List[int]) -> th.LongTensor:
+        """
+        Dehash the states.
+
+        :param hashed_states: Hashed states
+        :return: the dehashed states.
+        """
+        return self.features_extractor.dehash_states(hashed_states)
+
     def anneal_vae_tau(self) -> None:
         self.features_extractor.anneal_vae_tau()

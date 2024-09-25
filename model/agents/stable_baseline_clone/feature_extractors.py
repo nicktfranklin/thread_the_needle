@@ -3,6 +3,7 @@ from collections import namedtuple
 from typing import Dict, List, Optional, Tuple, Type, Union
 
 import gymnasium as gym
+import numpy as np
 import torch
 import torch as th
 import torch.nn.functional as F
@@ -205,6 +206,21 @@ class BaseVaeFeatureExtractor(BaseFeaturesExtractor, ABC):
 
         return torch.matmul(states.long(), self.hash_vector.long())
 
+    def dehash_states(self, hashed_states: int | List[int]) -> torch.LongTensor:
+
+        if isinstance(hashed_states, List):
+            return torch.stack([self.dehash_states(h) for h in hashed_states])
+
+        assert isinstance(hashed_states, (int, np.integer, torch.int))
+
+        z = torch.zeros(self.z_layers, dtype=torch.long)
+        for ii in range(self.z_layers - 1, -1, -1):
+            print(self.hash_vector)
+            print(hashed_states, self.hash_vector[ii])
+            z[ii] = hashed_states // self.hash_vector[ii]
+            hashed_states = hashed_states % self.hash_vector[ii]
+        return F.one_hot(z, self.z_dim)
+
     def anneal_vae_tau(self):
         if self.tau_annealing_rate - 1 < 1e-4:
             return
@@ -293,7 +309,7 @@ class DiscreteVaeExtractor(BaseVaeFeatureExtractor):
         self.z_dim = z_dim
 
         ### for hashing
-        self.hash_vector = torch.tensor([z_dim * ii for ii in range(z_layers)])
+        self.hash_vector = torch.tensor([z_dim**ii for ii in range(z_layers)])
 
     def _encode(self, observations: torch.Tensor) -> torch.Tensor:
         return self.linear(self.cnn(observations))

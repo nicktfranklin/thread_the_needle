@@ -371,3 +371,15 @@ class SbDiscretePpo(WrappedPPO, BaseAgent):
         with torch.no_grad():
             # obs_tensor = obs_as_tensor(obs, self.device)
             return self.policy.get_state_hashkey(obs)
+
+    def dehash_states(self, hashed_states: int | List[int]) -> torch.LongTensor:
+        return self.policy.dehash_states(hashed_states)
+
+    def get_state_values(self, state_key: Dict[int, int]) -> Dict[int, float]:
+
+        z = self.dehash_states(list(state_key.keys()))
+        z = z.float().flatten(start_dim=1)
+
+        V = self.policy.get_state_values(z).detach().cpu().numpy()
+
+        return {z0: v.item() for z0, v in zip(state_key.keys(), V)}
