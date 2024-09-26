@@ -215,8 +215,6 @@ class BaseVaeFeatureExtractor(BaseFeaturesExtractor, ABC):
 
         z = torch.zeros(self.z_layers, dtype=torch.long)
         for ii in range(self.z_layers - 1, -1, -1):
-            print(self.hash_vector)
-            print(hashed_states, self.hash_vector[ii])
             z[ii] = hashed_states // self.hash_vector[ii]
             hashed_states = hashed_states % self.hash_vector[ii]
         return F.one_hot(z, self.z_dim)
