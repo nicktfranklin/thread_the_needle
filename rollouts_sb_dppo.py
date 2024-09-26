@@ -28,6 +28,8 @@ logging.info(f"device = {DEVICE}")
 
 BASE_FILE_NAME = "thread_the_needle_sb_dppo"
 MODEL_NAME = "sb_dppo"
+TENSORBOARD_PATH = "tensorboard/sb3_log/"
+
 
 ### Configuration files
 parser = argparse.ArgumentParser()
@@ -41,7 +43,7 @@ parser.add_argument("--results_dir", default=f"simulations/")
 parser.add_argument("--log_dir", default=f"logs/{BASE_FILE_NAME}_{date.today()}/")
 parser.add_argument("--n_training_samples", default=2048 * 25)
 parser.add_argument("--n_rollout_samples", default=10000)
-parser.add_argument("--n_batch", default=12)
+parser.add_argument("--n_batch", default=8)
 
 
 @dataclass
@@ -91,8 +93,6 @@ def train_ppo(configs: Config):
 
     callback = ThreadTheNeedleCallback()
 
-    tmp_path = "tmp/sb3_log/"
-
     ppo = SbDiscretePpo(
         "CnnPolicy",
         task,
@@ -100,7 +100,7 @@ def train_ppo(configs: Config):
         n_steps=min(configs.n_training_samples, 2048),
         batch_size=64,
         n_epochs=10,
-        tensorboard_log=tmp_path,
+        tensorboard_log=TENSORBOARD_PATH,
         policy_kwargs=dict(
             features_extractor_kwargs=dict(tau=0.05, z_dim=8, z_layers=8)
         ),

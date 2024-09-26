@@ -26,7 +26,8 @@ logging.info(f"torch {torch.__version__}")
 logging.info(f"device = {DEVICE}")
 
 
-BASE_FILE_NAME = "thread_the_needle_cnn_vae"
+BASE_FILE_NAME = "thread_the_needle_ppo"
+TENSORBOARD_PATH = "tensorboard/sb3_log/"
 
 ### Configuration files
 parser = argparse.ArgumentParser()
@@ -38,9 +39,9 @@ parser.add_argument("--task_name", default="thread_the_needle")
 parser.add_argument("--model_name", default="cnn_vae")
 parser.add_argument("--results_dir", default=f"simulations/")
 parser.add_argument("--log_dir", default=f"logs/{BASE_FILE_NAME}_{date.today()}/")
-parser.add_argument("--n_training_samples", default=50000)
-parser.add_argument("--n_rollout_samples", default=50000)
-parser.add_argument("--n_batch", default=24)
+parser.add_argument("--n_training_samples", default=2048 * 25)
+parser.add_argument("--n_rollout_samples", default=10000)
+parser.add_argument("--n_batch", default=8)
 
 
 @dataclass
@@ -93,10 +94,11 @@ def train_ppo(configs: Config):
     ppo = StableBaselinesPPO(
         "CnnPolicy",
         task,
-        verbose=0,
+        verbose=1,
         n_steps=min(configs.n_training_samples, 2048),
         batch_size=64,
         n_epochs=10,
+        tensorboard_log=TENSORBOARD_PATH,
     )
     ppo.learn(
         total_timesteps=configs.n_training_samples,

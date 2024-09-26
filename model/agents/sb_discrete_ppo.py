@@ -1,4 +1,4 @@
-from typing import ClassVar, Dict, Hashable, List, Type
+from typing import ClassVar, Dict, Hashable, List, Type, TypeVar
 
 import gymnasium as gym
 import numpy as np
@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from gymnasium import spaces
 from stable_baselines3 import PPO as WrappedPPO
 from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common.type_aliases import PyTorchObs
+from stable_baselines3.common.type_aliases import MaybeCallback
 from stable_baselines3.common.utils import (
     explained_variance,
     get_schedule_fn,
@@ -23,8 +23,10 @@ from model.training.rollout_data import BaseBuffer
 from task.utils import ActType
 from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
+SelfDPPO = TypeVar("SelfDPPO", bound="DiscretePpo")
 
-class SbDiscretePpo(WrappedPPO, BaseAgent):
+
+class DiscretePpo(WrappedPPO, BaseAgent):
     """
     wrapper for PPO with useful functions
     """
@@ -383,3 +385,21 @@ class SbDiscretePpo(WrappedPPO, BaseAgent):
         V = self.policy.predict_values(z).detach().cpu().numpy()
 
         return {z0: v.item() for z0, v in zip(state_key.keys(), V)}
+
+    def learn(
+        self: SelfDPPO,
+        total_timesteps: int,
+        callback: MaybeCallback = None,
+        log_interval: int = 1,
+        tb_log_name: str = "DPPO",
+        reset_num_timesteps: bool = True,
+        progress_bar: bool = False,
+    ) -> SelfDPPO:
+        return super().learn(
+            total_timesteps=total_timesteps,
+            callback=callback,
+            log_interval=log_interval,
+            tb_log_name=tb_log_name,
+            reset_num_timesteps=reset_num_timesteps,
+            progress_bar=progress_bar,
+        )

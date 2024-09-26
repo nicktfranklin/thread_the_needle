@@ -44,6 +44,9 @@ class StableBaselinesPPO(WrappedPPO, BaseAgent):
     def get_state_hashkey(self, obs: Tensor) -> Hashable:
         raise NotImplementedError
 
+    def get_value_fn(self, obs: FloatTensor) -> FloatTensor:
+        return self.predict(obs)[1].detach().cpu().numpy()
+
 
 class PPO(BaseAgent, torch.nn.Module):
     minimum_episode_length = 2
