@@ -26,7 +26,7 @@ logging.info(f"torch {torch.__version__}")
 logging.info(f"device = {DEVICE}")
 
 
-BASE_FILE_NAME = "thread_the_needle_cnn_vae"
+BASE_FILE_NAME = "thread_the_needle_sb_dppo"
 MODEL_NAME = "sb_dppo"
 
 ### Configuration files
@@ -39,9 +39,9 @@ parser.add_argument("--task_name", default="thread_the_needle")
 parser.add_argument("--model_name", default="cnn_vae")
 parser.add_argument("--results_dir", default=f"simulations/")
 parser.add_argument("--log_dir", default=f"logs/{BASE_FILE_NAME}_{date.today()}/")
-parser.add_argument("--n_training_samples", default=50000)
-parser.add_argument("--n_rollout_samples", default=50000)
-parser.add_argument("--n_batch", default=24)
+parser.add_argument("--n_training_samples", default=2048 * 25)
+parser.add_argument("--n_rollout_samples", default=10000)
+parser.add_argument("--n_batch", default=12)
 
 
 @dataclass
@@ -91,14 +91,22 @@ def train_ppo(configs: Config):
 
     callback = ThreadTheNeedleCallback()
 
+    tmp_path = "tmp/sb3_log/"
+
     ppo = SbDiscretePpo(
         "CnnPolicy",
         task,
-        verbose=0,
+        verbose=1,
         n_steps=min(configs.n_training_samples, 2048),
         batch_size=64,
         n_epochs=10,
+        tensorboard_log=tmp_path,
+        policy_kwargs=dict(
+            features_extractor_kwargs=dict(tau=0.05, z_dim=8, z_layers=8)
+        ),
+        # device=DEVICE,
     )
+    # ppo.to(DEVICE)
     ppo.learn(
         total_timesteps=configs.n_training_samples,
         progress_bar=True,
@@ -133,10 +141,14 @@ def main():
         ppo.env.envs[0], rollout_buffer, n=1000, epsilon=config.epsilon
     )
 
-    with open(f"{config.results_dir}{MODEL_NAME}_rollouts.pkl", "wb") as f:
+    with open(
+        f"{config.results_dir}{MODEL_NAME}_rollouts_{date.today()}.pkl", "wb"
+    ) as f:
         pickle.dump(rollout_buffer, f)
 
-    with open(f"{config.results_dir}{MODEL_NAME}_batched_data.pkl", "wb") as f:
+    with open(
+        f"{config.results_dir}{MODEL_NAME}_batched_data_{date.today()}.pkl", "wb"
+    ) as f:
         pickle.dump(batched_data, f)
 
 

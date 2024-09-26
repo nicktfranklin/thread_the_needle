@@ -380,6 +380,6 @@ class SbDiscretePpo(WrappedPPO, BaseAgent):
         z = self.dehash_states(list(state_key.keys()))
         z = z.float().flatten(start_dim=1)
 
-        V = self.policy.get_state_values(z).detach().cpu().numpy()
+        V = self.policy.predict_values(z).detach().cpu().numpy()
 
         return {z0: v.item() for z0, v in zip(state_key.keys(), V)}
