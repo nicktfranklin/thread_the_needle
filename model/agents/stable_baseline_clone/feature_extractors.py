@@ -218,12 +218,8 @@ class BaseVaeFeatureExtractor(BaseFeaturesExtractor, ABC):
         if isinstance(hashed_states, List):
             return torch.stack([self.dehash_states(h) for h in hashed_states])
 
-        assert isinstance(hashed_states, (int, np.integer, torch.int))
-
-        z = torch.zeros(self.z_layers, dtype=torch.long)
-        for ii in range(self.z_layers - 1, -1, -1):
-            z[ii] = hashed_states // self.hash_vector[ii]
-            hashed_states = hashed_states % self.hash_vector[ii]
+        assert isinstance(hashed_states, tuple)
+        z = torch.tensor(hashed_states, dtype=torch.long)
         return F.one_hot(z, self.z_dim)
 
     def anneal_vae_tau(self):
