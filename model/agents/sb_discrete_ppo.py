@@ -354,7 +354,7 @@ class DiscretePpo(WrappedPPO, BaseAgent):
         # Logs
         self.logger.record("train/entropy_loss", np.mean(entropy_losses))
         self.logger.record("train/policy_gradient_loss", np.mean(pg_losses))
-        self.logger.record("train/elbo", np.mean(vae_elbos))
+        self.logger.record("train/vae_elbo", np.mean(vae_elbos))
         self.logger.record("train/value_loss", np.mean(value_losses))
         self.logger.record("train/approx_kl", np.mean(approx_kl_divs))
         self.logger.record("train/clip_fraction", np.mean(clip_fractions))

@@ -17,7 +17,11 @@ from stable_baselines3.common.vec_env import VecEnv
 from torch import FloatTensor, Tensor
 from tqdm import tqdm
 
-from model.agents.utils.mdp import TabularStateActionTransitionEstimator
+from model.agents.utils.mdp import (
+    TabularRewardEstimator,
+    TabularStateActionTransitionEstimator,
+    WorldModel,
+)
 from model.training.rollout_data import BaseBuffer, PriorityReplayBuffer, RolloutBuffer
 from task.gridworld import ActType, ObsType
 from utils.sampling_functions import inverse_cmf_sampler
@@ -326,6 +330,52 @@ class BaseAgent(ABC):
             transition_estimator.update(s, a, sp)
 
         return transition_estimator.get_graph_laplacian(normalized=normalized)
+
+    def estimate_world_model(
+        self,
+        rollout_buffer: BaseBuffer,
+        gamma: Optional[float] = None,
+        iterations: int = 10_000,
+    ) -> Dict[str, Any]:
+        dataset = rollout_buffer.get_dataset()
+
+        transition_estimator = TabularStateActionTransitionEstimator()
+        reward_estimator = TabularRewardEstimator()
+
+        states = self.get_state_hashkey(self.collocate(dataset["observations"]))
+        next_states = self.get_state_hashkey(
+            self.collocate(dataset["next_observations"])
+        )
+
+        for s, a, r, sp in zip(
+            states,
+            dataset["actions"],
+            dataset["rewards"],
+            next_states,
+        ):
+
+            transition_estimator.update(s, a, sp)
+            reward_estimator.update(sp, r)
+
+        gamma = gamma if gamma is not None else self.gamma
+        return WorldModel(
+            transition_model=transition_estimator,
+            reward_model=reward_estimator,
+            gamma=gamma,
+            iterations=iterations,
+        )
+
+        # value_function = value_iteration(
+        #     transition_estimator.get_transition_functions(),
+        #     reward_estimator,
+        #     gamma,
+        #     iterations,
+        # )
+        # return {
+        #     "transition_estimator": transition_estimator,
+        #     "reward_estimator": reward_estimator,
+        #     "value_function": value_function,
+        # }
 
     def dehash_states(
         self, rollout_buffer: BaseBuffer, gamma: float = 0.99

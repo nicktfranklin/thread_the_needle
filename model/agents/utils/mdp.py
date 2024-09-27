@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from random import choices
 from typing import Any, Dict, Hashable, List, Optional
 
@@ -192,3 +193,29 @@ def value_iteration(
             v[s] = max(qs.values())
 
     return q_values, v
+
+
+@dataclass
+class WorldModel:
+    transition_model: TabularStateActionTransitionEstimator
+    reward_model: TabularRewardEstimator
+    gamma: float
+    iterations: int = 10_000
+    laplacian: Optional[np.ndarray] = None
+    state_key: Optional[Dict[Hashable, int]] = None
+    q_values: Optional[Dict[Hashable, Dict[ActType, float]]] = None
+    v: Optional[Dict[Hashable, float]] = None
+
+    def __post_init__(self):
+        self.estimate_graph_laplacian()
+        self.estimate_value_function()
+
+    def estimate_graph_laplacian(self, normalized: bool = True):
+        self.laplacian, self.state_key = self.transition_model.get_graph_laplacian(
+            normalized
+        )
+
+    def estimate_value_function(self):
+        T = self.transition_model.get_transition_functions()
+        R = self.reward_model
+        self.q_values, self.v = value_iteration(T, R, self.gamma, self.iterations)
