@@ -172,7 +172,10 @@ class BaseVaeFeatureExtractor(BaseFeaturesExtractor, ABC):
         return mse_loss.view(observations.shape[0], -1).sum(1).mean()
 
     @abstractmethod
-    def _encode(self, observations: th.Tensor) -> th.Tensor: ...
+    def _extract_features(self, observations: th.Tensor) -> th.Tensor: ...
+
+    @abstractmethod
+    def _encode(self, features: th.Tensor) -> th.Tensor: ...
 
     @abstractmethod
     def _decode(self, latents: th.Tensor) -> th.Tensor: ...
@@ -183,7 +186,9 @@ class BaseVaeFeatureExtractor(BaseFeaturesExtractor, ABC):
         targets: Optional[th.Tensor] = None,
         return_loss: bool = False,
     ) -> Union[th.Tensor, Tuple[th.Tensor, Dict[str, th.Tensor]]]:
-        logits = self._encode(observations)
+        features = self._extract_features(observations)
+
+        logits = self._encode(features)
         latents = self.reparameterize(logits)
 
         if return_loss:
@@ -195,16 +200,18 @@ class BaseVaeFeatureExtractor(BaseFeaturesExtractor, ABC):
             kl_loss = self.kl_loss(logits)
             reconstruction_loss = self.reconstruction_loss(reconstruction, target)
 
-            return latents, VaeLoss(recon_loss=reconstruction_loss, kl_div=kl_loss)
+            return features, VaeLoss(recon_loss=reconstruction_loss, kl_div=kl_loss)
 
-        return latents
+        return features
 
     def get_state_hashkey(self, observations: torch.Tensor) -> torch.Tensor:
         with torch.no_grad():
-            latents = self._encode(observations).view(-1, self.z_layers, self.z_dim)
+            features = self._extract_features(observations)
+            latents = self._encode(features).view(-1, self.z_layers, self.z_dim)
             states = torch.argmax(latents, dim=-1)
 
-        return torch.matmul(states.long(), self.hash_vector.long())
+        list_of_states = states.tolist()
+        return [tuple(states) for states in list_of_states]
 
     def dehash_states(self, hashed_states: int | List[int]) -> torch.LongTensor:
 
@@ -247,6 +254,7 @@ class DiscreteVaeExtractor(BaseVaeFeatureExtractor):
         self,
         observation_space: gym.Space,
         normalized_image: bool = False,
+        features_dim: int = 512,
         z_dim: int = 32,
         z_layers: int = 16,
         tau: float = 0.01,
@@ -256,7 +264,6 @@ class DiscreteVaeExtractor(BaseVaeFeatureExtractor):
             "NatureCNN must be used with a gym.spaces.Box ",
             f"observation space, not {observation_space}",
         )
-        features_dim = z_dim * z_layers
         super().__init__(
             observation_space,
             features_dim,
@@ -298,19 +305,23 @@ class DiscreteVaeExtractor(BaseVaeFeatureExtractor):
 
         self.linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
 
+        # the VAE is seperate from the PPO model
+
+        self.vae_embed = nn.Linear(features_dim, z_layers * z_dim)
+
         self.decoder = AutoregressiveDeconvNet(
-            embedding_dim=features_dim,
+            embedding_dim=z_layers * z_dim,
             hidden_channels=64,
             output_channels=n_input_channels,
         )
         self.z_layers = z_layers
         self.z_dim = z_dim
 
-        ### for hashing
-        self.hash_vector = torch.tensor([z_dim**ii for ii in range(z_layers)])
-
-    def _encode(self, observations: torch.Tensor) -> torch.Tensor:
+    def _extract_features(self, observations: th.Tensor) -> th.Tensor:
         return self.linear(self.cnn(observations))
+
+    def _encode(self, features: torch.Tensor) -> torch.Tensor:
+        return self.vae_embed(features)
 
     def _decode(self, latents: torch.Tensor) -> torch.Tensor:
         return self.decoder(latents)

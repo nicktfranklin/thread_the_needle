@@ -1,6 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Hashable, Iterable, Optional, Union
+from typing import Any, Dict, Hashable, Iterable, List, Optional, Union
 
 import gymnasium as gym
 import numpy as np
@@ -312,12 +312,10 @@ class BaseAgent(ABC):
 
         transition_estimator = TabularStateActionTransitionEstimator()
 
-        states = self.get_state_hashkey(
-            self.collocate(dataset["observations"])
-        ).tolist()
+        states = self.get_state_hashkey(self.collocate(dataset["observations"]))
         next_states = self.get_state_hashkey(
             self.collocate(dataset["next_observations"])
-        ).tolist()
+        )
 
         for s, a, sp in zip(
             states,
@@ -333,6 +331,9 @@ class BaseAgent(ABC):
         self, rollout_buffer: BaseBuffer, gamma: float = 0.99
     ) -> np.ndarray:
         """this require a defined value model or estimator"""
+        raise NotImplementedError
+
+    def get_state_hashkey(self, obs: Tensor) -> List[Hashable]:
         raise NotImplementedError
 
 

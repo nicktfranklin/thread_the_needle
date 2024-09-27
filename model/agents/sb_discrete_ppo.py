@@ -31,7 +31,9 @@ class DiscretePpo(WrappedPPO, BaseAgent):
     wrapper for PPO with useful functions
     """
 
-    vae_coef: float = 1.0
+    def __init__(self, *args, vae_coef: float = 1.0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.vae_coef = vae_coef
 
     policy_aliases: ClassVar[Dict[str, Type[BasePolicy]]] = {
         "CnnPolicy": ActorCriticVaePolicy,
