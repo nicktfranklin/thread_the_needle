@@ -17,11 +17,7 @@ from stable_baselines3.common.vec_env import VecEnv
 from torch import FloatTensor, Tensor
 from tqdm import tqdm
 
-from model.agents.utils.mdp import (
-    TabularRewardEstimator,
-    TabularStateActionTransitionEstimator,
-    WorldModel,
-)
+from model.agents.utils.mdp import TablarMdp, TabularStateActionTransitionEstimator
 from model.training.rollout_data import BaseBuffer, PriorityReplayBuffer, RolloutBuffer
 from task.gridworld import ActType, ObsType
 from utils.sampling_functions import inverse_cmf_sampler
@@ -334,13 +330,14 @@ class BaseAgent(ABC):
     def estimate_world_model(
         self,
         rollout_buffer: BaseBuffer,
-        gamma: Optional[float] = None,
-        iterations: int = 10_000,
-    ) -> Dict[str, Any]:
+        gamma: float = 0.99,
+    ) -> TablarMdp:
         dataset = rollout_buffer.get_dataset()
 
-        transition_estimator = TabularStateActionTransitionEstimator()
-        reward_estimator = TabularRewardEstimator()
+        mdp = TablarMdp(
+            self.get_env().action_space.n,
+            gamma,
+        )
 
         states = self.get_state_hashkey(self.collocate(dataset["observations"]))
         next_states = self.get_state_hashkey(
@@ -354,16 +351,9 @@ class BaseAgent(ABC):
             next_states,
         ):
 
-            transition_estimator.update(s, a, sp)
-            reward_estimator.update(sp, r)
+            mdp.update(s, a, r, sp)
 
-        gamma = gamma if gamma is not None else self.gamma
-        return WorldModel(
-            transition_model=transition_estimator,
-            reward_model=reward_estimator,
-            gamma=gamma,
-            iterations=iterations,
-        )
+        return mdp
 
         # value_function = value_iteration(
         #     transition_estimator.get_transition_functions(),

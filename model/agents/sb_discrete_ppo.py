@@ -16,8 +16,14 @@ from stable_baselines3.common.utils import (
 from stable_baselines3.common.vec_env import VecEnv
 from torch import FloatTensor
 
+from model.agents import value_iteration
 from model.agents.stable_baseline_clone.policies import ActorCriticVaePolicy, BasePolicy
 from model.agents.utils.base_agent import BaseAgent
+from model.agents.utils.mdp import (
+    TabularRewardEstimator,
+    TabularStateActionTransitionEstimator,
+    WorldModel,
+)
 from model.training.buffers import RolloutBuffer
 from model.training.rollout_data import BaseBuffer
 from task.utils import ActType
@@ -236,13 +242,32 @@ class DiscretePpo(WrappedPPO, BaseAgent):
         self._anneal_vae()
 
         entropy_losses = []
-        pg_losses, value_losses, vae_elbos = [], [], []
+        pg_losses, value_losses, vae_elbos, off_policy_value_losses = [], [], [], []
         clip_fractions = []
 
         continue_training = True
         # train for n_epochs epochs
         for epoch in range(self.n_epochs):
             approx_kl_divs = []
+
+            # # Compute model based estimates
+            # self.policy.set_training_mode(False)
+            # with torch.no_grad():
+            #     rollout_data = next(iter(self.rollout_buffer.get()))
+
+            #     # obs = rollout_data.observations
+            #     # next_obs = obs_as_tensor(rollout_data.next_observations, self.device)
+
+            #     states = self.policy.get_state_hashkey(rollout_data.observations)
+            #     next_states = self.policy.get_state_hashkey(
+            #         rollout_data.next_observations
+            #     )
+
+            # self.rollout_buffer.compute_off_policy_values(states, next_states)
+            # self.policy.set_training_mode(True)
+
+            # # end estma
+
             # Do a complete pass on the rollout buffer
             for rollout_data in self.rollout_buffer.get(self.batch_size):
                 actions = rollout_data.actions
@@ -298,6 +323,12 @@ class DiscretePpo(WrappedPPO, BaseAgent):
                 # Value loss using the TD(gae_lambda) target
                 value_loss = F.mse_loss(rollout_data.returns, values_pred)
                 value_losses.append(value_loss.item())
+
+                # # off policy value loss
+                # off_policy_value_loss = F.mse_loss(
+                #     rollout_data.off_policy_values, values_pred
+                # )
+                # off_policy_value_losses.append(off_policy_value_loss.item())
 
                 # Entropy loss favor exploration
                 if entropy is None:
@@ -356,6 +387,9 @@ class DiscretePpo(WrappedPPO, BaseAgent):
         self.logger.record("train/policy_gradient_loss", np.mean(pg_losses))
         self.logger.record("train/vae_elbo", np.mean(vae_elbos))
         self.logger.record("train/value_loss", np.mean(value_losses))
+        # self.logger.record(
+        #     "train/off_policy_value_loss", np.mean(off_policy_value_losses)
+        # )
         self.logger.record("train/approx_kl", np.mean(approx_kl_divs))
         self.logger.record("train/clip_fraction", np.mean(clip_fractions))
         self.logger.record("train/loss", loss.item())

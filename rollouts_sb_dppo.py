@@ -104,6 +104,9 @@ def train_ppo(configs: Config):
         policy_kwargs=dict(
             features_extractor_kwargs=dict(tau=0.05, z_dim=8, z_layers=8)
         ),
+        # policy_kwargs=dict(
+        #     features_extractor_kwargs=dict(tau=0.1, z_dim=32, z_layers=16)
+        # ),
         # device=DEVICE,
     )
     # ppo.to(DEVICE)

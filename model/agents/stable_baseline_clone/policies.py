@@ -455,3 +455,21 @@ class ActorCriticVaePolicy(BasePolicy):
 
     def anneal_vae_tau(self) -> None:
         self.features_extractor.anneal_vae_tau()
+
+    def get_off_policy_values(self, obs, actions, rewards, next_obs):
+        """
+        Get the off-policy values for the given observations, actions, rewards and next observations.
+
+        :param obs: Observation
+        :param actions: Actions
+        :param rewards: Rewards
+        :param next_obs: Next observation
+        :return: the off-policy values.
+        """
+        preprocessed_obs = preprocess_obs(
+            obs, self.observation_space, normalize_images=self.normalize_images
+        )
+        preprocessed_next_obs = preprocess_obs(
+            next_obs, self.observation_space, normalize_images=self.normalize_images
+        )
+        raise NotImplementedError()
