@@ -3,9 +3,6 @@ from typing import List, Optional, Tuple, Union
 import numpy as np
 import scipy.sparse
 
-from value_iteration.environments.utils import _check_valid
-from value_iteration.models.utils import get_state_action_reward_from_sucessor_rewards
-
 
 def define_valid_lattice_transitions(
     n_rows: int, n_columns: int, self_transitions: bool = False
@@ -183,6 +180,20 @@ def add_wall_between_two_states(
 
         modified_transitions.append(t)
     return modified_transitions
+
+
+def _check_valid(pos, max_pos):
+    return (pos > -1) and (pos < max_pos)
+
+
+def get_state_action_reward_from_sucessor_rewards(
+    reward_function_over_sucessors: np.ndarray,
+    transitions: List[Union[np.ndarray, scipy.sparse.csr_matrix]],
+) -> List[Union[np.ndarray, scipy.sparse.csr_matrix]]:
+    reward_function_over_sa = [
+        t.dot(reward_function_over_sucessors) for t in transitions
+    ]
+    return reward_function_over_sa
 
 
 class GridWorld:

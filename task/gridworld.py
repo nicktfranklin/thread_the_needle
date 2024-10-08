@@ -7,9 +7,9 @@ import numpy as np
 
 from task.observation_model import ObservationModel
 from task.reward_model import RewardModel
+from task.thread_the_needle import make_thread_the_needle_walls
 from task.transition_model import TransitionModel
 from task.utils import ActType, ObsType, RewType, StateType
-from value_iteration.environments.thread_the_needle import make_thread_the_needle_walls
 from value_iteration.models.value_iteration_network import ValueIterationNetwork
 
 OutcomeTuple = tuple[ObsType, SupportsFloat, bool, bool, Dict[str, Any]]

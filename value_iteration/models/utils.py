@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import Union
 
 import numpy as np
 import scipy.sparse
@@ -56,16 +56,6 @@ def softmax(state_action_values: np.ndarray, beta: float = 1) -> np.ndarray:
 
 def one_hot(x, depth: int):
     return np.take(np.eye(depth), x, axis=0)
-
-
-def get_state_action_reward_from_sucessor_rewards(
-    reward_function_over_sucessors: np.ndarray,
-    transitions: List[Union[np.ndarray, scipy.sparse.csr_matrix]],
-) -> List[Union[np.ndarray, scipy.sparse.csr_matrix]]:
-    reward_function_over_sa = [
-        t.dot(reward_function_over_sucessors) for t in transitions
-    ]
-    return reward_function_over_sa
 
 
 def calculate_sr_from_transitions(

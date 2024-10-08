@@ -5,9 +5,9 @@ import numpy as np
 from scipy.special import logsumexp
 from tqdm import tqdm
 
+from task.thread_the_needle import get_state_action_reward_from_sucessor_rewards
 from value_iteration.models.utils import (
     calculate_sr_from_transitions,
-    get_state_action_reward_from_sucessor_rewards,
     inverse_cmf_sampler,
     one_hot,
 )
