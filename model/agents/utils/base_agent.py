@@ -17,7 +17,10 @@ from stable_baselines3.common.vec_env import VecEnv
 from torch import FloatTensor, Tensor
 from tqdm import tqdm
 
-from model.agents.utils.mdp import TablarMdp, TabularStateActionTransitionEstimator
+from model.agents.utils.tabular_agents import (
+    ModelBasedAgent,
+    TabularStateActionTransitionEstimator,
+)
 from model.training.rollout_data import BaseBuffer, PriorityReplayBuffer, RolloutBuffer
 from task.gridworld import ActType, ObsType
 from utils.sampling_functions import inverse_cmf_sampler
@@ -331,10 +334,10 @@ class BaseAgent(ABC):
         self,
         rollout_buffer: BaseBuffer,
         gamma: float = 0.99,
-    ) -> TablarMdp:
+    ) -> ModelBasedAgent:
         dataset = rollout_buffer.get_dataset()
 
-        mdp = TablarMdp(
+        mdp = ModelBasedAgent(
             self.get_env().action_space.n,
             gamma,
         )

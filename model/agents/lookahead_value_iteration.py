@@ -4,18 +4,14 @@ from typing import Any, Dict, Hashable, Optional
 import numpy as np
 import torch
 from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.distributions import CategoricalDistribution
 from torch import FloatTensor, Tensor
 from torch.utils.data import DataLoader
 from tqdm import trange
 
 import model.state_inference.vae
 from model.agents.utils.base_agent import BaseVaeAgent
-from model.agents.utils.mdp import (
-    TabularRewardEstimator,
-    TabularStateActionTransitionEstimator,
-    value_iteration,
-)
-from model.agents.utils.policy import SoftmaxPolicy
+from model.agents.utils.tabular_agents import ModelBasedAgent, ModelFreeAgent
 from model.state_inference.vae import StateVae
 from model.training.data import MdpDataset, VaeDataset
 from model.training.rollout_data import BaseBuffer
@@ -24,9 +20,6 @@ from utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
 
 class LookaheadViAgent(BaseVaeAgent):
-    TRANSITION_MODEL_CLASS = TabularStateActionTransitionEstimator
-    REWARD_MODEL_CLASS = TabularRewardEstimator
-    POLICY_CLASS = SoftmaxPolicy
     """
     Value iteration agent. Collects rollouts using Q-learning with an optimistic exploration
     policy on a state-inference model (VAE) and then updates the state-inference model with the
@@ -71,18 +64,16 @@ class LookaheadViAgent(BaseVaeAgent):
         self.n_steps = n_steps
         self.n_epochs = n_epochs
         self.alpha = alpha
+        self.epsilon = epsilon
 
         self.env = task
 
-        self.transition_estimator = self.TRANSITION_MODEL_CLASS(
-            n_actions=task.action_space.n
-        )
-        self.reward_estimator = self.REWARD_MODEL_CLASS()
-        self.policy = self.POLICY_CLASS(
-            beta=softmax_gain,
-            epsilon=epsilon,
-            n_actions=task.action_space.n,
-        )
+        n_actions = task.action_space.n
+
+        self.model_based_agent = ModelBasedAgent(n_actions=n_actions, gamma=gamma)
+        self.model_free_agent = ModelFreeAgent(n_actions=n_actions, learning_rate=alpha)
+        self.dist = CategoricalDistribution(action_dim=n_actions)
+        self.softmax_gain = softmax_gain
 
         assert epsilon >= 0 and epsilon < 1.0
 
@@ -134,11 +125,10 @@ class LookaheadViAgent(BaseVaeAgent):
         sp = self._get_state_hashkey(next_obs)[0]
 
         # update the model
-        self.transition_estimator.update(s, a, sp)
-        self.reward_estimator.update(sp, r)
+        self.model_based_agent.update(s, a, r, sp)
 
         # update q-values
-        self.update_qvalues(s, a, r, sp)
+        self.model_free_agent.update(s, a, r, sp)
 
         # resampling (dyna) updates
         for _ in range(min(len(rollout_buffer), self.n_dyna_updates)):
@@ -150,15 +140,14 @@ class LookaheadViAgent(BaseVaeAgent):
             s = self._get_state_hashkey(obs)[0]
 
             # draw r, sp from the model
-            sp = self.transition_estimator.sample(s, a)
-            r = self.reward_estimator.sample(sp)
+            r, sp = self.model_based_agent.sample(s, a)
 
-            self.update_qvalues(s, a, r, sp)
+            self.model_free_agent.update(s, a, r, sp)
 
     def get_policy(self, obs: Tensor):
         s = self._get_state_hashkey(obs)
-        p = self.policy.get_distribution(s)
-        return p
+        q = self.model_free_agent.get_q_values(s)
+        return self.dist.proba_distribution(torch.tensor(q) * self.softmax_gain)
 
     def get_pmf(self, obs: FloatTensor) -> np.ndarray:
         return self.get_policy(obs).distribution.probs.clone().detach().numpy()
@@ -166,29 +155,14 @@ class LookaheadViAgent(BaseVaeAgent):
     def predict(
         self, obs: Tensor, state=None, episode_start=None, deterministic: bool = False
     ) -> tuple[ActType, None]:
-        if not deterministic and np.random.rand() < self.policy.epsilon:
-            return np.random.randint(self.policy.n_actions), None
+        if not deterministic and np.random.rand() < self.epsilon:
+            return np.random.randint(self.env.action_space.n), None
 
-        s = self._get_state_hashkey(obs)
-        p = self.policy.get_distribution(s)
+        p = self.get_policy(obs)
         return p.get_actions(deterministic=deterministic).item(), None
 
-    def update_qvalues(self, s, a, r, sp) -> None:
-        """
-        This is the Dyna-Q update rule. From Sutton and Barto (2020), ch 8
-        """
-
-        self.policy.maybe_init_q_values(s)
-        self.policy.maybe_init_q_values(sp)
-
-        q_s_a = self.policy.q_values[s][a]
-        V_sp = max(self.policy.q_values[sp].values())
-
-        q_s_a += self.alpha * (r + self.gamma * V_sp - q_s_a)
-        self.policy.q_values[s][a] = q_s_a
-
     def get_state_values(self) -> torch.Tensor:
-        return self.policy.get_value_function()
+        return self.model_free_agent.get_value_function()
 
     def train_vae(self, buffer: BaseBuffer, progress_bar: bool = True):
         # prepare the dataset for training the VAE
@@ -240,8 +214,7 @@ class LookaheadViAgent(BaseVaeAgent):
         self.train_vae(buffer, progress_bar=progress_bar)
 
         # re-estimate the reward and transition functions
-        self.reward_estimator.reset()
-        self.transition_estimator.reset()
+        self.model_based_agent.reset()
 
         dataset = buffer.get_dataset()
 
@@ -264,17 +237,15 @@ class LookaheadViAgent(BaseVaeAgent):
         r = np.concatenate(r)
 
         for idx in range(len(s)):
-            self.transition_estimator.update(s[idx], a[idx], sp[idx])
-            self.reward_estimator.update(sp[idx], r[idx])
+            self.model_based_agent.update(s[idx], a[idx], r[idx], sp[idx])
 
         # use value iteration to estimate the rewards
-        self.policy.q_values, value_function = value_iteration(
-            T=self.transition_estimator.get_transition_functions(),
-            R=self.reward_estimator,
-            gamma=self.gamma,
-            iterations=self.n_iter,
+        self.model_free_agent.q_values, self.value_function = (
+            self.model_based_agent.estimate_value_function(
+                gamma=self.gamma,
+                iterations=self.n_iter,
+            )
         )
-        self.value_function = value_function
 
     def learn(
         self,
@@ -311,4 +282,10 @@ class LookaheadViAgent(BaseVaeAgent):
     def get_graph_laplacian(
         self, normalized: bool = True
     ) -> tuple[np.ndarray, Dict[Hashable, int]]:
-        return self.transition_estimator.get_graph_laplacian(normalized=normalized)
+        return self.model_based_agent.get_graph_laplacian(normalized=normalized)
+
+    def get_value_fn(self, batch: BaseBuffer):
+        raise NotImplementedError
+
+    def get_state_hashkey(self, obs: Tensor) -> Hashable:
+        raise NotImplementedError

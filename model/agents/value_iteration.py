@@ -10,12 +10,12 @@ from tqdm import trange
 
 import model.state_inference.vae
 from model.agents.utils.base_agent import BaseVaeAgent
-from model.agents.utils.mdp import (
+from model.agents.utils.policy import SoftmaxPolicy
+from model.agents.utils.tabular_agents import (
     TabularRewardEstimator,
     TabularStateActionTransitionEstimator,
     value_iteration,
 )
-from model.agents.utils.policy import SoftmaxPolicy
 from model.state_inference.vae import StateVae
 from model.training.data import MdpDataset
 from model.training.rollout_data import BaseBuffer

@@ -17,7 +17,7 @@ from model.agents.constants import (
     N_ITER_VALUE_ITERATION,
     SOFTMAX_GAIN,
 )
-from model.agents.utils.mdp import value_iteration
+from model.agents.utils.tabular_agents import value_iteration
 from model.agents.value_iteration import ValueIterationAgent
 from model.state_inference.recurrent_vae import LstmVae
 from model.training.recurrent import RecurrentDataset

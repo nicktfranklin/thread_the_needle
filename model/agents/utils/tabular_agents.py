@@ -160,6 +160,11 @@ class ActionRewardEstimator:
     def update(self, a: int, r: float):
         self.history[a].append(r)
 
+    def sample(self, a: int):
+        if self.history[a]:
+            return np.random.choice(self.history[a])
+        return self.default_value
+
 
 class TabularRewardEstimator:
 
@@ -196,15 +201,14 @@ class TabularRewardEstimator:
     def __call__(self, s: Hashable, a: ActType):
         return self.data[s](a)
 
-    def sample(self, s: Hashable):
-        reward_dict = self.counts.get(s, None)
-        if reward_dict is None:
+    def sample(self, s: Hashable, a: ActType | None = None):
+        if a is None:
+            a = np.random.randint(self.n_actions)
+
+        if s not in self.data.keys():
             return self.default_reward
 
-        r = np.array(list(reward_dict.keys()))
-        n = np.array(list(reward_dict.values()))
-
-        return choices(r, n / n.sum())[0]
+        return self.data[s].sample(a)
 
 
 def value_iteration(
@@ -220,9 +224,7 @@ def value_iteration(
 
     def _successor_value(s, a):
         _sum = 0
-        print(T[a].transitions)
         for sp, p in T[a](s).items():
-            print(sp, p)
             _sum += p * v[sp]
         return _sum
 
@@ -238,7 +240,7 @@ def value_iteration(
     return q_values, v
 
 
-class TablarMdp:
+class ModelBasedAgent:
     terminal_state: str = "terminal"
 
     def __init__(
@@ -256,10 +258,73 @@ class TablarMdp:
         self.transition_model.update(s, a, sp)
         self.reward_model.update(s, a, r)
 
-    def estimate_value_function(self, iterations: int = 500):
+    def estimate_value_function(self, gamma: int | None = None, iterations: int = 500):
+        gamma = gamma if gamma is not None else self.gamma
         T = self.transition_model.get_transition_functions()
         R = self.reward_model
-        return value_iteration(T, R, self.gamma, iterations)
+        return value_iteration(T, R, gamma, iterations)
 
     def estimate_graph_laplacian(self, normalized: bool = True):
         return self.transition_model.get_graph_laplacian(normalized)
+
+    def sample(self, s: Hashable, a: ActType) -> Hashable:
+        sp = self.transition_model.sample(s, a)
+        r = self.reward_model.sample(s, a)
+        return r, sp
+
+    def reset(self):
+        self.transition_model.reset()
+        self.reward_model.reset()
+
+
+class ModelFreeAgent:
+    def __init__(
+        self,
+        n_actions: int = 4,
+        learning_rate: float = 0.1,
+        default_value: float = 0.0,
+        gamma: float = 0.99,
+    ):
+        self.q_values = {}
+        self.eta = learning_rate
+        self.n_actions = n_actions
+        self.gamma = gamma
+        self.q_init = {a: default_value for a in range(n_actions)}
+
+    def maybe_init_q_values(self, s: int) -> None:
+        """
+        Initialize a set of q_values if they don't exist, setting them to
+        a default value
+        """
+
+        if s not in self.q_values:
+            if self.q_values:
+                q_init = {
+                    a: max([max(v.values()) for v in self.q_values.values()])
+                    for a in range(self.n_actions)
+                }
+            else:
+                q_init = self.q_init
+
+            self.q_values[s] = q_init
+
+    def get_q_values(self, s: int) -> np.ndarray:
+        def _get_q(s0):
+            self.maybe_init_q_values(s0)
+            q = np.array(list(self.q_values.get(s0, None).values()))
+            return q
+
+        q_values = np.stack([_get_q(s0) for s0 in s])
+        return q_values
+
+    def get_value_function(self) -> Dict[int, float]:
+        return {s: max(v.values()) for s, v in self.q_values.items()}
+
+    def update(self, s: Hashable, a: ActType, r: float, sp: Hashable):
+        self.maybe_init_q_values(s)
+        self.maybe_init_q_values(sp)
+
+        q = self.q_values[s][a]
+        V = max(self.q_values[sp].values())
+
+        self.q_values[s][a] = q + self.eta * (r + self.gamma * V - q)
