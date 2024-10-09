@@ -5,7 +5,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from task.utils import ActType, StateType, get_position_from_state
-from utils.utils import one_hot
+
+
+def one_hot(a, num_classes):
+    ### define simple deterministic transition functions using cardinal movements
+    return np.squeeze(np.eye(num_classes)[a.reshape(-1)])
 
 
 class TransitionModel:

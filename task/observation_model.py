@@ -3,9 +3,15 @@ from typing import List, Optional, Union
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import fftconvolve
+from torch import FloatTensor
 
 from task.utils import ObsType, StateType
-from utils.pytorch_utils import normalize
+
+
+def normalize(
+    x: Union[np.ndarray, FloatTensor], min_val: int = 0, max_val: int = 1
+) -> Union[np.ndarray, FloatTensor]:
+    return (x - x.min()) / (x.max() - x.min()) * (max_val - min_val) + min_val
 
 
 # The state-location is smoothed by convoling an RBF kernel with the
