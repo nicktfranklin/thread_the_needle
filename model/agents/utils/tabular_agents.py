@@ -17,7 +17,9 @@ class TabularTransitionEstimator:
         pmf: Optional[Dict[str, Any]] = None,
         terminal_state: str = "terminal",
     ):
-        self.transitions = transitions if transitions else {}
+        self.transitions = (
+            transitions if transitions else {terminal_state: {terminal_state: 1}}
+        )
         self.pmf = pmf if pmf else {}
         self.terminal_state = terminal_state
 
@@ -25,7 +27,7 @@ class TabularTransitionEstimator:
         self.transitions: Dict[Hashable, int] = {}
         self.pmf: Dict[Hashable, float] = {}
 
-    def update(self, s: Hashable, sp: Hashable):
+    def update(self, s: Hashable, sp: Hashable, done: bool = False):
         """Updates the transition model with a new transition from state s to state sp"""
 
         # keep track of the number of transitions from s to sp
@@ -36,6 +38,15 @@ class TabularTransitionEstimator:
                 self.transitions[s][sp] = 1
         else:
             self.transitions[s] = {sp: 1}
+
+        if done:
+            # if we are done, we assume the next state is the terminal state
+            if sp not in self.transitions.keys():
+                self.transitions[sp] = {self.terminal_state: 1}
+            elif self.terminal_state in self.transitions[sp]:
+                self.transitions[sp][self.terminal_state] += 1
+            else:
+                self.transitions[sp][self.terminal_state] = 1
 
         # update the pmf via MLE
         N = float(sum(self.transitions[s].values()))
@@ -87,7 +98,7 @@ class TabularStateActionTransitionEstimator:
                 a: TabularTransitionEstimator(terminal_state=terminal_state)
                 for a in range(n_actions)
             }
-        self.set_states = states if states else set(terminal_state)
+        self.set_states = states if states else set([terminal_state])
         self.terminal_state = terminal_state
 
     def reset(self):
@@ -95,8 +106,8 @@ class TabularStateActionTransitionEstimator:
             m.reset()
         self.set_states = set()
 
-    def update(self, s: Hashable, a: ActType, sp: Hashable) -> None:
-        self.models[a].update(s, sp)
+    def update(self, s: Hashable, a: ActType, sp: Hashable, done: bool) -> None:
+        self.models[a].update(s, sp, done)
         self.set_states.add(s)
         self.set_states.add(sp)
 
@@ -113,7 +124,7 @@ class TabularStateActionTransitionEstimator:
         return self.models[a].get_transition_probs(s)
 
     def get_graph_laplacian(
-        self, normalized: bool = True
+        self, normalized: bool = True, terminal_state: str | None = None
     ) -> tuple[np.ndarray, Dict[Hashable, int]]:
         # the graph is equivalent to a permutation of the states, so
         # we can just pick an arbitrary order for them.
@@ -199,6 +210,8 @@ class TabularRewardEstimator:
         return list(self.data.keys()) + [self.terminal_state]
 
     def __call__(self, s: Hashable, a: ActType):
+        if s is self.terminal_state:
+            return 0.0
         return self.data[s](a)
 
     def sample(self, s: Hashable, a: ActType | None = None):
@@ -254,9 +267,12 @@ class ModelBasedAgent:
         )
         self.gamma = gamma
 
-    def update(self, s: Hashable, a: ActType, r: float, sp: Hashable):
-        self.transition_model.update(s, a, sp)
+    def update(self, s: Hashable, a: ActType, r: float, sp: Hashable, done: bool):
+        self.transition_model.update(s, a, sp, done)
         self.reward_model.update(s, a, r)
+
+        if done:
+            self.reward_model.update(sp, a, 0)
 
     def estimate_value_function(self, gamma: int | None = None, iterations: int = 500):
         gamma = gamma if gamma is not None else self.gamma

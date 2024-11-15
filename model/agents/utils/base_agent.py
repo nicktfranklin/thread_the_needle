@@ -308,7 +308,10 @@ class BaseAgent(ABC):
         return buffer
 
     def get_graph_laplacian(
-        self, rollout_buffer: BaseBuffer, normalized: bool = True
+        self,
+        rollout_buffer: BaseBuffer,
+        normalized: bool = True,
+        terminal_state: str = "terminal",
     ) -> tuple[np.ndarray, Dict[Hashable, int]]:
 
         dataset = rollout_buffer.get_dataset()
@@ -320,15 +323,18 @@ class BaseAgent(ABC):
             self.collocate(dataset["next_observations"])
         )
 
-        for s, a, sp in zip(
+        for s, a, sp, done in zip(
             states,
             dataset["actions"],
             next_states,
+            dataset["terminated"],
         ):
 
-            transition_estimator.update(s, a, sp)
+            transition_estimator.update(s, a, sp, done)
 
-        return transition_estimator.get_graph_laplacian(normalized=normalized)
+        return transition_estimator.get_graph_laplacian(
+            normalized=normalized, terminal_state=terminal_state
+        )
 
     def estimate_world_model(
         self,
@@ -347,14 +353,15 @@ class BaseAgent(ABC):
             self.collocate(dataset["next_observations"])
         )
 
-        for s, a, r, sp in zip(
+        for s, a, r, sp, done in zip(
             states,
             dataset["actions"],
             dataset["rewards"],
             next_states,
+            dataset["terminated"],
         ):
 
-            mdp.update(s, a, r, sp)
+            mdp.update(s, a, r, sp, done)
 
         return mdp
 

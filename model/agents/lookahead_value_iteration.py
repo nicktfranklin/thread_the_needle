@@ -119,7 +119,7 @@ class LookaheadViAgent(BaseVaeAgent):
         # values and not seperately sampling rewards and sucessor states
 
         # pass the obseration tuple through the state-inference network
-        next_obs, r, _, _, _ = outcome_tuple
+        next_obs, r, _, _, done = outcome_tuple
 
         s = self._get_state_hashkey(obs)[0]
         sp = self._get_state_hashkey(next_obs)[0]
