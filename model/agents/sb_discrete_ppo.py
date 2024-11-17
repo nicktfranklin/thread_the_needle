@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from gymnasium import spaces
 from stable_baselines3 import PPO as WrappedPPO
 from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.preprocessing import preprocess_obs
 from stable_baselines3.common.type_aliases import MaybeCallback
 from stable_baselines3.common.utils import (
     explained_variance,
@@ -18,6 +19,7 @@ from torch import FloatTensor
 from model.agents.stable_baseline_clone.buffers import RolloutBuffer
 from model.agents.stable_baseline_clone.policies import ActorCriticVaePolicy, BasePolicy
 from model.agents.utils.base_agent import BaseAgent
+from model.agents.utils.tabular_agents import ModelBasedAgent
 
 SelfDPPO = TypeVar("SelfDPPO", bound="DiscretePpo")
 
@@ -194,6 +196,7 @@ class DiscretePpo(WrappedPPO, BaseAgent):
                 self._last_episode_starts,  # type: ignore[arg-type]
                 values,
                 log_probs,
+                dones,
             )
             # ~~~~~~~~~~~~~~~~~~~~
             self._last_obs = new_obs  # type: ignore[assignment]
@@ -431,7 +434,63 @@ class DiscretePpo(WrappedPPO, BaseAgent):
         )
 
 
-class DynaPPO(DiscretePpo):
+class ViPPO(DiscretePpo):
+
+    def compute_off_policy_values(
+        self, rolloutbuffer: RolloutBuffer
+    ) -> ModelBasedAgent:
+        model_based_agent = ModelBasedAgent(self.action_space.n)
+
+        buffer_data = next(rolloutbuffer.get())
+
+        self.eval()
+        states = self.policy.get_state_hashkey(buffer_data.observations)
+        next_states = self.policy.get_state_hashkey(buffer_data.next_observations)
+
+        n = buffer_data.observations.shape[0]
+        for ii in range(n):
+            s, a, r, sp, done = (
+                states[ii],
+                buffer_data.actions[ii].item(),
+                buffer_data.rewards[ii].item(),
+                next_states[ii],
+                bool(buffer_data.dones[ii].item()),
+            )
+            model_based_agent.update(s, a, r, sp, done)
+
+        return model_based_agent
+
+        # with torch.no_grad():
+        # for ii in range(n):
+        #     o, a, r, op, done = (
+        #         buffer_data.observations[ii],
+        #         buffer_data.actions[ii],
+        #         buffer_data.rewards[ii],
+        #         buffer_data.next_observations[ii],
+        #         buffer_data.dones[ii],
+        #     )
+
+        #                 preprocessed_obs = preprocess_obs(
+        #         obs, self.observation_space, normalize_images=self.normalize_images
+        #     )
+
+        #     print(o.shape, op.shape)
+        #     # s, sp = self.get_state_hashkey(o), self.get_state_hashkey(op)
+        #     print(self.feature_extractor(o))
+        #     s = self.get_state_hashkey(torch.cat([o, op], dim=0))
+        #     print(s)
+        #     break
+        #     # print(s, sp)
+        #     print(s, a, r, sp, done)
+        #     model_based_agent.update(s, a, r, sp, done)
+        # return model_based_agent
+
+        # for batch in rolloutbuffer.get():
+        #     states = self.policy.get_state_hashkey(batch.observations)
+        #     next_states = self.policy.get_state_hashkey(batch.next_observations)
+
+        #     model_based_agent.fit(states, next_states, batch.actions, batch.rewards)
+
     def train(self) -> None:
         """
         Update policy using the currently gathered rollout buffer.

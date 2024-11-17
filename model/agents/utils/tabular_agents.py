@@ -229,7 +229,7 @@ def value_iteration(
     R: TabularRewardEstimator,
     gamma: float,
     iterations: int,
-):
+) -> tuple[Dict[Hashable, Dict[ActType, float]], Dict[Hashable, float]]:
     list_states = R.get_states()
     list_actions = list(T.keys())
     q_values = {s: {a: 0 for a in list_actions} for s in list_states}

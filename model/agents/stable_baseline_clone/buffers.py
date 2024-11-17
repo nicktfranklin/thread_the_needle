@@ -29,6 +29,8 @@ class RolloutBufferSamples(NamedTuple):
     advantages: th.Tensor
     returns: th.Tensor
     off_policy_values: th.Tensor
+    dones: th.Tensor
+    rewards: th.Tensor
 
 
 class RolloutBuffer(BaseBuffer):
@@ -109,6 +111,7 @@ class RolloutBuffer(BaseBuffer):
         )
         self.log_probs = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
         self.advantages = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
+        self.dones = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
         self.generator_ready = False
         super().reset()
 
@@ -167,41 +170,44 @@ class RolloutBuffer(BaseBuffer):
 
         :param state_hashing_function: A function that takes in a state and returns a hashable representation.
         """
-        transition_estimator = TabularStateActionTransitionEstimator()
-        reward_estimator = TabularRewardEstimator()
+        raise NotImplementedError(
+            "TODO: Implement this method for the RolloutBuffer class."
+        )
+        # transition_estimator = TabularStateActionTransitionEstimator()
+        # reward_estimator = TabularRewardEstimator()
 
-        if self.generator_ready:
-            for s, a, r, sp in zip(states, self.actions, self.rewards, next_states):
-                transition_estimator.update(s, int(a[0]), sp)
-                reward_estimator.update(s, r[0])
+        # if self.generator_ready:
+        #     for s, a, r, sp in zip(states, self.actions, self.rewards, next_states):
+        #         transition_estimator.update(s, int(a[0]), sp)
+        #         reward_estimator.update(s, r[0])
 
-            _, v = value_iteration(
-                T=transition_estimator.get_transition_functions(),
-                R=reward_estimator,
-                gamma=self.gamma,
-                iterations=self.vi_iterations,
-            )
-            for idx, s in enumerate(states):
-                self.off_policy_values[idx] = v[s]
+        #     _, v = value_iteration(
+        #         T=transition_estimator.get_transition_functions(),
+        #         R=reward_estimator,
+        #         gamma=self.gamma,
+        #         iterations=self.vi_iterations,
+        #     )
+        #     for idx, s in enumerate(states):
+        #         self.off_policy_values[idx] = v[s]
 
-        else:
-            for i in range(self.n_envs):
-                for s, a, r, sp in zip(
-                    states[i], self.actions[:, i], self.rewards[:, i], next_states[i]
-                ):
-                    transition_estimator.update(s, int(a[0]), sp)
-                    reward_estimator.update(sp, r)
+        # else:
+        #     for i in range(self.n_envs):
+        #         for s, a, r, sp in zip(
+        #             states[i], self.actions[:, i], self.rewards[:, i], next_states[i]
+        #         ):
+        #             transition_estimator.update(s, int(a[0]), sp)
+        #             reward_estimator.update(sp, r)
 
-            _, v = value_iteration(
-                T=transition_estimator.get_transition_functions(),
-                R=reward_estimator,
-                gamma=self.gamma,
-                iterations=self.vi_iterations,
-            )
+        #     _, v = value_iteration(
+        #         T=transition_estimator.get_transition_functions(),
+        #         R=reward_estimator,
+        #         gamma=self.gamma,
+        #         iterations=self.vi_iterations,
+        #     )
 
-            for i in range(self.n_envs):
-                for idx, s in enumerate(states[i]):
-                    self.off_policy_values[idx, i] = v[s]
+        #     for i in range(self.n_envs):
+        #         for idx, s in enumerate(states[i]):
+        #             self.off_policy_values[idx, i] = v[s]
 
     def add(
         self,
@@ -212,6 +218,7 @@ class RolloutBuffer(BaseBuffer):
         episode_start: np.ndarray,
         value: th.Tensor,
         log_prob: th.Tensor,
+        dones: np.ndarray,
     ) -> None:
         """
         :param obs: Observation
@@ -242,6 +249,7 @@ class RolloutBuffer(BaseBuffer):
         self.episode_starts[self.pos] = np.array(episode_start)
         self.values[self.pos] = value.clone().cpu().numpy().flatten()
         self.log_probs[self.pos] = log_prob.clone().cpu().numpy()
+        self.dones[self.pos] = dones
         self.pos += 1
         if self.pos == self.buffer_size:
             self.full = True
@@ -262,6 +270,8 @@ class RolloutBuffer(BaseBuffer):
                 "advantages",
                 "returns",
                 "off_policy_values",
+                "dones",
+                "rewards",
             ]
 
             for tensor in _tensor_names:
@@ -291,6 +301,8 @@ class RolloutBuffer(BaseBuffer):
             self.advantages[batch_inds].flatten(),
             self.returns[batch_inds].flatten(),
             self.off_policy_values[batch_inds].flatten(),
+            self.dones[batch_inds].flatten(),
+            self.rewards[batch_inds].flatten(),
         )
         return RolloutBufferSamples(*tuple(map(self.to_torch, data)))
 
