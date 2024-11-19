@@ -286,7 +286,9 @@ class BaseAgent(ABC):
         self.eval()
 
         for _ in tqdm(range(n), desc="Collection rollouts"):
-            action_pmf = self.get_pmf(torch.tensor(obs).unsqueeze(0))
+            action_pmf = self.get_pmf(
+                torch.tensor(obs, device=self.device).unsqueeze(0)
+            )
 
             # epsilon greedy
             action_pmf = (1 - epsilon) * action_pmf + epsilon * np.ones_like(

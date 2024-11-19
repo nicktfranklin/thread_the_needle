@@ -1,8 +1,10 @@
+from logging import getLogger
 from typing import ClassVar, Dict, Hashable, List, Type, TypeVar
 
 import numpy as np
 import torch
 import torch.nn.functional as F
+import tqdm
 from gymnasium import spaces
 from stable_baselines3 import PPO as WrappedPPO
 from stable_baselines3.common.callbacks import BaseCallback
@@ -20,6 +22,8 @@ from model.agents.stable_baseline_clone.buffers import RolloutBuffer
 from model.agents.stable_baseline_clone.policies import ActorCriticVaePolicy, BasePolicy
 from model.agents.utils.base_agent import BaseAgent
 from model.agents.utils.tabular_agents import ModelBasedAgent
+
+logger = getLogger(__name__)
 
 SelfDPPO = TypeVar("SelfDPPO", bound="DiscretePpo")
 
@@ -44,6 +48,7 @@ class DiscretePpo(WrappedPPO, BaseAgent):
             self.policy.get_distribution(obs.permute(0, 3, 1, 2))
             .distribution.probs.clone()
             .detach()
+            .cpu()
             .numpy()
         )
 
@@ -435,6 +440,18 @@ class DiscretePpo(WrappedPPO, BaseAgent):
 
 
 class ViPPO(DiscretePpo):
+    def __init__(self, *args, vi_coef: float = 0.5, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.vi_coef = vi_coef
+
+    def get_states(self, obs: FloatTensor) -> FloatTensor:
+        is_training = self.policy.training
+        self.policy.eval()
+        with torch.no_grad():
+            states = self.policy.get_state_hashkey(obs)
+        if is_training:
+            self.policy.train()
+        return states
 
     def compute_off_policy_values(
         self, rolloutbuffer: RolloutBuffer
@@ -443,9 +460,8 @@ class ViPPO(DiscretePpo):
 
         buffer_data = next(rolloutbuffer.get())
 
-        self.eval()
-        states = self.policy.get_state_hashkey(buffer_data.observations)
-        next_states = self.policy.get_state_hashkey(buffer_data.next_observations)
+        states = self.get_states(buffer_data.observations)
+        next_states = self.get_states(buffer_data.next_observations)
 
         n = buffer_data.observations.shape[0]
         for ii in range(n):
@@ -456,40 +472,10 @@ class ViPPO(DiscretePpo):
                 next_states[ii],
                 bool(buffer_data.dones[ii].item()),
             )
+            done = done if ii < n - 1 else True
             model_based_agent.update(s, a, r, sp, done)
 
         return model_based_agent
-
-        # with torch.no_grad():
-        # for ii in range(n):
-        #     o, a, r, op, done = (
-        #         buffer_data.observations[ii],
-        #         buffer_data.actions[ii],
-        #         buffer_data.rewards[ii],
-        #         buffer_data.next_observations[ii],
-        #         buffer_data.dones[ii],
-        #     )
-
-        #                 preprocessed_obs = preprocess_obs(
-        #         obs, self.observation_space, normalize_images=self.normalize_images
-        #     )
-
-        #     print(o.shape, op.shape)
-        #     # s, sp = self.get_state_hashkey(o), self.get_state_hashkey(op)
-        #     print(self.feature_extractor(o))
-        #     s = self.get_state_hashkey(torch.cat([o, op], dim=0))
-        #     print(s)
-        #     break
-        #     # print(s, sp)
-        #     print(s, a, r, sp, done)
-        #     model_based_agent.update(s, a, r, sp, done)
-        # return model_based_agent
-
-        # for batch in rolloutbuffer.get():
-        #     states = self.policy.get_state_hashkey(batch.observations)
-        #     next_states = self.policy.get_state_hashkey(batch.next_observations)
-
-        #     model_based_agent.fit(states, next_states, batch.actions, batch.rewards)
 
     def train(self) -> None:
         """
@@ -517,23 +503,18 @@ class ViPPO(DiscretePpo):
         for epoch in range(self.n_epochs):
             approx_kl_divs = []
 
-            # # Compute model based estimates
-            # self.policy.set_training_mode(False)
-            # with torch.no_grad():
-            #     rollout_data = next(iter(self.rollout_buffer.get()))
+            # Compute model based value estimates
+            mb_agent = self.compute_off_policy_values(self.rollout_buffer)
+            _, value_function = mb_agent.estimate_value_function()
 
-            #     # obs = rollout_data.observations
-            #     # next_obs = obs_as_tensor(rollout_data.next_observations, self.device)
+            def _get_model_based_values(observations: torch.Tensor):
+                states = self.get_states(observations)
 
-            #     states = self.policy.get_state_hashkey(rollout_data.observations)
-            #     next_states = self.policy.get_state_hashkey(
-            #         rollout_data.next_observations
-            #     )
+                values = torch.empty(len(states), device=self.device, dtype=torch.float)
+                for ii, s in enumerate(states):
+                    values[ii] = value_function.get(s, 0)
 
-            # self.rollout_buffer.compute_off_policy_values(states, next_states)
-            # self.policy.set_training_mode(True)
-
-            # # end estma
+                return values
 
             # Do a complete pass on the rollout buffer
             for rollout_data in self.rollout_buffer.get(self.batch_size):
@@ -550,6 +531,10 @@ class ViPPO(DiscretePpo):
                     rollout_data.observations, actions, rollout_data.next_observations
                 )
                 values = values.flatten()
+                logger.info("Starting to compute model based values")
+
+                vi_value_estimates = _get_model_based_values(rollout_data.observations)
+
                 # Normalize advantage
                 advantages = rollout_data.advantages
                 # Normalization does not make sense if mini batchsize == 1, see GH issue #325
@@ -557,6 +542,12 @@ class ViPPO(DiscretePpo):
                     advantages = (advantages - advantages.mean()) / (
                         advantages.std() + 1e-8
                     )
+                    vi_value_estimates = (
+                        vi_value_estimates - vi_value_estimates.mean()
+                    ) / (vi_value_estimates.std() + 1e-8)
+
+                # weigh the value esimator with the advantages
+                advantages = advantages + self.vi_coef * vi_value_estimates
 
                 # ratio between old and new policy, should be one at the first iteration
                 ratio = torch.exp(log_prob - rollout_data.old_log_prob)

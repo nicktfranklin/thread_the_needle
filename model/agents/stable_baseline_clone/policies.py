@@ -473,3 +473,46 @@ class ActorCriticVaePolicy(BasePolicy):
             next_obs, self.observation_space, normalize_images=self.normalize_images
         )
         raise NotImplementedError()
+
+
+class ViAcPolicy(ActorCriticVaePolicy):
+
+    def evaluate_actions(
+        self,
+        obs: PyTorchObs,
+        actions: th.Tensor,
+        next_obs: Optional[PyTorchObs] = None,
+    ) -> Tuple[th.Tensor, th.Tensor, Optional[th.Tensor], Type[VaeLoss]]:
+        """
+        Evaluate actions according to the current policy,
+        given the observations.
+
+        :param obs: Observation
+        :param actions: Actions
+        :return: estimated value, log likelihood of taking those actions
+            and entropy of the action distribution.
+        """
+        # Preprocess the observation
+        preprocessed_obs = preprocess_obs(
+            obs, self.observation_space, normalize_images=self.normalize_images
+        )
+        if next_obs is not None:
+            preprocessed_next_obs = preprocess_obs(
+                next_obs, self.observation_space, normalize_images=self.normalize_images
+            )
+
+        features, vae_losses = self.features_extractor(
+            preprocessed_obs, targets=preprocessed_next_obs, return_loss=True
+        )
+
+        if self.share_features_extractor:
+            latent_pi, latent_vf = self.mlp_extractor(features)
+        else:
+            raise NotImplementedError(
+                "Not implemented for non-shared feature extractor"
+            )
+        distribution = self._get_action_dist_from_latent(latent_pi)
+        log_prob = distribution.log_prob(actions)
+        values = self.value_net(latent_vf)
+        entropy = distribution.entropy()
+        return values, log_prob, entropy, vae_losses

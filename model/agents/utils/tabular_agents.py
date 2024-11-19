@@ -207,7 +207,7 @@ class TabularRewardEstimator:
             self.update(s0, r0)
 
     def get_states(self):
-        return list(self.data.keys()) + [self.terminal_state]
+        return list(self.data.keys())
 
     def __call__(self, s: Hashable, a: ActType):
         if s is self.terminal_state:
@@ -272,7 +272,8 @@ class ModelBasedAgent:
         self.reward_model.update(s, a, r)
 
         if done:
-            self.reward_model.update(sp, a, 0)
+            for a in range(self.transition_model.n_actions):
+                self.reward_model.update(sp, a, 0)
 
     def estimate_value_function(self, gamma: int | None = None, iterations: int = 500):
         gamma = gamma if gamma is not None else self.gamma

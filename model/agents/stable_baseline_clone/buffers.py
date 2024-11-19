@@ -160,55 +160,6 @@ class RolloutBuffer(BaseBuffer):
         # in David Silver Lecture 4: https://www.youtube.com/watch?v=PnHCvfgC_ZA
         self.returns = self.advantages + self.values
 
-    def compute_off_policy_values(
-        self,
-        states: List[Hashable] | List[List[Hashable]],
-        next_states: List[Hashable] | List[List[Hashable]],
-    ) -> None:
-        """
-        Compute the off-policy values for the buffer using the provided state hashing function.
-
-        :param state_hashing_function: A function that takes in a state and returns a hashable representation.
-        """
-        raise NotImplementedError(
-            "TODO: Implement this method for the RolloutBuffer class."
-        )
-        # transition_estimator = TabularStateActionTransitionEstimator()
-        # reward_estimator = TabularRewardEstimator()
-
-        # if self.generator_ready:
-        #     for s, a, r, sp in zip(states, self.actions, self.rewards, next_states):
-        #         transition_estimator.update(s, int(a[0]), sp)
-        #         reward_estimator.update(s, r[0])
-
-        #     _, v = value_iteration(
-        #         T=transition_estimator.get_transition_functions(),
-        #         R=reward_estimator,
-        #         gamma=self.gamma,
-        #         iterations=self.vi_iterations,
-        #     )
-        #     for idx, s in enumerate(states):
-        #         self.off_policy_values[idx] = v[s]
-
-        # else:
-        #     for i in range(self.n_envs):
-        #         for s, a, r, sp in zip(
-        #             states[i], self.actions[:, i], self.rewards[:, i], next_states[i]
-        #         ):
-        #             transition_estimator.update(s, int(a[0]), sp)
-        #             reward_estimator.update(sp, r)
-
-        #     _, v = value_iteration(
-        #         T=transition_estimator.get_transition_functions(),
-        #         R=reward_estimator,
-        #         gamma=self.gamma,
-        #         iterations=self.vi_iterations,
-        #     )
-
-        #     for i in range(self.n_envs):
-        #         for idx, s in enumerate(states[i]):
-        #             self.off_policy_values[idx, i] = v[s]
-
     def add(
         self,
         obs: np.ndarray,
@@ -253,6 +204,7 @@ class RolloutBuffer(BaseBuffer):
         self.pos += 1
         if self.pos == self.buffer_size:
             self.full = True
+            self.dones[self.pos - 1] = 1.0  # always consider the last state as terminal
 
     def get(
         self, batch_size: Optional[int] = None
