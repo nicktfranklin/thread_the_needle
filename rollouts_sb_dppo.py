@@ -89,7 +89,7 @@ def train_ppo(configs: Config):
 
     # create task
     task = make_env(configs)
-    task = Monitor(task, configs.log_dir)  # not sure I use this
+    # task = Monitor(task, configs.log_dir)  # not sure I use this
 
     callback = ThreadTheNeedleCallback()
 
@@ -104,12 +104,8 @@ def train_ppo(configs: Config):
         policy_kwargs=dict(
             features_extractor_kwargs=dict(tau=0.05, z_dim=8, z_layers=8)
         ),
-        # policy_kwargs=dict(
-        #     features_extractor_kwargs=dict(tau=0.1, z_dim=32, z_layers=16)
-        # ),
-        # device=DEVICE,
+        device=DEVICE,
     )
-    # ppo.to(DEVICE)
     ppo.learn(
         total_timesteps=configs.n_training_samples,
         progress_bar=True,

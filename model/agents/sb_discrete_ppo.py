@@ -45,7 +45,11 @@ class DiscretePpo(WrappedPPO, BaseAgent):
 
     def get_pmf(self, obs: FloatTensor) -> FloatTensor:
         return (
-            self.policy.get_distribution(obs.permute(0, 3, 1, 2))
+            self.policy.get_distribution(
+                preprocess_obs(
+                    obs.permute(0, 3, 1, 2).to(self.device), self.env.observation_space
+                )
+            )
             .distribution.probs.clone()
             .detach()
             .cpu()
