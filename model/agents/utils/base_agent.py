@@ -332,7 +332,7 @@ class BaseAgent(ABC):
             dataset["terminated"],
         ):
 
-            transition_estimator.update(s, a, sp, done)
+            transition_estimator.update(s.item(), a, sp.item(), done)
 
         return transition_estimator.get_graph_laplacian(
             normalized=normalized, terminal_state=terminal_state
@@ -363,7 +363,7 @@ class BaseAgent(ABC):
             dataset["terminated"],
         ):
 
-            mdp.update(s, a, r, sp, done)
+            mdp.update(s.item(), a, r, sp.item(), done)
 
         return mdp
 

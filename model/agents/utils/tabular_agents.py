@@ -257,7 +257,7 @@ class ModelBasedAgent:
     terminal_state: str = "terminal"
 
     def __init__(
-        self, n_actions: int = 4, gamma: float = 0.99, default_reward: float = 0.0
+        self, n_actions: int = 4, gamma: float = 0.95, default_reward: float = 0.0
     ):
         self.transition_model = TabularStateActionTransitionEstimator(
             n_actions, terminal_state=self.terminal_state
