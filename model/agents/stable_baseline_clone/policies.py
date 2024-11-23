@@ -28,6 +28,7 @@ from model.agents.stable_baseline_clone.feature_extractors import (
     DiscreteVaeExtractor,
     VaeLoss,
 )
+from model.agents.utils.state_hash import TensorIndexer
 
 
 class ActorCriticVaePolicy(BasePolicy):
@@ -159,6 +160,9 @@ class ActorCriticVaePolicy(BasePolicy):
         self.action_dist = make_proba_distribution(
             action_space, use_sde=use_sde, dist_kwargs=dist_kwargs
         )
+
+        # state hashing
+        self.state_indexer = TensorIndexer()
 
         self._build(lr_schedule)
 
@@ -431,7 +435,8 @@ class ActorCriticVaePolicy(BasePolicy):
         latent_vf = self.mlp_extractor.forward_critic(features)
         return self.value_net(latent_vf)
 
-    def get_state_hashkey(self, obs: PyTorchObs) -> int:
+    @th.no_grad()
+    def get_state_index(self, obs: PyTorchObs) -> int:
         """
         Get the hashkey of the state.
 
@@ -442,16 +447,19 @@ class ActorCriticVaePolicy(BasePolicy):
             obs, self.observation_space, normalize_images=self.normalize_images
         )
 
-        return self.features_extractor.get_state_hashkey(preprocessed_obs)
+        state_vectors = self.features_extractor.get_states(preprocessed_obs)
+        indices = self.state_indexer(state_vectors)
 
-    def dehash_states(self, hashed_states: int | List[int]) -> th.LongTensor:
+        return indices
+
+    def lookup_states(self, state_indicies: int | List[int]) -> th.LongTensor:
         """
         Dehash the states.
 
         :param hashed_states: Hashed states
         :return: the dehashed states.
         """
-        return self.features_extractor.dehash_states(hashed_states)
+        return self.state_indexer.lookup(state_indicies)
 
     def anneal_vae_tau(self) -> None:
         self.features_extractor.anneal_vae_tau()

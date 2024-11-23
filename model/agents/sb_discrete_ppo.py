@@ -1,11 +1,14 @@
+import os
 from logging import getLogger
 from typing import ClassVar, Dict, Hashable, List, Type, TypeVar
 
 import numpy as np
+import psutil
 import torch
 import torch.nn.functional as F
 import tqdm
 from gymnasium import spaces
+from memory_profiler import profile
 from stable_baselines3 import PPO as WrappedPPO
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.preprocessing import preprocess_obs
@@ -406,14 +409,22 @@ class DiscretePpo(WrappedPPO, BaseAgent):
         if self.clip_range_vf is not None:
             self.logger.record("train/clip_range_vf", clip_range_vf)
 
-    def get_state_hashkey(self, obs: FloatTensor) -> Hashable:
+    def get_state_hashkey(self, obs: FloatTensor, batch_size: int = 64) -> Hashable:
         self.eval()
         with torch.no_grad():
             # obs_tensor = obs_as_tensor(obs, self.device)
-            return self.policy.get_state_hashkey(obs)
+            full_batches = obs.shape[0] // batch_size
+            last_batch = obs.shape[0] % batch_size
+            obs_b = torch.chunk(obs[: full_batches * batch_size], batch_size, dim=0)
+            hash_keys = [self.policy.get_state_index(o) for o in obs_b]
+
+            if last_batch > 0:
+                hash_keys.append(self.policy.get_state_index(obs[-last_batch:]))
+
+            return torch.cat(hash_keys, dim=0)
 
     def dehash_states(self, hashed_states: int | List[int]) -> torch.LongTensor:
-        return self.policy.dehash_states(hashed_states)
+        return self.policy.lookup_states(hashed_states)
 
     def get_state_values(self, state_key: Dict[int, int]) -> Dict[int, float]:
 
@@ -452,7 +463,7 @@ class ViPPO(DiscretePpo):
         is_training = self.policy.training
         self.policy.eval()
         with torch.no_grad():
-            states = self.policy.get_state_hashkey(obs)
+            states = self.policy.get_state_index(obs)
         if is_training:
             self.policy.train()
         return states
@@ -470,16 +481,22 @@ class ViPPO(DiscretePpo):
         n = buffer_data.observations.shape[0]
         for ii in range(n):
             s, a, r, sp, done = (
-                states[ii],
+                states[ii].item(),
                 buffer_data.actions[ii].item(),
                 buffer_data.rewards[ii].item(),
-                next_states[ii],
+                next_states[ii].item(),
                 bool(buffer_data.dones[ii].item()),
             )
             done = done if ii < n - 1 else True
             model_based_agent.update(s, a, r, sp, done)
 
         return model_based_agent
+
+    def on_batch_end(self, batch_idx, epoch) -> None:
+        pass
+
+    def on_epoch_end(self, epoch: int) -> None:
+        pass
 
     def train(self) -> None:
         """
@@ -509,19 +526,13 @@ class ViPPO(DiscretePpo):
 
             # Compute model based value estimates
             mb_agent = self.compute_off_policy_values(self.rollout_buffer)
-            _, value_function = mb_agent.estimate_value_function()
-
-            def _get_model_based_values(observations: torch.Tensor):
-                states = self.get_states(observations)
-
-                values = torch.empty(len(states), device=self.device, dtype=torch.float)
-                for ii, s in enumerate(states):
-                    values[ii] = value_function.get(s, 0)
-
-                return values
+            _, value_function = mb_agent.estimate_value_function(gamma=0.95)
 
             # Do a complete pass on the rollout buffer
-            for rollout_data in self.rollout_buffer.get(self.batch_size):
+            all_states = set([])
+            for batch, rollout_data in enumerate(
+                self.rollout_buffer.get(self.batch_size)
+            ):
                 actions = rollout_data.actions
                 if isinstance(self.action_space, spaces.Discrete):
                     # Convert discrete action from float to long
@@ -537,7 +548,14 @@ class ViPPO(DiscretePpo):
                 values = values.flatten()
                 logger.info("Starting to compute model based values")
 
-                vi_value_estimates = _get_model_based_values(rollout_data.observations)
+                # Compute model based values
+                states = self.get_states(rollout_data.observations)
+                all_states.update(states)
+                vi_value_estimates = torch.empty(
+                    len(states), device=self.device, dtype=torch.float
+                )
+                for ii, s in enumerate(states):
+                    vi_value_estimates[ii] = value_function.get(s, 0)
 
                 # Normalize advantage
                 advantages = rollout_data.advantages
@@ -546,12 +564,6 @@ class ViPPO(DiscretePpo):
                     advantages = (advantages - advantages.mean()) / (
                         advantages.std() + 1e-8
                     )
-                    vi_value_estimates = (
-                        vi_value_estimates - vi_value_estimates.mean()
-                    ) / (vi_value_estimates.std() + 1e-8)
-
-                # weigh the value esimator with the advantages
-                advantages = advantages + self.vi_coef * vi_value_estimates
 
                 # ratio between old and new policy, should be one at the first iteration
                 ratio = torch.exp(log_prob - rollout_data.old_log_prob)
@@ -583,7 +595,12 @@ class ViPPO(DiscretePpo):
                         values - rollout_data.old_values, -clip_range_vf, clip_range_vf
                     )
                 # Value loss using the TD(gae_lambda) target
-                value_loss = F.mse_loss(rollout_data.returns, values_pred)
+                values_true = (
+                    rollout_data.advantages
+                    + (1 - self.vi_coef) * rollout_data.returns
+                    + self.vae_coef * vi_value_estimates
+                )
+                value_loss = F.mse_loss(values_true, values_pred)
                 value_losses.append(value_loss.item())
 
                 # # off policy value loss
@@ -629,6 +646,7 @@ class ViPPO(DiscretePpo):
 
                 # Optimization step
                 self.policy.optimizer.zero_grad()
+                self.on_batch_end(batch, epoch)
                 loss.backward()
                 # Clip grad norm
                 torch.nn.utils.clip_grad_norm_(
@@ -637,6 +655,7 @@ class ViPPO(DiscretePpo):
                 self.policy.optimizer.step()
 
             self._n_updates += 1
+            self.on_epoch_end(epoch)
             if not continue_training:
                 break
 
@@ -649,9 +668,7 @@ class ViPPO(DiscretePpo):
         self.logger.record("train/policy_gradient_loss", np.mean(pg_losses))
         self.logger.record("train/vae_elbo", np.mean(vae_elbos))
         self.logger.record("train/value_loss", np.mean(value_losses))
-        # self.logger.record(
-        #     "train/off_policy_value_loss", np.mean(off_policy_value_losses)
-        # )
+        self.logger.record("train/n_states", len(all_states))
         self.logger.record("train/approx_kl", np.mean(approx_kl_divs))
         self.logger.record("train/clip_fraction", np.mean(clip_fractions))
         self.logger.record("train/loss", loss.item())
@@ -665,3 +682,97 @@ class ViPPO(DiscretePpo):
         self.logger.record("train/clip_range", clip_range)
         if self.clip_range_vf is not None:
             self.logger.record("train/clip_range_vf", clip_range_vf)
+
+
+class MemoryProfilingViPPO(ViPPO):
+    def __init__(self, *args, log_freq=1, verbose=False, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.log_freq = log_freq
+        self.verbose = verbose
+        self.process = psutil.Process(os.getpid())
+
+        # Storage for memory statistics
+        self.cpu_mem_history: List[float] = []
+        self.gpu_mem_history: Dict[int, List[float]] = {}
+        self.batch_history: List[int] = []
+
+        if torch.cuda.is_available():
+            self.gpu_ids = list(range(torch.cuda.device_count()))
+            for gpu_id in self.gpu_ids:
+                self.gpu_mem_history[gpu_id] = []
+
+        elif torch.mps.is_available():
+            self.gpu_ids = list(range(torch.mps.device_count()))
+            for gpu_id in self.gpu_ids:
+                self.gpu_mem_history[gpu_id] = []
+        else:
+            self.gpu_ids = []
+
+        if verbose:
+            print("Memory Profiling")
+            print(f"Logging frequency: {log_freq} batches")
+            print(f"Available GPUs: {self.gpu_ids}")
+
+    def _get_gpu_memory_usage(self, gpu_id: int) -> float:
+        """Get GPU memory usage in MB."""
+        if torch.cuda.is_available():
+            return torch.cuda.memory_allocated(gpu_id) / 1024 / 1024
+        elif torch.mps.is_available():
+            return torch.mps.current_allocated_memory() / 1024 / 1024
+        return 0.0
+
+    def _get_cpu_memory_usage(self) -> float:
+        """Get CPU memory usage in MB."""
+        return self.process.memory_info().rss / 1024 / 1024
+
+    def _log_memory_usage(self, batch_idx: int, epoch: int):
+        """Log memory usage to console and/or TensorBoard."""
+        cpu_mem = self._get_cpu_memory_usage()
+        self.cpu_mem_history.append(cpu_mem)
+
+        # self.logger.record("Memory/CPU_MB", cpu_mem)
+
+        for gpu_id in self.gpu_ids:
+            gpu_mem = self._get_gpu_memory_usage(gpu_id)
+            self.gpu_mem_history[gpu_id].append(gpu_mem)
+
+            # self.logger.record(f"Memory/GPU_{gpu_id}_MB", gpu_mem)
+
+    def on_batch_end(self, batch_idx, epoch) -> None:
+        """Called at the end of each batch."""
+        if batch_idx % self.log_freq == 0:
+            self._log_memory_usage(batch_idx, epoch)
+            self.batch_history.append(batch_idx)
+
+    def on_epoch_end(self, epoch: int) -> None:
+        """Called at the end of each epoch."""
+        # Calculate and log memory statistics for the epoch
+        cpu_mean = np.mean(self.cpu_mem_history[-self.log_freq :])
+        cpu_peak = np.max(self.cpu_mem_history[-self.log_freq :])
+
+        self.logger.record("Memory/CPU_Mean_MB", cpu_mean)
+        self.logger.record("Memory/CPU_Peak_MB", cpu_peak)
+
+        stats = [
+            f"Epoch {epoch} Summary:",
+            f"CPU Memory - Mean: {cpu_mean:.1f}MB, Peak: {cpu_peak:.1f}MB",
+        ]
+
+        for gpu_id in self.gpu_ids:
+            gpu_mean = np.mean(self.gpu_mem_history[gpu_id][-self.log_freq :])
+            gpu_peak = np.max(self.gpu_mem_history[gpu_id][-self.log_freq :])
+
+            logger.info(
+                f"GPU{gpu_id} Memory - Mean: {gpu_mean:.1f}MB, Peak: {gpu_peak:.1f}MB"
+            )
+
+            self.logger.record(f"Memory/GPU_{gpu_id}_Mean_MB", gpu_mean)
+            self.logger.record(f"Memory/GPU_{gpu_id}_Peak_MB", gpu_peak)
+
+            stats.append(
+                f"GPU{gpu_id} Memory - Mean: {gpu_mean:.1f}MB, Peak: {gpu_peak:.1f}MB"
+            )
+
+        if self.verbose:
+            print("\n".join(stats))

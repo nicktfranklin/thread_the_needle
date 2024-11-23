@@ -185,6 +185,7 @@ class BaseVaeFeatureExtractor(BaseFeaturesExtractor, ABC):
         observations: th.Tensor,
         targets: Optional[th.Tensor] = None,
         return_loss: bool = False,
+        return_latents: bool = False,
     ) -> Union[th.Tensor, Tuple[th.Tensor, Dict[str, th.Tensor]]]:
         features = self._extract_features(observations)
 
@@ -204,23 +205,12 @@ class BaseVaeFeatureExtractor(BaseFeaturesExtractor, ABC):
 
         return features
 
-    def get_state_hashkey(self, observations: torch.Tensor) -> torch.Tensor:
-        with torch.no_grad():
-            features = self._extract_features(observations)
-            latents = self._encode(features).view(-1, self.z_layers, self.z_dim)
-            states = torch.argmax(latents, dim=-1)
+    def get_states(self, observations: torch.Tensor) -> torch.LongTensor:
+        features = self._extract_features(observations)
+        logits = self._encode(features)
+        latents = self.reparameterize(logits)
 
-        list_of_states = states.tolist()
-        return [tuple(states) for states in list_of_states]
-
-    def dehash_states(self, hashed_states: int | List[int]) -> torch.LongTensor:
-
-        if isinstance(hashed_states, List):
-            return torch.stack([self.dehash_states(h) for h in hashed_states])
-
-        assert isinstance(hashed_states, tuple)
-        z = torch.tensor(hashed_states, dtype=torch.long)
-        return F.one_hot(z, self.z_dim)
+        return latents
 
     def anneal_vae_tau(self):
         if self.tau_annealing_rate - 1 < 1e-4:
