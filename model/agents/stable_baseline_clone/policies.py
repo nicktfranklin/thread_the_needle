@@ -419,7 +419,7 @@ class ActorCriticVaePolicy(BasePolicy):
 
         state_vectors = self.features_extractor.get_states(preprocessed_obs)
 
-        indices = self.state_indexer(state_vectors)
+        indices = self.state_indexer(state_vectors.to(th.device("cpu")))
 
         return indices
 
