@@ -299,8 +299,8 @@ class BaseAgent(ABC):
 
         transition_estimator = TabularStateActionTransitionEstimator()
 
-        states = self.get_state_hashkey(self.collocate(dataset["observations"]))
-        next_states = self.get_state_hashkey(self.collocate(dataset["next_observations"]))
+        states = self.get_states(self.collocate(dataset["observations"]))
+        next_states = self.get_states(self.collocate(dataset["next_observations"]))
 
         for s, a, sp, done in zip(
             states,
@@ -325,8 +325,8 @@ class BaseAgent(ABC):
             gamma,
         )
 
-        states = self.get_state_hashkey(self.collocate(dataset["observations"]))
-        next_states = self.get_state_hashkey(self.collocate(dataset["next_observations"]))
+        states = self.get_states(self.collocate(dataset["observations"]))
+        next_states = self.get_states(self.collocate(dataset["next_observations"]))
 
         for s, a, r, sp, done in zip(
             states,
@@ -356,7 +356,7 @@ class BaseAgent(ABC):
         """this require a defined value model or estimator"""
         raise NotImplementedError
 
-    def get_state_hashkey(self, obs: Tensor) -> List[Hashable]:
+    def get_states(self, obs: Tensor) -> List[Hashable]:
         raise NotImplementedError
 
 
@@ -365,4 +365,4 @@ class BaseVaeAgent(BaseAgent, ABC):
     def update_from_batch(self, batch: BaseBuffer): ...
 
     @abstractmethod
-    def get_state_hashkey(self, obs: Tensor) -> Hashable: ...
+    def get_states(self, obs: Tensor) -> Hashable: ...

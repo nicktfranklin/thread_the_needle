@@ -60,9 +60,7 @@ class ValueIterationAgent(BaseVaeAgent):
         self.state_inference_model = state_inference_model.to(DEVICE)
 
         self.optim = (
-            self.state_inference_model.configure_optimizers(optim_kwargs)
-            if persistant_optim
-            else None
+            self.state_inference_model.configure_optimizers(optim_kwargs) if persistant_optim else None
         )
         self.grad_clip = grad_clip
         self.batch_size = batch_size
@@ -85,10 +83,7 @@ class ValueIterationAgent(BaseVaeAgent):
         assert epsilon >= 0 and epsilon < 1.0
 
         self.hash_vector = np.array(
-            [
-                self.state_inference_model.z_dim**ii
-                for ii in range(self.state_inference_model.z_layers)
-            ]
+            [self.state_inference_model.z_dim**ii for ii in range(self.state_inference_model.z_layers)]
         )
 
         self.num_timesteps = 0
@@ -106,7 +101,7 @@ class ValueIterationAgent(BaseVaeAgent):
             return obs.permute(2, 0, 1)
         return obs.permute(0, 3, 1, 2)
 
-    def get_state_hashkey(self, obs: Tensor):
+    def get_states(self, obs: Tensor):
         obs = obs if isinstance(obs, Tensor) else torch.tensor(obs)
         obs_ = self._preprocess_obs(obs)
         with torch.no_grad():
@@ -127,8 +122,8 @@ class ValueIterationAgent(BaseVaeAgent):
 
         # pass the obseration tuple through the state-inference network
         next_obs, r, _, _, _ = outcome_tuple
-        s = self.get_state_hashkey(obs)[0]
-        sp = self.get_state_hashkey(next_obs)[0]
+        s = self.get_states(obs)[0]
+        sp = self.get_states(next_obs)[0]
 
         # update the model
         self.transition_estimator.update(s, a, sp)
@@ -144,7 +139,7 @@ class ValueIterationAgent(BaseVaeAgent):
 
             obs, a, _, _ = rollout_buffer.get_obs(idx)
 
-            s = self.get_state_hashkey(obs)[0]
+            s = self.get_states(obs)[0]
 
             # draw r, sp from the model
             sp = self.transition_estimator.sample(s, a)
@@ -153,7 +148,7 @@ class ValueIterationAgent(BaseVaeAgent):
             self.update_qvalues(s, a, r, sp)
 
     def get_policy(self, obs: Tensor):
-        s = self.get_state_hashkey(obs)
+        s = self.get_states(obs)
         p = self.policy.get_distribution(s)
         return p
 
@@ -166,7 +161,7 @@ class ValueIterationAgent(BaseVaeAgent):
         if not deterministic and np.random.rand() < self.policy.epsilon:
             return np.random.randint(self.policy.n_actions), None
 
-        s = self.get_state_hashkey(obs)
+        s = self.get_states(obs)
         p = self.policy.get_distribution(s)
         return p.get_actions(deterministic=deterministic).item(), None
 
@@ -197,9 +192,7 @@ class ValueIterationAgent(BaseVaeAgent):
         obs = convert_8bit_to_float(torch.tensor(dataset["observations"])).to(DEVICE)
         obs = obs.permute(0, 3, 1, 2)  # -> NxCxHxW
 
-        dataloader = DataLoader(
-            obs, batch_size=self.batch_size, shuffle=True, drop_last=True
-        )
+        dataloader = DataLoader(obs, batch_size=self.batch_size, shuffle=True, drop_last=True)
 
         if self.optim is None:
             optim = self.state_inference_model.configure_optimizers()
@@ -221,9 +214,7 @@ class ValueIterationAgent(BaseVaeAgent):
                 loss.backward()
 
                 if self.grad_clip:
-                    torch.nn.utils.clip_grad_norm_(
-                        self.state_inference_model.parameters(), self.grad_clip
-                    )
+                    torch.nn.utils.clip_grad_norm_(self.state_inference_model.parameters(), self.grad_clip)
 
                 optim.step()
             self.state_inference_model.prep_next_batch()
@@ -242,13 +233,11 @@ class ValueIterationAgent(BaseVaeAgent):
         dataset = MdpDataset(dataset)
 
         # _get_hashed_state takes care of preprocessing
-        dataloader = DataLoader(
-            dataset, batch_size=self.batch_size, shuffle=False, drop_last=False
-        )
+        dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=False, drop_last=False)
         s, sp, a, r = [], [], [], []
         for batch in dataloader:
-            s.append(self.get_state_hashkey(batch["observations"]))
-            sp.append(self.get_state_hashkey(batch["next_observations"]))
+            s.append(self.get_states(batch["observations"]))
+            sp.append(self.get_states(batch["next_observations"]))
             a.append(batch["actions"])
             r.append(batch["rewards"])
         s = np.concatenate(s)
@@ -301,7 +290,5 @@ class ValueIterationAgent(BaseVaeAgent):
         vae = VaeClass.make_from_configs(vae_config, env_kwargs)
         return cls(task, vae, **agent_config["state_inference_model"])
 
-    def get_graph_laplacian(
-        self, normalized: bool = True
-    ) -> tuple[np.ndarray, Dict[Hashable, int]]:
+    def get_graph_laplacian(self, normalized: bool = True) -> tuple[np.ndarray, Dict[Hashable, int]]:
         return self.transition_estimator.get_graph_laplacian(normalized=normalized)

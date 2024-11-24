@@ -380,19 +380,17 @@ class DiscretePpo(WrappedPPO, BaseAgent):
         if self.clip_range_vf is not None:
             self.logger.record("train/clip_range_vf", clip_range_vf)
 
-    def get_state_hashkey(self, obs: FloatTensor, batch_size: int = 64) -> Hashable:
-        self.eval()
+    def get_states(self, obs: FloatTensor, batch_size: int = 64) -> Hashable:
+        is_training = self.policy.training
+        self.policy.eval()
         with torch.no_grad():
-            # obs_tensor = obs_as_tensor(obs, self.device)
-            full_batches = obs.shape[0] // batch_size
-            last_batch = obs.shape[0] % batch_size
-            obs_b = torch.chunk(obs[: full_batches * batch_size], batch_size, dim=0)
-            hash_keys = [self.policy.get_state_index(o) for o in obs_b]
+            states = self.policy.get_state_index(obs)
+        if is_training:
+            self.policy.train()
+        return states
 
-            if last_batch > 0:
-                hash_keys.append(self.policy.get_state_index(obs[-last_batch:]))
-
-            return torch.cat(hash_keys, dim=0)
+    def reset_state_indexer(self):
+        self.policy.reset_state_indexer()
 
     def dehash_states(self, hashed_states: int | List[int]) -> torch.LongTensor:
         return self.policy.lookup_states(hashed_states)
@@ -466,6 +464,9 @@ class ViPPO(DiscretePpo):
 
     def on_epoch_end(self, epoch: int) -> None:
         pass
+
+    def on_epoch_start(self, epoch: int) -> None:
+        self.policy.reset_state_indexer()
 
     def train(self) -> None:
         """
@@ -561,12 +562,6 @@ class ViPPO(DiscretePpo):
                 )
                 value_loss = F.mse_loss(values_true, values_pred)
                 value_losses.append(value_loss.item())
-
-                # # off policy value loss
-                # off_policy_value_loss = F.mse_loss(
-                #     rollout_data.off_policy_values, values_pred
-                # )
-                # off_policy_value_losses.append(off_policy_value_loss.item())
 
                 # Entropy loss favor exploration
                 if entropy is None:

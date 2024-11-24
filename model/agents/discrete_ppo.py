@@ -79,15 +79,10 @@ class DiscretePPO(BaseVaeAgent, torch.nn.Module):
         self.max_grad_norm = max_grad_norm
 
         self.hash_vector = np.array(
-            [
-                self.state_inference_model.z_dim**ii
-                for ii in range(self.state_inference_model.z_layers)
-            ]
+            [self.state_inference_model.z_dim**ii for ii in range(self.state_inference_model.z_layers)]
         )
 
-        self.embedding_size = (
-            self.state_inference_model.z_dim * self.state_inference_model.z_layers
-        )
+        self.embedding_size = self.state_inference_model.z_dim * self.state_inference_model.z_layers
         self.n_actions = env.action_space.n
 
         self.actor_net = nn.Linear(self.embedding_size, self.n_actions)
@@ -134,7 +129,7 @@ class DiscretePPO(BaseVaeAgent, torch.nn.Module):
 
         return torch.distributions.Categorical(logits=logits)
 
-    def get_state_hashkey(self, obs: Tensor) -> Hashable:
+    def get_states(self, obs: Tensor) -> Hashable:
         obs = obs if isinstance(obs, Tensor) else torch.tensor(obs)
         obs_ = self._preprocess_obs(obs)
         with torch.no_grad():
@@ -227,9 +222,7 @@ class DiscretePPO(BaseVaeAgent, torch.nn.Module):
         return torch.cat([torch.tensor([rewards[0] + self.gamma * rtg[0]]), rtg])
 
     @torch.no_grad()
-    def compute_advantages(
-        self, obs: FloatTensor, rtg: FloatTensor, values: FloatTensor
-    ) -> FloatTensor:
+    def compute_advantages(self, obs: FloatTensor, rtg: FloatTensor, values: FloatTensor) -> FloatTensor:
         """Compute the advantages for a given episode. Does not require gradients."""
         assert isinstance(obs, torch.Tensor)
         assert isinstance(rtg, torch.Tensor)
@@ -265,9 +258,7 @@ class DiscretePPO(BaseVaeAgent, torch.nn.Module):
             episode_data = self.collocate(episode_data)
 
             # 1) Compute Rewards to go
-            rewards_to_go = self.collocate(
-                self.compute_rewards_to_go(episode_data["rewards"])
-            )
+            rewards_to_go = self.collocate(self.compute_rewards_to_go(episode_data["rewards"]))
             # print(rewards_to_go)
             # print(episode_data["rewards"])
             # raise Exception("Stop here")
@@ -372,9 +363,7 @@ class DiscretePPO(BaseVaeAgent, torch.nn.Module):
                 value_loss = (rewards_to_go.view(-1) - V.view(-1)).pow(2).mean()
 
                 # overall loss
-                ppo_loss = (
-                    policy_loss + value_loss * self.vf_coef + entropy * self.ent_coef
-                )
+                ppo_loss = policy_loss + value_loss * self.vf_coef + entropy * self.ent_coef
                 loss = ppo_loss * self.ppo_loss_weight + vae_elbo
 
                 if torch.isnan(loss):
@@ -400,29 +389,17 @@ class DiscretePPO(BaseVaeAgent, torch.nn.Module):
                 self.optim.step()
 
                 if self.log_tensorboard:
-                    self.writer.add_scalar(
-                        "Loss/Total", loss.item(), self.episode_number
-                    )
-                    self.writer.add_scalar(
-                        "Loss/PPO", ppo_loss.item(), self.episode_number
-                    )
-                    self.writer.add_scalar(
-                        "Loss/VAE_ELBO", vae_elbo.item(), self.episode_number
-                    )
-                    self.writer.add_scalar(
-                        "Loss/KL", kl_loss.item(), self.episode_number
-                    )
-                    self.writer.add_scalar(
-                        "Loss/Y_hat", recon_loss.item(), self.episode_number
-                    )
+                    self.writer.add_scalar("Loss/Total", loss.item(), self.episode_number)
+                    self.writer.add_scalar("Loss/PPO", ppo_loss.item(), self.episode_number)
+                    self.writer.add_scalar("Loss/VAE_ELBO", vae_elbo.item(), self.episode_number)
+                    self.writer.add_scalar("Loss/KL", kl_loss.item(), self.episode_number)
+                    self.writer.add_scalar("Loss/Y_hat", recon_loss.item(), self.episode_number)
                     self.episode_number += 1
 
                 if self.grad_clip is not None:
                     torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_clip)
             if self.log_tensorboard:
-                self.writer.add_scalar(
-                    "Episode/Reward", batch_reward, self.batch_number
-                )
+                self.writer.add_scalar("Episode/Reward", batch_reward, self.batch_number)
                 self.batch_number += 1
 
     def collect_rollouts(
@@ -444,9 +421,7 @@ class DiscretePPO(BaseVaeAgent, torch.nn.Module):
             # do not collect the gradient for the rollout
             with torch.no_grad():
                 # vae encode
-                action, values, log_probs = self.policy(
-                    torch.tensor(obs).float().to(self.device)
-                )
+                action, values, log_probs = self.policy(torch.tensor(obs).float().to(self.device))
 
             outcome_tuple = task.step(action)
 
@@ -501,11 +476,7 @@ class DiscretePPO(BaseVaeAgent, torch.nn.Module):
             self.batch_number = 0
             self.episode_number = 0
             current_date = datetime.date.today().strftime("%b%d_%H-%M")
-            log_subdir = (
-                f"{current_date}_{tensoboard_log_tag}"
-                if tensoboard_log_tag
-                else current_date
-            )
+            log_subdir = f"{current_date}_{tensoboard_log_tag}" if tensoboard_log_tag else current_date
             log_dir = os.path.join("runs", log_subdir)
             self.writer = SummaryWriter(log_dir=log_dir)
         self.log_tensorboard = log_tensorboard
@@ -560,9 +531,7 @@ class DiscretePPO(BaseVaeAgent, torch.nn.Module):
                 kwargs.append(param.name)
 
         state_inference_kwargs = {
-            k: v
-            for k, v in agent_config["state_inference_model"].items()
-            if k in args + kwargs
+            k: v for k, v in agent_config["state_inference_model"].items() if k in args + kwargs
         }
         return cls(task, vae, **state_inference_kwargs)
 

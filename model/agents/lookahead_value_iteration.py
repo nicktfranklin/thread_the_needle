@@ -53,9 +53,7 @@ class LookaheadViAgent(BaseVaeAgent):
         self.state_inference_model = state_inference_model.to(DEVICE)
 
         self.optim = (
-            self.state_inference_model.configure_optimizers(optim_kwargs)
-            if persistant_optim
-            else None
+            self.state_inference_model.configure_optimizers(optim_kwargs) if persistant_optim else None
         )
         self.grad_clip = grad_clip
         self.batch_size = batch_size
@@ -78,10 +76,7 @@ class LookaheadViAgent(BaseVaeAgent):
         assert epsilon >= 0 and epsilon < 1.0
 
         self.hash_vector = np.array(
-            [
-                self.state_inference_model.z_dim**ii
-                for ii in range(self.state_inference_model.z_layers)
-            ]
+            [self.state_inference_model.z_dim**ii for ii in range(self.state_inference_model.z_layers)]
         )
 
         self.num_timesteps = 0
@@ -168,9 +163,7 @@ class LookaheadViAgent(BaseVaeAgent):
         # prepare the dataset for training the VAE
         dataset = buffer.get_dataset()
         obs = convert_8bit_to_float(torch.tensor(dataset["observations"])).to(DEVICE)
-        next_obs = convert_8bit_to_float(torch.tensor(dataset["next_observations"])).to(
-            DEVICE
-        )
+        next_obs = convert_8bit_to_float(torch.tensor(dataset["next_observations"])).to(DEVICE)
         obs = obs.permute(0, 3, 1, 2)  # -> NxCxHxW
         next_obs = next_obs.permute(0, 3, 1, 2)  # -> NxCxHxW
 
@@ -202,9 +195,7 @@ class LookaheadViAgent(BaseVaeAgent):
                 loss.backward()
 
                 if self.grad_clip is not None:
-                    torch.nn.utils.clip_grad_norm_(
-                        self.state_inference_model.parameters(), self.grad_clip
-                    )
+                    torch.nn.utils.clip_grad_norm_(self.state_inference_model.parameters(), self.grad_clip)
 
                 optim.step()
             self.state_inference_model.prep_next_batch()
@@ -222,9 +213,7 @@ class LookaheadViAgent(BaseVaeAgent):
         dataset = MdpDataset(dataset)
 
         # _get_hashed_state takes care of preprocessing
-        dataloader = DataLoader(
-            dataset, batch_size=self.batch_size, shuffle=False, drop_last=False
-        )
+        dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=False, drop_last=False)
         s, sp, a, r = [], [], [], []
         for batch in dataloader:
             s.append(self._get_state_hashkey(batch["observations"]))
@@ -240,11 +229,9 @@ class LookaheadViAgent(BaseVaeAgent):
             self.model_based_agent.update(s[idx], a[idx], r[idx], sp[idx])
 
         # use value iteration to estimate the rewards
-        self.model_free_agent.q_values, self.value_function = (
-            self.model_based_agent.estimate_value_function(
-                gamma=self.gamma,
-                iterations=self.n_iter,
-            )
+        self.model_free_agent.q_values, self.value_function = self.model_based_agent.estimate_value_function(
+            gamma=self.gamma,
+            iterations=self.n_iter,
         )
 
     def learn(
@@ -279,13 +266,11 @@ class LookaheadViAgent(BaseVaeAgent):
         vae = VaeClass.make_from_configs(vae_config, env_kwargs)
         return cls(task, vae, **agent_config["state_inference_model"])
 
-    def get_graph_laplacian(
-        self, normalized: bool = True
-    ) -> tuple[np.ndarray, Dict[Hashable, int]]:
+    def get_graph_laplacian(self, normalized: bool = True) -> tuple[np.ndarray, Dict[Hashable, int]]:
         return self.model_based_agent.get_graph_laplacian(normalized=normalized)
 
     def get_value_fn(self, batch: BaseBuffer):
         raise NotImplementedError
 
-    def get_state_hashkey(self, obs: Tensor) -> Hashable:
+    def get_states(self, obs: Tensor) -> Hashable:
         raise NotImplementedError

@@ -423,6 +423,9 @@ class ActorCriticVaePolicy(BasePolicy):
 
         return indices
 
+    def reset_state_indexer(self):
+        self.state_indexer.reset()
+
     def lookup_states(self, state_indicies: int | List[int]) -> th.LongTensor:
         """
         Dehash the states.
