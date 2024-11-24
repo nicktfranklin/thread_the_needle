@@ -13,161 +13,104 @@ class TensorIndexer:
             self.device = device
         elif torch.cuda.is_available():
             self.device = torch.device("cuda")
-        elif torch.mps.is_available():
-            self.device = torch.device("mps")
+        # elif torch.mps.is_available():
+        #     self.device = torch.device("mps")
         else:
             self.device = torch.device("cpu")
         self.dtype = torch.float32
         self.reset()
 
         if tensors is not None:
-            for tensor in tensors:
-                self.add(tensor)
+            self.add(tensors)
 
     def reset(self):
         """Reset the indexer to an empty state"""
-        self.reference_tensors = torch.empty(
-            (0, 0), device=self.device, dtype=self.dtype
-        )
+        self.reference_tensors = torch.empty((0, 0), dtype=torch.long, device=self.device)
         self.n = 0
-
-    @torch.no_grad()
-    def _compute_tensor_hash(self, tensor):
-        """
-        Compute deterministic hashes for flat vector(s).
-        Args:
-            tensor: Tensor of shape (d) or (m,d)
-        Returns:
-            torch.Tensor: Hash value(s) of shape () for (d) input or (m,) for (m,d) input
-        """
-        tensor = tensor.detach()
-        indices = torch.argmax(tensor, dim=-1)  # () or (m,)
-        return indices
 
     @torch.no_grad()
     def contains(self, query_tensor):
         """
         Check if vector(s) exist in the indexer.
         Args:
-            query_tensor: Tensor of shape (d) or (m,d)
+            query_tensor: Tensor of shape (d) or (n,d) of type torch.long
         Returns:
-            bool or torch.Tensor: Boolean for single vector, boolean tensor of shape (m,) for batch
+            bool or torch.Tensor: Boolean for single vector, boolean tensor of shape (n,) for batch
         """
-        query_tensor = query_tensor.detach()
         if self.n == 0:
             return (
                 False
                 if query_tensor.dim() == 1
-                else torch.zeros(
-                    len(query_tensor), dtype=torch.bool, device=self.device
-                )
+                else torch.zeros(len(query_tensor), dtype=torch.bool, device=self.device)
             )
 
+        # Ensure query is 2D
         if query_tensor.dim() == 1:
-            return torch.any(
-                torch.all(self.reference_tensors == query_tensor, dim=1)
-            ).item()
-        else:
-            return torch.any(
-                torch.all(
-                    self.reference_tensors.unsqueeze(1) == query_tensor.unsqueeze(0),
-                    dim=2,
-                ),
-                dim=0,
-            )
+            query_tensor = query_tensor.unsqueeze(0)
+
+        # Check for matches using all dimensions
+        matches = torch.all(
+            self.reference_tensors.unsqueeze(1) == query_tensor.unsqueeze(0), dim=-1
+        )  # shape: (num_stored, num_queries)
+        return torch.any(matches, dim=0)
 
     @torch.no_grad()
     def add(self, tensor):
         """
-        Add new vector(s) to the indexer if they don't exist.
+        Add new unique vector(s) to the indexer.
         Args:
-            tensor: Tensor of shape (d) or (m,d)
+            tensor: Tensor of shape (d) or (n,d) of type torch.long
         Returns:
-            int or torch.Tensor: Index/indices of the vector(s), -1 for existing ones
+            int or torch.Tensor: Index/indices of the vectors (-1 for duplicates)
         """
-        tensor = tensor.detach().to(device=self.device, dtype=self.dtype)
-
+        # Convert to 2D if necessary
         if tensor.dim() == 1:
-            if self.contains(tensor):
-                return -1
+            tensor = tensor.unsqueeze(0)
 
-            if self.n == 0:
-                self.reference_tensors = tensor.unsqueeze(0)
-                self.n = 1
-                return 0
+        # Move to correct device
+        tensor = tensor.to(device=self.device, dtype=torch.long)
 
-            self.reference_tensors = torch.cat(
-                [self.reference_tensors, tensor.unsqueeze(0)], dim=0
-            )
-            self.n += 1
-            return self.n - 1
-        else:
-            m = len(tensor)
-            exists = self.contains(tensor)
-            new_indices = torch.full((m,), -1, device=self.device)
+        # Handle empty indexer case
+        if self.n == 0:
+            # Find unique vectors in the input
+            unique_vectors = torch.unique(tensor, dim=0)
+            self.reference_tensors = unique_vectors
+            self.n = len(unique_vectors)
 
-            new_tensors = tensor[~exists]
-            if len(new_tensors) > 0:
-                if self.n == 0:
-                    self.reference_tensors = new_tensors
-                    self.n = len(new_tensors)
-                    new_indices[~exists] = torch.arange(self.n, device=self.device)
-                else:
-                    start_idx = self.n
-                    self.reference_tensors = torch.cat(
-                        [self.reference_tensors, new_tensors], dim=0
-                    )
-                    self.n += len(new_tensors)
-                    new_indices[~exists] = torch.arange(
-                        start_idx, self.n, device=self.device
-                    )
+            # Map input vectors to their indices
+            indices = torch.full((len(tensor),), -1, device=self.device)
+            for i in range(len(tensor)):
+                matches = torch.all(unique_vectors == tensor[i], dim=1)
+                indices[i] = torch.where(matches)[0][0]
+            return indices[0] if len(tensor) == 1 else indices
 
-            return new_indices
+        # Find which vectors already exist
+        exists = self.contains(tensor)
+
+        # Get only the new unique vectors
+        new_vectors = tensor[~exists]
+        if len(new_vectors) > 0:
+            unique_new = torch.unique(new_vectors, dim=0)
+            self.reference_tensors = torch.cat([self.reference_tensors, unique_new], dim=0)
+
+        # Build indices for all input vectors
+        indices = torch.full((len(tensor),), -1, device=self.device)
+        for i in range(len(tensor)):
+            matches = torch.all(self.reference_tensors == tensor[i], dim=1)
+            indices[i] = torch.where(matches)[0][0]
+
+        return indices[0] if len(tensor) == 1 else indices
 
     @torch.no_grad()
     def __call__(self, query_tensor):
         """
-        Get indices for vector(s), adding new ones if they don't exist.
+        Get indices for vector(s), adding new unique ones if they don't exist.
         Args:
-            query_tensor: Tensor of shape (d) or (m,d)
+            query_tensor: Tensor of shape (d) or (n,d) of type torch.long
         Returns:
-            torch.Tensor: Scalar tensor for (d) input or tensor of shape (m,) for (m,d) input
+            torch.Tensor: Scalar tensor for (d) input or tensor of shape (n,) for (n,d) input
         """
-        query_tensor = query_tensor.detach().to(device=self.device, dtype=self.dtype)
-
-        if self.n == 0:
-            if query_tensor.dim() == 1:
-                self.add(query_tensor)
-                return torch.tensor(0, device=self.device)
-            else:
-                m = len(query_tensor)
-                self.reference_tensors = query_tensor
-                self.n = m
-                return torch.arange(m, device=self.device)
-
-        if query_tensor.dim() == 1:
-            matches = torch.all(self.reference_tensors == query_tensor, dim=1)
-            if not torch.any(matches):
-                new_idx = self.add(query_tensor)
-                return torch.tensor(new_idx, device=self.device)
-            return torch.where(matches)[0][0]
-        else:
-            matches = torch.all(
-                self.reference_tensors.unsqueeze(1) == query_tensor.unsqueeze(0), dim=2
-            )
-            existing_matches = torch.any(matches, dim=0)
-            indices = torch.full((len(query_tensor),), -1, device=self.device)
-
-            for i in range(len(query_tensor)):
-                if existing_matches[i]:
-                    indices[i] = torch.where(matches[:, i])[0][0]
-
-            new_tensors = query_tensor[~existing_matches]
-            if len(new_tensors) > 0:
-                new_indices = self.add(new_tensors)
-                indices[~existing_matches] = new_indices[new_indices != -1]
-
-            return indices
+        return self.add(query_tensor)
 
     def lookup(self, indices):
         """
@@ -175,7 +118,7 @@ class TensorIndexer:
         Args:
             indices: Integer or tensor of indices
         Returns:
-            torch.Tensor: Original vector(s) of shape (d) for single index or (m,d) for multiple indices
+            torch.Tensor: Original vector(s) of shape (d) for single index or (n,d) for multiple indices
         Raises:
             IndexError: If any index is out of range
         """
