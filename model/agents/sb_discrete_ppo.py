@@ -20,7 +20,7 @@ from torch import FloatTensor
 from model.agents.stable_baseline_clone.buffers import RolloutBuffer
 from model.agents.stable_baseline_clone.policies import ActorCriticVaePolicy, BasePolicy
 from model.agents.utils.base_agent import BaseAgent
-from model.agents.utils.tabular_agents import ModelBasedAgent
+from model.agents.utils.tabular_agent_pytorch import ModelBasedAgent
 
 logger = getLogger(__name__)
 
@@ -422,21 +422,6 @@ class DiscretePpo(WrappedPPO, BaseAgent):
             progress_bar=progress_bar,
         )
 
-
-class ViPPO(DiscretePpo):
-    def __init__(self, *args, vi_coef: float = 0.5, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.vi_coef = vi_coef
-
-    def get_states(self, obs: FloatTensor) -> FloatTensor:
-        is_training = self.policy.training
-        self.policy.eval()
-        with torch.no_grad():
-            states = self.policy.get_state_index(obs)
-        if is_training:
-            self.policy.train()
-        return states
-
     def compute_off_policy_values(self, rolloutbuffer: RolloutBuffer) -> ModelBasedAgent:
         model_based_agent = ModelBasedAgent(self.action_space.n)
 
@@ -458,6 +443,21 @@ class ViPPO(DiscretePpo):
             model_based_agent.update(s, a, r, sp, done)
 
         return model_based_agent
+
+
+class ViPPO(DiscretePpo):
+    def __init__(self, *args, vi_coef: float = 0.5, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.vi_coef = vi_coef
+
+    def get_states(self, obs: FloatTensor) -> FloatTensor:
+        is_training = self.policy.training
+        self.policy.eval()
+        with torch.no_grad():
+            states = self.policy.get_state_index(obs)
+        if is_training:
+            self.policy.train()
+        return states
 
     def on_batch_end(self, batch_idx, epoch) -> None:
         pass

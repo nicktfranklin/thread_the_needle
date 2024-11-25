@@ -17,7 +17,7 @@ from stable_baselines3.common.vec_env import VecEnv
 from torch import FloatTensor, Tensor
 from tqdm import tqdm
 
-from model.agents.utils.tabular_agents import ModelBasedAgent, TabularStateActionTransitionEstimator
+from model.agents.utils.tabular_agent_pytorch import ModelBasedAgent
 from model.training.rollout_data import BaseBuffer, PriorityReplayBuffer, RolloutBuffer
 from task.gridworld import ActType, ObsType
 from utils.sampling_functions import inverse_cmf_sampler
@@ -296,22 +296,8 @@ class BaseAgent(ABC):
     ) -> tuple[np.ndarray, Dict[Hashable, int]]:
 
         dataset = rollout_buffer.get_dataset()
-
-        transition_estimator = TabularStateActionTransitionEstimator()
-
-        states = self.get_states(self.collocate(dataset["observations"]))
-        next_states = self.get_states(self.collocate(dataset["next_observations"]))
-
-        for s, a, sp, done in zip(
-            states,
-            dataset["actions"],
-            next_states,
-            dataset["terminated"],
-        ):
-
-            transition_estimator.update(s.item(), a, sp.item(), done)
-
-        return transition_estimator.get_graph_laplacian(normalized=normalized, terminal_state=terminal_state)
+        mdp = self.estimate_world_model(rollout_buffer)
+        return mdp.get_graph_laplacian(normalized=normalized, terminal_state=terminal_state)
 
     def estimate_world_model(
         self,
@@ -320,13 +306,16 @@ class BaseAgent(ABC):
     ) -> ModelBasedAgent:
         dataset = rollout_buffer.get_dataset()
 
+        states = self.get_states(self.collocate(dataset["observations"]))
+        next_states = self.get_states(self.collocate(dataset["next_observations"]))
+
+        n_states = torch.cat([states, next_states]).unique().shape[0]
+
         mdp = ModelBasedAgent(
+            n_states,
             self.get_env().action_space.n,
             gamma,
         )
-
-        states = self.get_states(self.collocate(dataset["observations"]))
-        next_states = self.get_states(self.collocate(dataset["next_observations"]))
 
         for s, a, r, sp, done in zip(
             states,
