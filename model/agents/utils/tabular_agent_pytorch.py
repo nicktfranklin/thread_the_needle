@@ -46,7 +46,6 @@ class ModelBasedAgent:
         iterations: int = 500,
         terminal_state: int | None = None,
     ):
-        print(type, n_actions, n_states)
         n_states = n_states + 1
         self.transitions = TransitionModel(n_states, n_actions, device, terminal_state=terminal_state)
         self.rewards = RewardModel(n_states, n_actions, device, terminal_state=terminal_state)

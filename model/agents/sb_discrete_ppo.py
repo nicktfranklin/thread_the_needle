@@ -20,6 +20,7 @@ from torch import FloatTensor
 from model.agents.stable_baseline_clone.buffers import RolloutBuffer
 from model.agents.stable_baseline_clone.policies import ActorCriticVaePolicy, BasePolicy
 from model.agents.utils.base_agent import BaseAgent
+from model.agents.utils.data import ViPpoDataset, ViPpoRolloutSample
 from model.agents.utils.tabular_agent_pytorch import ModelBasedAgent
 
 logger = getLogger(__name__)
@@ -422,28 +423,6 @@ class DiscretePpo(WrappedPPO, BaseAgent):
             progress_bar=progress_bar,
         )
 
-    def compute_off_policy_values(self, rolloutbuffer: RolloutBuffer) -> ModelBasedAgent:
-        model_based_agent = ModelBasedAgent(self.action_space.n)
-
-        buffer_data = next(rolloutbuffer.get())
-
-        states = self.get_states(buffer_data.observations)
-        next_states = self.get_states(buffer_data.next_observations)
-
-        n = buffer_data.observations.shape[0]
-        for ii in range(n):
-            s, a, r, sp, done = (
-                states[ii].item(),
-                buffer_data.actions[ii].item(),
-                buffer_data.rewards[ii].item(),
-                next_states[ii].item(),
-                bool(buffer_data.dones[ii].item()),
-            )
-            done = done if ii < n - 1 else True
-            model_based_agent.update(s, a, r, sp, done)
-
-        return model_based_agent
-
 
 class ViPPO(DiscretePpo):
     def __init__(self, *args, vi_coef: float = 0.5, **kwargs):
@@ -467,6 +446,39 @@ class ViPPO(DiscretePpo):
 
     def on_epoch_start(self, epoch: int) -> None:
         self.policy.reset_state_indexer()
+
+    def prepare_dataloader(self, rollout_buffer: RolloutBuffer) -> None:
+
+        buffer_data = next(rollout_buffer.get())
+
+        states = self.get_states(buffer_data.observations)
+        next_states = self.get_states(buffer_data.next_observations)
+
+        n_states = torch.cat([states, next_states]).max().item() + 1
+
+        mdp = ModelBasedAgent(n_states, self.get_env().action_space.n, self.gamma)
+        n = buffer_data.observations.shape[0]
+        for ii in range(n):
+            s, a, r, sp, done = (
+                states[ii].item(),
+                buffer_data.actions[ii].long().item(),
+                buffer_data.rewards[ii].item(),
+                next_states[ii].item(),
+                bool(buffer_data.dones[ii].item()),
+            )
+            done = done if ii < n - 1 else True
+            mdp.update(s, a, r, sp, done)
+
+        value_function = mdp.estimate_value_function()
+
+        vi_estimates = value_function[states].view(-1, 1)
+
+        return torch.utils.data.DataLoader(
+            ViPpoDataset(rollout_buffer, vi_estimates, device=self.device),
+            batch_size=self.batch_size,
+            shuffle=True,
+            collate_fn=ViPpoDataset.collate_fn,
+        )
 
     def train(self) -> None:
         """
@@ -495,33 +507,28 @@ class ViPPO(DiscretePpo):
             approx_kl_divs = []
 
             # Compute model based value estimates
-            mb_agent = self.compute_off_policy_values(self.rollout_buffer)
-            _, value_function = mb_agent.estimate_value_function(gamma=0.95)
+            dataloader = self.prepare_dataloader(self.rollout_buffer)
+            self.policy.train()
 
             # Do a complete pass on the rollout buffer
             all_states = set([])
-            for batch, rollout_data in enumerate(self.rollout_buffer.get(self.batch_size)):
+            for batch, rollout_data in enumerate(dataloader):
+                assert isinstance(rollout_data, ViPpoRolloutSample)
                 actions = rollout_data.actions
                 if isinstance(self.action_space, spaces.Discrete):
                     # Convert discrete action from float to long
-                    actions = rollout_data.actions.long().flatten()
+                    actions = rollout_data.actions.flatten()
 
                 # Re-sample the noise matrix because the log_std has changed
                 if self.use_sde:
                     self.policy.reset_noise(self.batch_size)
 
                 values, log_prob, entropy, vae_loss = self.policy.evaluate_actions(
-                    rollout_data.observations, actions, rollout_data.next_observations
+                    rollout_data.observations.float(),
+                    actions,
+                    rollout_data.next_observations.float(),
                 )
                 values = values.flatten()
-                logger.info("Starting to compute model based values")
-
-                # Compute model based values
-                states = self.get_states(rollout_data.observations)
-                all_states.update(states)
-                vi_value_estimates = torch.empty(len(states), device=self.device, dtype=torch.float)
-                for ii, s in enumerate(states):
-                    vi_value_estimates[ii] = value_function.get(s, 0)
 
                 # Normalize advantage
                 advantages = rollout_data.advantages
@@ -558,8 +565,8 @@ class ViPPO(DiscretePpo):
                 values_true = (
                     rollout_data.advantages
                     + (1 - self.vi_coef) * rollout_data.returns
-                    + self.vae_coef * vi_value_estimates
-                )
+                    + self.vae_coef * rollout_data.vi_estimates
+                ).flatten()
                 value_loss = F.mse_loss(values_true, values_pred)
                 value_losses.append(value_loss.item())
 
