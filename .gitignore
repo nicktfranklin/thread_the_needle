@@ -16,6 +16,8 @@ scratch.ipynb
 runs/*
 checkpoints/*
 tensorboard/*
+clean_notebook.py
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
