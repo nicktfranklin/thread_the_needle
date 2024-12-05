@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -24,14 +24,27 @@ class TransitionModel:
         walls: Optional[list[tuple[int, int]]] = None,
     ) -> None:
         self.random_transitions = self._make_random_transitions(h, w)
-        self.state_action_transitions = self._make_cardinal_transition_function(
-            h, w, walls
-        )
+        self.state_action_transitions = self._make_cardinal_transition_function(h, w, walls)
         self.adjecency_list = self._make_adjecency_list(self.random_transitions)
         self.walls = walls
         self.n_states = h * w
         self.h = h
         self.w = w
+
+    def get_state_action_transitions(self, terminal_states: List[int] | None = None) -> np.ndarray:
+
+        if terminal_states is None:
+            return self.state_action_transitions
+
+        # Add terminal transitions
+        t = np.zeros((len(self.action_keys), self.n_states + 1, self.n_states + 1))
+        t[:, :-1, :-1] = self.state_action_transitions
+        t[:, -1, -1] = 1  # terminal state
+        for s in terminal_states:
+            t[:, s, :-1] = 0
+            t[:, s, -1] = 1
+
+        return t
 
     @staticmethod
     def _make_cardinal_transition_function(
@@ -111,9 +124,7 @@ class TransitionModel:
             edges[s] = np.where(t > 0)[0]
         return edges
 
-    def get_sucessor_distribution(
-        self, state: StateType, action: ActType
-    ) -> np.ndarray:
+    def get_sucessor_distribution(self, state: StateType, action: ActType) -> np.ndarray:
         assert state in self.adjecency_list
         assert action < self.state_action_transitions.shape[0], f"action {action}"
         return self.state_action_transitions[action, state, :]

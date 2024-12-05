@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, SupportsFloat
+from typing import Any, Dict, List, Optional, SupportsFloat
 
 import gymnasium as gym
 import matplotlib
@@ -63,9 +63,12 @@ class GridWorldEnv(gym.Env):
         self.reward_range = self.reward_model.get_rew_range()
         self.spec = None
 
-    def _check_terminate(self, state: int) -> bool:
+    def _check_truncate(self) -> bool:
         if self.max_steps is not None and self.step_counter >= self.max_steps:
             return True
+        return False
+
+    def _check_terminate(self, state: int) -> bool:
         if self.end_state == None:
             return False
         return state in self.end_state
@@ -106,7 +109,34 @@ class GridWorldEnv(gym.Env):
     def set_initial_state(self, initial_state):
         self.initial_state = initial_state
 
-    def get_optimal_policy(self) -> tuple[np.ndarray, np.ndarray]:
+    def get_state_values(
+        self, outcomes: List[OutcomeTuple] | None = None, gamma: float = 0.95
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Args:
+            sars: List of (state, action, reward, next_state) tuples
+        Returns:
+            np.ndarray: state values
+        """
+        if outcomes is None:
+
+            t = self.transition_model.get_state_action_transitions(self.end_state)
+            r = self.reward_model.construct_rew_func(t)
+
+            # yet another value iteration implementation
+            n_actions, n_states, _ = t.shape
+            q = np.zeros((n_states, n_actions))
+            v = np.zeros(n_states)
+            for _ in range(1_000):
+                q = r + gamma * np.dot(t, v)
+                v = q.max(axis=0)
+
+            return q, v
+        else:
+            ### assume we know the cardinality of the state space
+            raise NotImplementedError
+
+    def get_optimal_policy(self, gamma=0.95) -> tuple[np.ndarray, np.ndarray]:
         """
         Returns:
             pi: np.ndarray
@@ -114,19 +144,21 @@ class GridWorldEnv(gym.Env):
             values: np.ndarray
                 state values, shape (n_states,)
         """
-        t = self.transition_model.state_action_transitions
+
+        t = self.transition_model.get_state_action_transitions(self.end_state)
         r = self.reward_model.construct_rew_func(t)
-        sa_values, values = ValueIterationNetwork.value_iteration(
-            t,
-            r,
-            self.observation_model.h,
-            self.observation_model.w,
-            gamma=0.8,
-            iterations=1000,
-        )
+
+        # yet another value iteration implementation
+        n_actions, n_states, _ = t.shape
+        q = np.zeros((n_states, n_actions))
+        v = np.zeros(n_states)
+        for _ in range(1_000):
+            q = r + gamma * np.dot(t, v)
+            v = q.max(axis=0)
+
         return (
-            np.array([np.isclose(v, v.max()) for v in sa_values], dtype=float),
-            values,
+            np.array([np.isclose(q0, q0.max()) for q0 in q], dtype=float),
+            v,
         )
 
     # Key methods from Gymnasium:
@@ -141,9 +173,7 @@ class GridWorldEnv(gym.Env):
         else:
             initial_state = None
 
-        self.current_state = (
-            initial_state if initial_state is not None else self._get_initial_state()
-        )
+        self.current_state = initial_state if initial_state is not None else self._get_initial_state()
         self.step_counter = 0
 
         return self.generate_observation(self.current_state), dict()
@@ -151,9 +181,7 @@ class GridWorldEnv(gym.Env):
     def step(self, action: ActType) -> OutcomeTuple:
         self.step_counter += 1
 
-        pdf_s = self.transition_model.get_sucessor_distribution(
-            self.current_state, action
-        )
+        pdf_s = self.transition_model.get_sucessor_distribution(self.current_state, action)
 
         assert np.sum(pdf_s) == 1, (action, self.current_state, pdf_s)
         assert np.all(pdf_s >= 0), print(pdf_s)
@@ -163,7 +191,7 @@ class GridWorldEnv(gym.Env):
 
         reward = self.reward_model.get_reward(successor_state)
         terminated = self._check_terminate(successor_state)
-        truncated = False
+        truncated = self._check_truncate()
         info = dict(start_state=self.current_state, successor_state=successor_state)
 
         self.current_state = successor_state
@@ -196,15 +224,11 @@ class ThreadTheNeedleEnv(GridWorldEnv):
         walls = make_thread_the_needle_walls(20)
         transition_model = TransitionModel(height, width, walls)
 
-        observation_model = ObservationModel(
-            height, width, map_height, **observation_kwargs
-        )
+        observation_model = ObservationModel(height, width, map_height, **observation_kwargs)
 
         reward_model = RewardModel(state_rewards, movement_penalty)
 
-        return cls(
-            transition_model, reward_model, observation_model, **gridworld_env_kwargs
-        )
+        return cls(transition_model, reward_model, observation_model, **gridworld_env_kwargs)
 
 
 class OpenEnv(ThreadTheNeedleEnv):
@@ -222,15 +246,11 @@ class OpenEnv(ThreadTheNeedleEnv):
         # Define the transitions for the thread the needle task
         transition_model = TransitionModel(height, width, None)
 
-        observation_model = ObservationModel(
-            height, width, map_height, **observation_kwargs
-        )
+        observation_model = ObservationModel(height, width, map_height, **observation_kwargs)
 
         reward_model = RewardModel(state_rewards, movement_penalty)
 
-        return cls(
-            transition_model, reward_model, observation_model, **gridworld_env_kwargs
-        )
+        return cls(transition_model, reward_model, observation_model, **gridworld_env_kwargs)
 
 
 class CnnWrapper(ThreadTheNeedleEnv):
