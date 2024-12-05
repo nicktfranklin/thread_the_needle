@@ -5,7 +5,7 @@
 .ipynb_checkpoints/*
 .vscode
 .idea
-*.csv
+# *.csv
 *.pkl
 simulations/*.yml
 tmp
@@ -13,9 +13,11 @@ tmp
 logs
 Sandbox.ipynb
 scratch.ipynb
-runs/*
-checkpoints/*
-tensorboard/*
+runs
+checkpoints
+tensorboard
+simulations
+simulations/*
 clean_notebook.py
 
 
