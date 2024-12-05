@@ -43,6 +43,7 @@ class StateVae(nn.Module):
         tau_annealing_rate: float = VAE_TAU_ANNEALING_RATE,
         input_shape: Tuple[int, int, int] = INPUT_SHAPE,
         tau_is_parameter: bool = False,
+        tau_min: float = 1e-4,
         *,
         run_unit_test: bool = False,
     ):
@@ -58,6 +59,7 @@ class StateVae(nn.Module):
         self.tau = tau
         self.tau_annealing_rate = tau_annealing_rate
         self.input_shape = input_shape
+        self.tau_min = tau_min
 
         if tau_is_parameter:
             self.tau = torch.nn.Parameter(torch.tensor([tau]), requires_grad=True)
@@ -247,7 +249,7 @@ class StateVae(nn.Module):
             return self.decode(z).detach().cpu().numpy()
 
     def anneal_tau(self):
-        if self.tau_annealing_rate - 1 < 1e-4:
+        if self.tau_annealing_rate - 1 < self.tau_min:
             return
         self.tau *= self.tau_annealing_rate
 
