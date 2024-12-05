@@ -102,9 +102,6 @@ def train_ppo(configs: Config):
         ThreadTheNeedleCallback(),
     ]
 
-    print("Training PPO")
-    print(f"device = {DEVICE}")
-
     ppo = PPOClass(
         "CnnPolicy",
         task,
@@ -113,9 +110,7 @@ def train_ppo(configs: Config):
         batch_size=64,
         n_epochs=10,
         tensorboard_log=TENSORBOARD_PATH,
-        policy_kwargs=dict(
-            features_extractor_kwargs=dict(tau=0.05, z_dim=8, z_layers=8)
-        ),
+        policy_kwargs=dict(features_extractor_kwargs=dict(tau=0.05, z_dim=8, z_layers=8)),
         device=DEVICE,
         vi_coef=configs.vi_coef,
     )
@@ -150,18 +145,12 @@ def main():
         batched_data.append(data)
 
     rollout_buffer = Buffer()
-    rollout_buffer = ppo.collect_buffer(
-        ppo.env.envs[0], rollout_buffer, n=1000, epsilon=config.epsilon
-    )
+    rollout_buffer = ppo.collect_buffer(ppo.env.envs[0], rollout_buffer, n=1000, epsilon=config.epsilon)
 
-    with open(
-        f"{config.results_dir}{MODEL_NAME}_rollouts_{date.today()}.pkl", "wb"
-    ) as f:
+    with open(f"{config.results_dir}{MODEL_NAME}_rollouts_{date.today()}.pkl", "wb") as f:
         pickle.dump(rollout_buffer, f)
 
-    with open(
-        f"{config.results_dir}{MODEL_NAME}_batched_data_{date.today()}.pkl", "wb"
-    ) as f:
+    with open(f"{config.results_dir}{MODEL_NAME}_batched_data_{date.today()}.pkl", "wb") as f:
         pickle.dump(batched_data, f)
 
 

@@ -233,31 +233,13 @@ class DiscretePpo(WrappedPPO, BaseAgent):
         self._anneal_vae()
 
         entropy_losses = []
-        pg_losses, value_losses, vae_elbos, off_policy_value_losses = [], [], [], []
+        pg_losses, value_losses, vae_elbos = [], [], []
         clip_fractions = []
 
         continue_training = True
         # train for n_epochs epochs
         for epoch in range(self.n_epochs):
             approx_kl_divs = []
-
-            # # Compute model based estimates
-            # self.policy.set_training_mode(False)
-            # with torch.no_grad():
-            #     rollout_data = next(iter(self.rollout_buffer.get()))
-
-            #     # obs = rollout_data.observations
-            #     # next_obs = obs_as_tensor(rollout_data.next_observations, self.device)
-
-            #     states = self.policy.get_state_hashkey(rollout_data.observations)
-            #     next_states = self.policy.get_state_hashkey(
-            #         rollout_data.next_observations
-            #     )
-
-            # self.rollout_buffer.compute_off_policy_values(states, next_states)
-            # self.policy.set_training_mode(True)
-
-            # # end estma
 
             # Do a complete pass on the rollout buffer
             for rollout_data in self.rollout_buffer.get(self.batch_size):
@@ -450,11 +432,13 @@ class ViPPO(DiscretePpo):
     def prepare_dataloader(self, rollout_buffer: RolloutBuffer) -> None:
 
         buffer_data = next(rollout_buffer.get())
+        self.reset_state_indexer()
 
         states = self.get_states(buffer_data.observations)
         next_states = self.get_states(buffer_data.next_observations)
 
         n_states = torch.cat([states, next_states]).max().item() + 1
+        self.logger.record("train/n_states", n_states)
 
         mdp = ModelBasedAgent(n_states, self.get_env().action_space.n, self.gamma)
         n = buffer_data.observations.shape[0]
@@ -498,7 +482,7 @@ class ViPPO(DiscretePpo):
         self._anneal_vae()
 
         entropy_losses = []
-        pg_losses, value_losses, vae_elbos, off_policy_value_losses = [], [], [], []
+        pg_losses, value_losses, vae_elbos = [], [], []
         clip_fractions = []
 
         continue_training = True
@@ -562,12 +546,10 @@ class ViPPO(DiscretePpo):
                         values - rollout_data.old_values, -clip_range_vf, clip_range_vf
                     )
                 # Value loss using the TD(gae_lambda) target
-                values_true = (
-                    rollout_data.advantages
-                    + (1 - self.vi_coef) * rollout_data.returns
-                    + self.vae_coef * rollout_data.vi_estimates
-                ).flatten()
-                value_loss = F.mse_loss(values_true, values_pred)
+                # values_true = (
+                #     (1 - self.vi_coef) * rollout_data.returns + self.vae_coef * rollout_data.vi_estimates
+                # ).flatten()
+                value_loss = F.mse_loss(rollout_data.vi_estimates, values_pred)
                 value_losses.append(value_loss.item())
 
                 # Entropy loss favor exploration
@@ -623,7 +605,6 @@ class ViPPO(DiscretePpo):
         self.logger.record("train/policy_gradient_loss", np.mean(pg_losses))
         self.logger.record("train/vae_elbo", np.mean(vae_elbos))
         self.logger.record("train/value_loss", np.mean(value_losses))
-        self.logger.record("train/n_states", len(all_states))
         self.logger.record("train/approx_kl", np.mean(approx_kl_divs))
         self.logger.record("train/clip_fraction", np.mean(clip_fractions))
         self.logger.record("train/loss", loss.item())
