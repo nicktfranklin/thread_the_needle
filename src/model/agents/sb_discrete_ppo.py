@@ -552,7 +552,7 @@ class ViPPO(DiscretePpo):
                 # values_true = (
                 #     (1 - self.vi_coef) * rollout_data.returns + self.vae_coef * rollout_data.vi_estimates
                 # ).flatten()
-                value_loss = F.mse_loss(rollout_data.vi_estimates, values_pred)
+                value_loss = F.mse_loss(rollout_data.vi_estimates.flatten(), values_pred.flatten())
                 value_losses.append(value_loss.item())
 
                 # Entropy loss favor exploration
