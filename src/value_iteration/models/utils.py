@@ -12,7 +12,9 @@ def inverse_cmf_sampler(pmf: Union[np.ndarray, scipy.sparse.csr_matrix]) -> int:
     return np.array(np.cumsum(np.array(pmf)) < np.random.rand(), dtype=int).sum()
 
 
-def sample_trajectory_until_goal(start_state: int, goal_state: int, policy: np.ndarray, transition_functions):
+def sample_trajectory_until_goal(
+    start_state: int, goal_state: int, policy: np.ndarray, transition_functions
+):
     current_state = start_state
     state_trajectory = [current_state]
     while current_state != goal_state:

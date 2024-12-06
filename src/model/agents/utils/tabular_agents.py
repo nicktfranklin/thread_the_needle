@@ -17,7 +17,9 @@ class TabularTransitionEstimator:
         pmf: Optional[Dict[str, Any]] = None,
         terminal_state: str = "terminal",
     ):
-        self.transitions = transitions if transitions else {terminal_state: {terminal_state: 1}}
+        self.transitions = (
+            transitions if transitions else {terminal_state: {terminal_state: 1}}
+        )
         self.pmf = pmf if pmf else {}
         self.terminal_state = terminal_state
 
@@ -88,10 +90,13 @@ class TabularStateActionTransitionEstimator:
     ):
         self.n_actions = n_actions
         if models is not None:
-            self.models = {a: TabularTransitionEstimator(**v) for a, v in models.items()}
+            self.models = {
+                a: TabularTransitionEstimator(**v) for a, v in models.items()
+            }
         else:
             self.models = {
-                a: TabularTransitionEstimator(terminal_state=terminal_state) for a in range(n_actions)
+                a: TabularTransitionEstimator(terminal_state=terminal_state)
+                for a in range(n_actions)
             }
         self.set_states = states if states else set([terminal_state])
         self.terminal_state = terminal_state
@@ -186,7 +191,11 @@ class TabularRewardEstimator:
         self.reset()
 
     def reset(self):
-        self.data = {self.terminal_state: ActionRewardEstimator(self.n_actions, self.default_reward)}
+        self.data = {
+            self.terminal_state: ActionRewardEstimator(
+                self.n_actions, self.default_reward
+            )
+        }
 
     def update(self, s: Hashable, a: ActType, r: float):
         if s not in self.data.keys():
@@ -247,7 +256,9 @@ def value_iteration(
 class ModelBasedAgent:
     terminal_state: str = "terminal"
 
-    def __init__(self, n_actions: int = 4, gamma: float = 0.95, default_reward: float = 0.0):
+    def __init__(
+        self, n_actions: int = 4, gamma: float = 0.95, default_reward: float = 0.0
+    ):
         self.transition_model = TabularStateActionTransitionEstimator(
             n_actions, terminal_state=self.terminal_state
         )
@@ -306,7 +317,8 @@ class ModelFreeAgent:
         if s not in self.q_values:
             if self.q_values:
                 q_init = {
-                    a: max([max(v.values()) for v in self.q_values.values()]) for a in range(self.n_actions)
+                    a: max([max(v.values()) for v in self.q_values.values()])
+                    for a in range(self.n_actions)
                 }
             else:
                 q_init = self.q_init

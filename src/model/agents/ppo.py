@@ -36,7 +36,10 @@ class StableBaselinesPPO(WrappedPPO, BaseAgent):
 
     def get_pmf(self, obs: FloatTensor) -> FloatTensor:
         return (
-            self.policy.get_distribution(obs.permute(0, 3, 1, 2)).distribution.probs.clone().detach().numpy()
+            self.policy.get_distribution(obs.permute(0, 3, 1, 2))
+            .distribution.probs.clone()
+            .detach()
+            .numpy()
         )
 
     def get_states(self, obs: Tensor) -> Hashable:
@@ -255,13 +258,17 @@ class PPO(BaseAgent, torch.nn.Module):
             episode_data = self.collocate(episode_data)
 
             # 1) Compute Rewards to go
-            rewards_to_go = self.collocate(self.compute_rewards_to_go(episode_data["rewards"]))
+            rewards_to_go = self.collocate(
+                self.compute_rewards_to_go(episode_data["rewards"])
+            )
             # print(rewards_to_go)
             # print(episode_data["rewards"])
             # raise Exception("Stop here")
 
             # 2) Compute Advantage based on current value function
-            advantages = self.compute_advantages(episode_data["observations"], rewards_to_go)
+            advantages = self.compute_advantages(
+                episode_data["observations"], rewards_to_go
+            )
 
             observations_list.append(episode_data["observations"])
             next_observations_list.append(episode_data["next_observations"])
@@ -339,7 +346,9 @@ class PPO(BaseAgent, torch.nn.Module):
                 # get the policy logits (shape: batch_size x n_actions)
                 actor_log_probs = self.actor(z)
                 dist = torch.distributions.Categorical(logits=actor_log_probs)
-                cur_log_probs = dist.log_prob(actions.long())  # actions should be long for Categorical
+                cur_log_probs = dist.log_prob(
+                    actions.long()
+                )  # actions should be long for Categorical
                 old_log_probs = log_probs
 
                 ratio = torch.exp(cur_log_probs - old_log_probs)
@@ -352,7 +361,9 @@ class PPO(BaseAgent, torch.nn.Module):
                 loss.backward()
 
                 if self.log_tensorboard:
-                    self.writer.add_scalar("Loss/Total", loss.item(), self.episode_number)
+                    self.writer.add_scalar(
+                        "Loss/Total", loss.item(), self.episode_number
+                    )
                     self.writer.add_scalar("Loss/PPO", loss.item(), self.episode_number)
 
                     self.episode_number += 1
@@ -360,7 +371,9 @@ class PPO(BaseAgent, torch.nn.Module):
                 if self.grad_clip is not None:
                     torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_clip)
             if self.log_tensorboard:
-                self.writer.add_scalar("Episode/Reward", batch_reward, self.batch_number)
+                self.writer.add_scalar(
+                    "Episode/Reward", batch_reward, self.batch_number
+                )
                 self.batch_number += 1
 
     def collect_rollouts(
@@ -439,7 +452,11 @@ class PPO(BaseAgent, torch.nn.Module):
             self.batch_number = 0
             self.episode_number = 0
             current_date = datetime.date.today().strftime("%b%d_%H-%M")
-            log_subdir = f"{current_date}_{tensoboard_log_tag}" if tensoboard_log_tag else current_date
+            log_subdir = (
+                f"{current_date}_{tensoboard_log_tag}"
+                if tensoboard_log_tag
+                else current_date
+            )
             log_dir = os.path.join("runs", log_subdir)
             self.writer = SummaryWriter(log_dir=log_dir)
         self.log_tensorboard = log_tensorboard
@@ -474,7 +491,9 @@ class PPO(BaseAgent, torch.nn.Module):
         env_kwargs: Dict[str, Any],
     ):
         input_shape = (1, env_kwargs["map_height"], env_kwargs["map_height"])
-        FeatureExtractor = getattr(src.model.state_inference.nets, agent_config["feature_extractor"]["class"])
+        FeatureExtractor = getattr(
+            src.model.state_inference.nets, agent_config["feature_extractor"]["class"]
+        )
         feature_extractor = FeatureExtractor(
             input_shape=input_shape, **agent_config["feature_extractor"]["kwargs"]
         )

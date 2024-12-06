@@ -40,7 +40,9 @@ def sample_random_walk(
     observation_model: ObservationModel,
     initial_state: Optional[StateType] = None,
 ) -> torch.tensor:
-    states = sample_random_walk_states(transition_model, length, initial_state=initial_state)
+    states = sample_random_walk_states(
+        transition_model, length, initial_state=initial_state
+    )
     obs = torch.stack([make_tensor(observation_model(s)) for s in states])
     return obs
 

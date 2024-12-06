@@ -176,7 +176,9 @@ class GridWorldEnv(gym.Env):
         else:
             initial_state = None
 
-        self.current_state = initial_state if initial_state is not None else self._get_initial_state()
+        self.current_state = (
+            initial_state if initial_state is not None else self._get_initial_state()
+        )
         self.step_counter = 0
 
         return self.generate_observation(self.current_state), dict()
@@ -184,7 +186,9 @@ class GridWorldEnv(gym.Env):
     def step(self, action: ActType) -> OutcomeTuple:
         self.step_counter += 1
 
-        pdf_s = self.transition_model.get_sucessor_distribution(self.current_state, action)
+        pdf_s = self.transition_model.get_sucessor_distribution(
+            self.current_state, action
+        )
 
         assert np.sum(pdf_s) == 1, (action, self.current_state, pdf_s)
         assert np.all(pdf_s >= 0), print(pdf_s)
@@ -227,11 +231,15 @@ class ThreadTheNeedleEnv(GridWorldEnv):
         walls = make_thread_the_needle_walls(20)
         transition_model = TransitionModel(height, width, walls)
 
-        observation_model = ObservationModel(height, width, map_height, **observation_kwargs)
+        observation_model = ObservationModel(
+            height, width, map_height, **observation_kwargs
+        )
 
         reward_model = RewardModel(state_rewards, movement_penalty)
 
-        return cls(transition_model, reward_model, observation_model, **gridworld_env_kwargs)
+        return cls(
+            transition_model, reward_model, observation_model, **gridworld_env_kwargs
+        )
 
 
 class OpenEnv(ThreadTheNeedleEnv):
@@ -249,11 +257,15 @@ class OpenEnv(ThreadTheNeedleEnv):
         # Define the transitions for the thread the needle task
         transition_model = TransitionModel(height, width, None)
 
-        observation_model = ObservationModel(height, width, map_height, **observation_kwargs)
+        observation_model = ObservationModel(
+            height, width, map_height, **observation_kwargs
+        )
 
         reward_model = RewardModel(state_rewards, movement_penalty)
 
-        return cls(transition_model, reward_model, observation_model, **gridworld_env_kwargs)
+        return cls(
+            transition_model, reward_model, observation_model, **gridworld_env_kwargs
+        )
 
 
 class CnnWrapper(ThreadTheNeedleEnv):

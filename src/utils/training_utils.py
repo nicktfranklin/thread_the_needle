@@ -13,7 +13,9 @@ def eval_model(model, n, start_state=None):
     for _ in range(n):
         action, _ = model.predict(obs, deterministic=start_state is not None)
         obs, rew, done, info = env.step(action)
-        state_trajectory.append((info[0]["start_state"], action[0], info[0]["successor_state"], rew[0]))
+        state_trajectory.append(
+            (info[0]["start_state"], action[0], info[0]["successor_state"], rew[0])
+        )
         rewards.append(rew)
         obs_all.append(obs)
         if done:
@@ -39,7 +41,10 @@ def sample_policy(model, n_states=400, map_height=60, cnn=True):
     if cnn:
         shape = [1, map_height, map_height]
 
-    obs = [np.array(env.env_method("generate_observation", s)[0]).reshape(*shape) for s in range(n_states)]
+    obs = [
+        np.array(env.env_method("generate_observation", s)[0]).reshape(*shape)
+        for s in range(n_states)
+    ]
     # print(obs.shape)
     return model.predict(np.stack(obs), deterministic=True)
 
@@ -61,7 +66,9 @@ def train_model(
         model_reward.append(rew.sum())
 
         s = e * n_train_steps
-        print(f"Training_steps {s}, reward {model_reward[-1]}, score {np.mean(score[-1])}")
+        print(
+            f"Training_steps {s}, reward {model_reward[-1]}, score {np.mean(score[-1])}"
+        )
         model.learn(total_timesteps=n_train_steps, progress_bar=False)
 
     return model_reward, score

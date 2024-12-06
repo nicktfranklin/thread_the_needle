@@ -21,11 +21,16 @@ class ObservationDataset(Dataset):
         train: bool = True,
     ) -> Dataset:
         if train:
-            self.observations = sample_random_walk(n, transition_model, observation_model)
+            self.observations = sample_random_walk(
+                n, transition_model, observation_model
+            )
         else:
             # for test, use the uncorrupted dataset
             self.observations = torch.stack(
-                [make_tensor(observation_model.embed_state(s)) for s in range(transition_model.n_states)]
+                [
+                    make_tensor(observation_model.embed_state(s))
+                    for s in range(transition_model.n_states)
+                ]
             )
 
         self.observations = convert_8bit_to_float(self.observations)
@@ -83,7 +88,9 @@ class TransitionVaeDataset(Dataset):
         self.obsp = convert_8bit_to_float(successor_obs)
         self.actions = actions.float()
 
-    def __getitem__(self, index: int) -> Tuple[torch.tensor, torch.tensor, torch.tensor]:
+    def __getitem__(
+        self, index: int
+    ) -> Tuple[torch.tensor, torch.tensor, torch.tensor]:
         return self.obs[index], self.actions[index], self.obsp[index]
 
     def __len__(self):
@@ -166,4 +173,6 @@ class RecurrentVaeDataset(Dataset):
         batch_size: int = 64,
     ):
         dataset = cls(observations, actions, trial_index, max_sequence_len)
-        return torch.utils.data.DataLoader(dataset, batch_size=batch_size, collate_fn=cls.collate_fn)
+        return torch.utils.data.DataLoader(
+            dataset, batch_size=batch_size, collate_fn=cls.collate_fn
+        )

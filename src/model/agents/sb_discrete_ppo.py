@@ -13,7 +13,11 @@ from stable_baselines3 import PPO as WrappedPPO
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.preprocessing import preprocess_obs
 from stable_baselines3.common.type_aliases import MaybeCallback
-from stable_baselines3.common.utils import explained_variance, get_schedule_fn, obs_as_tensor
+from stable_baselines3.common.utils import (
+    explained_variance,
+    get_schedule_fn,
+    obs_as_tensor,
+)
 from stable_baselines3.common.vec_env import VecEnv
 from torch import FloatTensor
 
@@ -46,7 +50,9 @@ class DiscretePpo(WrappedPPO, BaseAgent):
     def get_pmf(self, obs: FloatTensor) -> FloatTensor:
         return (
             self.policy.get_distribution(
-                preprocess_obs(obs.permute(0, 3, 1, 2).to(self.device), self.env.observation_space)
+                preprocess_obs(
+                    obs.permute(0, 3, 1, 2).to(self.device), self.env.observation_space
+                )
             )
             .distribution.probs.clone()
             .detach()
@@ -91,7 +97,8 @@ class DiscretePpo(WrappedPPO, BaseAgent):
         if self.clip_range_vf is not None:
             if isinstance(self.clip_range_vf, (float, int)):
                 assert self.clip_range_vf > 0, (
-                    "`clip_range_vf` must be positive, " "pass `None` to deactivate vf clipping"
+                    "`clip_range_vf` must be positive, "
+                    "pass `None` to deactivate vf clipping"
                 )
 
             self.clip_range_vf = get_schedule_fn(self.clip_range_vf)
@@ -132,7 +139,11 @@ class DiscretePpo(WrappedPPO, BaseAgent):
         callback.on_rollout_start()
 
         while n_steps < n_rollout_steps:
-            if self.use_sde and self.sde_sample_freq > 0 and n_steps % self.sde_sample_freq == 0:
+            if (
+                self.use_sde
+                and self.sde_sample_freq > 0
+                and n_steps % self.sde_sample_freq == 0
+            ):
                 # Sample a new noise matrix
                 self.policy.reset_noise(env.num_envs)
 
@@ -153,7 +164,9 @@ class DiscretePpo(WrappedPPO, BaseAgent):
                 else:
                     # Otherwise, clip the actions to avoid out of bound error
                     # as we are sampling from an unbounded Gaussian distribution
-                    clipped_actions = np.clip(actions, self.action_space.low, self.action_space.high)
+                    clipped_actions = np.clip(
+                        actions, self.action_space.low, self.action_space.high
+                    )
 
             new_obs, rewards, dones, infos = env.step(clipped_actions)
 
@@ -179,7 +192,9 @@ class DiscretePpo(WrappedPPO, BaseAgent):
                     and infos[idx].get("terminal_observation") is not None
                     and infos[idx].get("TimeLimit.truncated", False)
                 ):
-                    terminal_obs = self.policy.obs_to_tensor(infos[idx]["terminal_observation"])[0]
+                    terminal_obs = self.policy.obs_to_tensor(
+                        infos[idx]["terminal_observation"]
+                    )[0]
                     with torch.no_grad():
                         terminal_value = self.policy.predict_values(terminal_obs)[0]  # type: ignore[arg-type]
                     rewards[idx] += self.gamma * terminal_value
@@ -260,14 +275,18 @@ class DiscretePpo(WrappedPPO, BaseAgent):
                 advantages = rollout_data.advantages
                 # Normalization does not make sense if mini batchsize == 1, see GH issue #325
                 if self.normalize_advantage and len(advantages) > 1:
-                    advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+                    advantages = (advantages - advantages.mean()) / (
+                        advantages.std() + 1e-8
+                    )
 
                 # ratio between old and new policy, should be one at the first iteration
                 ratio = torch.exp(log_prob - rollout_data.old_log_prob)
 
                 # clipped surrogate loss
                 policy_loss_1 = advantages * ratio
-                policy_loss_2 = advantages * torch.clamp(ratio, 1 - clip_range, 1 + clip_range)
+                policy_loss_2 = advantages * torch.clamp(
+                    ratio, 1 - clip_range, 1 + clip_range
+                )
                 policy_loss = -torch.min(policy_loss_1, policy_loss_2).mean()
 
                 vae_elbo = vae_loss.kl_div + vae_loss.recon_loss
@@ -275,7 +294,9 @@ class DiscretePpo(WrappedPPO, BaseAgent):
                 # Logging
                 pg_losses.append(policy_loss.item())
                 vae_elbos.append(vae_elbo.item())
-                clip_fraction = torch.mean((torch.abs(ratio - 1) > clip_range).float()).item()
+                clip_fraction = torch.mean(
+                    (torch.abs(ratio - 1) > clip_range).float()
+                ).item()
                 clip_fractions.append(clip_fraction)
 
                 if self.clip_range_vf is None:
@@ -319,20 +340,26 @@ class DiscretePpo(WrappedPPO, BaseAgent):
                 # and Schulman blog: http://joschu.net/blog/kl-approx.html
                 with torch.no_grad():
                     log_ratio = log_prob - rollout_data.old_log_prob
-                    approx_kl_div = torch.mean((torch.exp(log_ratio) - 1) - log_ratio).cpu().numpy()
+                    approx_kl_div = (
+                        torch.mean((torch.exp(log_ratio) - 1) - log_ratio).cpu().numpy()
+                    )
                     approx_kl_divs.append(approx_kl_div)
 
                 if self.target_kl is not None and approx_kl_div > 1.5 * self.target_kl:
                     continue_training = False
                     if self.verbose >= 1:
-                        print(f"Early stopping at step {epoch} due to reaching max kl: {approx_kl_div:.2f}")
+                        print(
+                            f"Early stopping at step {epoch} due to reaching max kl: {approx_kl_div:.2f}"
+                        )
                     break
 
                 # Optimization step
                 self.policy.optimizer.zero_grad()
                 loss.backward()
                 # Clip grad norm
-                torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
+                torch.nn.utils.clip_grad_norm_(
+                    self.policy.parameters(), self.max_grad_norm
+                )
                 self.policy.optimizer.step()
 
             self._n_updates += 1
@@ -356,7 +383,9 @@ class DiscretePpo(WrappedPPO, BaseAgent):
         self.logger.record("train/loss", loss.item())
         self.logger.record("train/explained_variance", explained_var)
         if hasattr(self.policy, "log_std"):
-            self.logger.record("train/std", torch.exp(self.policy.log_std).mean().item())
+            self.logger.record(
+                "train/std", torch.exp(self.policy.log_std).mean().item()
+            )
 
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/clip_range", clip_range)
@@ -377,7 +406,7 @@ class DiscretePpo(WrappedPPO, BaseAgent):
 
     def dehash_states(self, hashed_states: int | List[int]) -> torch.LongTensor:
         return self.policy.lookup_states(hashed_states)
-    
+
     def decode_embedding(self, z: FloatTensor) -> FloatTensor:
         return self.policy.decode_embedding(z)
 
@@ -521,14 +550,18 @@ class ViPPO(DiscretePpo):
                 advantages = rollout_data.advantages
                 # Normalization does not make sense if mini batchsize == 1, see GH issue #325
                 if self.normalize_advantage and len(advantages) > 1:
-                    advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+                    advantages = (advantages - advantages.mean()) / (
+                        advantages.std() + 1e-8
+                    )
 
                 # ratio between old and new policy, should be one at the first iteration
                 ratio = torch.exp(log_prob - rollout_data.old_log_prob)
 
                 # clipped surrogate loss
                 policy_loss_1 = advantages * ratio
-                policy_loss_2 = advantages * torch.clamp(ratio, 1 - clip_range, 1 + clip_range)
+                policy_loss_2 = advantages * torch.clamp(
+                    ratio, 1 - clip_range, 1 + clip_range
+                )
                 policy_loss = -torch.min(policy_loss_1, policy_loss_2).mean()
 
                 vae_elbo = vae_loss.kl_div + vae_loss.recon_loss
@@ -536,7 +569,9 @@ class ViPPO(DiscretePpo):
                 # Logging
                 pg_losses.append(policy_loss.item())
                 vae_elbos.append(vae_elbo.item())
-                clip_fraction = torch.mean((torch.abs(ratio - 1) > clip_range).float()).item()
+                clip_fraction = torch.mean(
+                    (torch.abs(ratio - 1) > clip_range).float()
+                ).item()
                 clip_fractions.append(clip_fraction)
 
                 if self.clip_range_vf is None:
@@ -552,7 +587,9 @@ class ViPPO(DiscretePpo):
                 # values_true = (
                 #     (1 - self.vi_coef) * rollout_data.returns + self.vae_coef * rollout_data.vi_estimates
                 # ).flatten()
-                value_loss = F.mse_loss(rollout_data.vi_estimates.flatten(), values_pred.flatten())
+                value_loss = F.mse_loss(
+                    rollout_data.vi_estimates.flatten(), values_pred.flatten()
+                )
                 value_losses.append(value_loss.item())
 
                 # Entropy loss favor exploration
@@ -577,13 +614,17 @@ class ViPPO(DiscretePpo):
                 # and Schulman blog: http://joschu.net/blog/kl-approx.html
                 with torch.no_grad():
                     log_ratio = log_prob - rollout_data.old_log_prob
-                    approx_kl_div = torch.mean((torch.exp(log_ratio) - 1) - log_ratio).cpu().numpy()
+                    approx_kl_div = (
+                        torch.mean((torch.exp(log_ratio) - 1) - log_ratio).cpu().numpy()
+                    )
                     approx_kl_divs.append(approx_kl_div)
 
                 if self.target_kl is not None and approx_kl_div > 1.5 * self.target_kl:
                     continue_training = False
                     if self.verbose >= 1:
-                        print(f"Early stopping at step {epoch} due to reaching max kl: {approx_kl_div:.2f}")
+                        print(
+                            f"Early stopping at step {epoch} due to reaching max kl: {approx_kl_div:.2f}"
+                        )
                     break
 
                 # Optimization step
@@ -591,7 +632,9 @@ class ViPPO(DiscretePpo):
                 self.on_batch_end(batch, epoch)
                 loss.backward()
                 # Clip grad norm
-                torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
+                torch.nn.utils.clip_grad_norm_(
+                    self.policy.parameters(), self.max_grad_norm
+                )
                 self.policy.optimizer.step()
 
             self._n_updates += 1
@@ -613,7 +656,9 @@ class ViPPO(DiscretePpo):
         self.logger.record("train/loss", loss.item())
         self.logger.record("train/explained_variance", explained_var)
         if hasattr(self.policy, "log_std"):
-            self.logger.record("train/std", torch.exp(self.policy.log_std).mean().item())
+            self.logger.record(
+                "train/std", torch.exp(self.policy.log_std).mean().item()
+            )
 
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/clip_range", clip_range)
@@ -700,12 +745,16 @@ class MemoryProfilingViPPO(ViPPO):
             gpu_mean = np.mean(self.gpu_mem_history[gpu_id][-self.log_freq :])
             gpu_peak = np.max(self.gpu_mem_history[gpu_id][-self.log_freq :])
 
-            logger.info(f"GPU{gpu_id} Memory - Mean: {gpu_mean:.1f}MB, Peak: {gpu_peak:.1f}MB")
+            logger.info(
+                f"GPU{gpu_id} Memory - Mean: {gpu_mean:.1f}MB, Peak: {gpu_peak:.1f}MB"
+            )
 
             self.logger.record(f"Memory/GPU_{gpu_id}_Mean_MB", gpu_mean)
             self.logger.record(f"Memory/GPU_{gpu_id}_Peak_MB", gpu_peak)
 
-            stats.append(f"GPU{gpu_id} Memory - Mean: {gpu_mean:.1f}MB, Peak: {gpu_peak:.1f}MB")
+            stats.append(
+                f"GPU{gpu_id} Memory - Mean: {gpu_mean:.1f}MB, Peak: {gpu_peak:.1f}MB"
+            )
 
         if self.verbose:
             print("\n".join(stats))

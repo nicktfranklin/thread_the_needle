@@ -61,7 +61,9 @@ class ValueIterationAgent(BaseVaeAgent):
         self.state_inference_model = state_inference_model.to(DEVICE)
 
         self.optim = (
-            self.state_inference_model.configure_optimizers(optim_kwargs) if persistant_optim else None
+            self.state_inference_model.configure_optimizers(optim_kwargs)
+            if persistant_optim
+            else None
         )
         self.grad_clip = grad_clip
         self.batch_size = batch_size
@@ -84,7 +86,10 @@ class ValueIterationAgent(BaseVaeAgent):
         assert epsilon >= 0 and epsilon < 1.0
 
         self.hash_vector = np.array(
-            [self.state_inference_model.z_dim**ii for ii in range(self.state_inference_model.z_layers)]
+            [
+                self.state_inference_model.z_dim**ii
+                for ii in range(self.state_inference_model.z_layers)
+            ]
         )
 
         self.num_timesteps = 0
@@ -193,7 +198,9 @@ class ValueIterationAgent(BaseVaeAgent):
         obs = convert_8bit_to_float(torch.tensor(dataset["observations"])).to(DEVICE)
         obs = obs.permute(0, 3, 1, 2)  # -> NxCxHxW
 
-        dataloader = DataLoader(obs, batch_size=self.batch_size, shuffle=True, drop_last=True)
+        dataloader = DataLoader(
+            obs, batch_size=self.batch_size, shuffle=True, drop_last=True
+        )
 
         if self.optim is None:
             optim = self.state_inference_model.configure_optimizers()
@@ -215,7 +222,9 @@ class ValueIterationAgent(BaseVaeAgent):
                 loss.backward()
 
                 if self.grad_clip:
-                    torch.nn.utils.clip_grad_norm_(self.state_inference_model.parameters(), self.grad_clip)
+                    torch.nn.utils.clip_grad_norm_(
+                        self.state_inference_model.parameters(), self.grad_clip
+                    )
 
                 optim.step()
             self.state_inference_model.prep_next_batch()
@@ -234,7 +243,9 @@ class ValueIterationAgent(BaseVaeAgent):
         dataset = MdpDataset(dataset)
 
         # _get_hashed_state takes care of preprocessing
-        dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=False, drop_last=False)
+        dataloader = DataLoader(
+            dataset, batch_size=self.batch_size, shuffle=False, drop_last=False
+        )
         s, sp, a, r = [], [], [], []
         for batch in dataloader:
             s.append(self.get_states(batch["observations"]))
@@ -287,9 +298,13 @@ class ValueIterationAgent(BaseVaeAgent):
         vae_config: Dict[str, Any],
         env_kwargs: Dict[str, Any],
     ):
-        VaeClass = getattr(src.model.state_inference.vae, agent_config["vae_model_class"])
+        VaeClass = getattr(
+            src.model.state_inference.vae, agent_config["vae_model_class"]
+        )
         vae = VaeClass.make_from_configs(vae_config, env_kwargs)
         return cls(task, vae, **agent_config["state_inference_model"])
 
-    def get_graph_laplacian(self, normalized: bool = True) -> tuple[np.ndarray, Dict[Hashable, int]]:
+    def get_graph_laplacian(
+        self, normalized: bool = True
+    ) -> tuple[np.ndarray, Dict[Hashable, int]]:
         return self.transition_estimator.get_graph_laplacian(normalized=normalized)

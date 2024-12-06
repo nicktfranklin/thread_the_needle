@@ -105,7 +105,9 @@ class MCTS:
     def _is_terminal(self, node: GridWorldNode) -> bool:
         return node.state in self.end_states
 
-    def _update_child_value(self, node: GridWorldNode, child_action: int, reward: float) -> None:
+    def _update_child_value(
+        self, node: GridWorldNode, child_action: int, reward: float
+    ) -> None:
         if self._is_terminal(node):
             return
 
@@ -247,7 +249,10 @@ class MCTS:
             node = self._draw_random_sucessor(node, action)
 
     def get_selection_policy(self, beta: float) -> np.ndarray:
-        policy = np.ones((self.state_reward_function.shape[0], N_ACTIONS), dtype=float) / N_ACTIONS
+        policy = (
+            np.ones((self.state_reward_function.shape[0], N_ACTIONS), dtype=float)
+            / N_ACTIONS
+        )
         for state, node in self.expanded_nodes.items():
             w = self._get_ucb_values(node)
             policy[state, :] = softmax(w, beta)
@@ -349,7 +354,9 @@ class MctsSr(MCTS):
             return -1
         self.expanded_nodes[node.state] = node
 
-        self.q[node.state] = np.zeros(self.n_actions) + np.max(self.state_values) * self.epsilon
+        self.q[node.state] = (
+            np.zeros(self.n_actions) + np.max(self.state_values) * self.epsilon
+        )
         self.n[node.state] = np.zeros(self.n_actions) + self.epsilon
         return node.expand()
 

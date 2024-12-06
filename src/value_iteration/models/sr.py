@@ -100,7 +100,9 @@ class SRResampler:
     ) -> np.ndarray:
         sr = sr.copy()
         sr[initial_state, :] = sr[initial_state, :] + self.learning_rate * (
-            one_hot(initial_state, self.n_states) + self.gamma * sr[successor_state, :] - sr[initial_state, :]
+            one_hot(initial_state, self.n_states)
+            + self.gamma * sr[successor_state, :]
+            - sr[initial_state, :]
         )
 
         return sr
@@ -134,15 +136,21 @@ class SRResampler:
             sampled_initial_state,
             value_function,
         )
-        sampled_successor_state = self._sample_successor_state(sampled_initial_state, sampled_action)
+        sampled_successor_state = self._sample_successor_state(
+            sampled_initial_state, sampled_action
+        )
 
-        return self._delta_update(sampled_initial_state, sampled_successor_state, successor_representation)
+        return self._delta_update(
+            sampled_initial_state, sampled_successor_state, successor_representation
+        )
 
     @staticmethod
     def get_value_function(
         successor_representation: np.ndarray, state_reward_function: np.ndarray
     ) -> np.ndarray:
-        return get_value_function_from_sr(successor_representation, state_reward_function)
+        return get_value_function_from_sr(
+            successor_representation, state_reward_function
+        )
 
     @staticmethod
     def convert_state_value_to_q(
@@ -152,7 +160,10 @@ class SRResampler:
 
         n_actions = len(transition_functions)
 
-        q_values = [gamma * transition_functions[a].dot(state_value_function) for a in range(n_actions)]
+        q_values = [
+            gamma * transition_functions[a].dot(state_value_function)
+            for a in range(n_actions)
+        ]
 
         return q_values
 
@@ -165,11 +176,17 @@ class SRResampler:
     ) -> List[np.ndarray]:
         # Q(s, a) = T(s, a, s')V(s')
 
-        state_value_function = get_value_function_from_sr(successor_representation, state_reward_function)
+        state_value_function = get_value_function_from_sr(
+            successor_representation, state_reward_function
+        )
 
-        return SRResampler.convert_state_value_to_q(transition_functions, state_value_function, gamma)
+        return SRResampler.convert_state_value_to_q(
+            transition_functions, state_value_function, gamma
+        )
 
-    def _resample_step(self, sr: np.ndarray, state_value_function: np.ndarray) -> np.ndarray:
+    def _resample_step(
+        self, sr: np.ndarray, state_value_function: np.ndarray
+    ) -> np.ndarray:
         # sample each state w/o replacement
         for sampled_state in sample(range(self.n_states), self.n_states):
             sr = self._one_sample_update(sr, state_value_function)
@@ -179,7 +196,9 @@ class SRResampler:
                 sampled_state,
                 state_value_function,
             )
-            sampled_successor_state = self._sample_successor_state(sampled_state, sampled_action)
+            sampled_successor_state = self._sample_successor_state(
+                sampled_state, sampled_action
+            )
 
             sr = self._delta_update(sampled_state, sampled_successor_state, sr)
 

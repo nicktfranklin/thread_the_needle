@@ -85,7 +85,9 @@ class NatureCNN(BaseFeaturesExtractor):
         super().__init__(observation_space, features_dim)
         # We assume CxHxW images (channels first)
         # Re-ordering will be done by pre-preprocessing or wrapper
-        assert is_image_space(observation_space, check_channels=False, normalized_image=normalized_image), (
+        assert is_image_space(
+            observation_space, check_channels=False, normalized_image=normalized_image
+        ), (
             "You should use NatureCNN "
             f"only with images not with {observation_space}\n"
             "(you are probably using `CnnPolicy` instead of `MlpPolicy` or `MultiInputPolicy`)\n"
@@ -109,7 +111,9 @@ class NatureCNN(BaseFeaturesExtractor):
 
         # Compute shape by doing one forward pass
         with th.no_grad():
-            n_flatten = self.cnn(th.as_tensor(observation_space.sample()[None]).float()).shape[1]
+            n_flatten = self.cnn(
+                th.as_tensor(observation_space.sample()[None]).float()
+            ).shape[1]
 
         self.linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
 
@@ -124,7 +128,9 @@ class BaseVaeFeatureExtractor(BaseFeaturesExtractor, ABC):
     z_layers: int
     hash_vector: torch.Tensor
 
-    def __init__(self, *args, tau: float = 0.01, tau_annealing_rate: float = 0.85, **kwargs):
+    def __init__(
+        self, *args, tau: float = 0.01, tau_annealing_rate: float = 0.85, **kwargs
+    ):
         super().__init__(*args, **kwargs)
         self.tau = tau
         self.tau_annealing_rate = tau_annealing_rate
@@ -147,14 +153,20 @@ class BaseVaeFeatureExtractor(BaseFeaturesExtractor, ABC):
 
         # Compute the KL divergence
         q = Categorical(logits=logits)
-        p = Categorical(probs=th.full((N * self.z_layers, self.z_dim), 1.0 / self.z_dim).to(logits.device))
+        p = Categorical(
+            probs=th.full((N * self.z_layers, self.z_dim), 1.0 / self.z_dim).to(
+                logits.device
+            )
+        )
 
         # sum loss over dimensions in each example, average over batch
         kl = kl_divergence(q, p).view(N, self.z_layers).sum(1).mean()
 
         return kl
 
-    def reconstruction_loss(self, observations: th.Tensor, targets: th.Tensor) -> th.Tensor:
+    def reconstruction_loss(
+        self, observations: th.Tensor, targets: th.Tensor
+    ) -> th.Tensor:
         mse_loss = F.mse_loss(observations, targets, reduction="none")
         # sum loss over dimensions in each example, average over batch
         return mse_loss.view(observations.shape[0], -1).sum(1).mean()
@@ -245,7 +257,9 @@ class DiscreteVaeExtractor(BaseVaeFeatureExtractor):
         )
         # We assume CxHxW images (channels first)
         # Re-ordering will be done by pre-preprocessing or wrapper
-        assert is_image_space(observation_space, check_channels=False, normalized_image=normalized_image), (
+        assert is_image_space(
+            observation_space, check_channels=False, normalized_image=normalized_image
+        ), (
             "You should use NatureCNN "
             f"only with images not with {observation_space}\n"
             "(you are probably using `CnnPolicy` instead of `MlpPolicy` or `MultiInputPolicy`)\n"
@@ -270,7 +284,9 @@ class DiscreteVaeExtractor(BaseVaeFeatureExtractor):
 
         # Compute shape by doing one forward pass
         with th.no_grad():
-            n_flatten = self.cnn(th.as_tensor(observation_space.sample()[None]).float()).shape[1]
+            n_flatten = self.cnn(
+                th.as_tensor(observation_space.sample()[None]).float()
+            ).shape[1]
 
         self.linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
 
@@ -472,7 +488,9 @@ class CombinedExtractor(BaseFeaturesExtractor):
         return th.cat(encoded_tensor_list, dim=1)
 
 
-def get_actor_critic_arch(net_arch: Union[List[int], Dict[str, List[int]]]) -> Tuple[List[int], List[int]]:
+def get_actor_critic_arch(
+    net_arch: Union[List[int], Dict[str, List[int]]]
+) -> Tuple[List[int], List[int]]:
     """
     Get the actor and critic network architectures for off-policy actor-critic algorithms (SAC, TD3, DDPG).
 
@@ -505,8 +523,14 @@ def get_actor_critic_arch(net_arch: Union[List[int], Dict[str, List[int]]]) -> T
     if isinstance(net_arch, list):
         actor_arch, critic_arch = net_arch, net_arch
     else:
-        assert isinstance(net_arch, dict), "Error: the net_arch can only contain be a list of ints or a dict"
-        assert "pi" in net_arch, "Error: no key 'pi' was provided in net_arch for the actor network"
-        assert "qf" in net_arch, "Error: no key 'qf' was provided in net_arch for the critic network"
+        assert isinstance(
+            net_arch, dict
+        ), "Error: the net_arch can only contain be a list of ints or a dict"
+        assert (
+            "pi" in net_arch
+        ), "Error: no key 'pi' was provided in net_arch for the actor network"
+        assert (
+            "qf" in net_arch
+        ), "Error: no key 'qf' was provided in net_arch for the critic network"
         actor_arch, critic_arch = net_arch["pi"], net_arch["qf"]
     return actor_arch, critic_arch

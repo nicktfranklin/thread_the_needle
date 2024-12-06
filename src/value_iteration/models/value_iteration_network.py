@@ -26,7 +26,9 @@ class PlanningModel:
         self.gamma = gamma
         self.beta = beta
 
-        assert (self.gamma > 0) and (self.gamma < 1), "gamma must be greater than zero and less than 1"
+        assert (self.gamma > 0) and (
+            self.gamma < 1
+        ), "gamma must be greater than zero and less than 1"
 
         assert beta > 0, "Beta must be strictly positive!"
 
@@ -151,8 +153,12 @@ class ValueIterationNetwork(PlanningModel):
         return np.array(tiling, dtype=bool)
 
     @staticmethod
-    def _initialize_value_function(n_rows: int, n_columns: int, noise: float) -> np.ndarray:
-        return np.random.normal(loc=0, scale=noise, size=(n_rows, n_columns)).reshape(-1)
+    def _initialize_value_function(
+        n_rows: int, n_columns: int, noise: float
+    ) -> np.ndarray:
+        return np.random.normal(loc=0, scale=noise, size=(n_rows, n_columns)).reshape(
+            -1
+        )
 
 
 class UntiledValueIterationNetwork(ValueIterationNetwork):

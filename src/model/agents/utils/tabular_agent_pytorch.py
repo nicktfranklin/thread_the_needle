@@ -27,7 +27,9 @@ def value_iteration(
         assert value_function.shape == (n_states,)
         assert reward_function.shape == (n_states, n_actions)
         assert transition_function.shape == (n_states, n_actions, n_states)
-        q_values = reward_function + gamma * torch.matmul(transition_function, value_function)
+        q_values = reward_function + gamma * torch.matmul(
+            transition_function, value_function
+        )
 
     value_function = q_values.max(dim=1).values
 
@@ -47,15 +49,21 @@ class ModelBasedAgent:
         terminal_state: int | None = None,
     ):
         n_states = n_states + 1
-        self.transitions = TransitionModel(n_states, n_actions, device, terminal_state=terminal_state)
-        self.rewards = RewardModel(n_states, n_actions, device, terminal_state=terminal_state)
+        self.transitions = TransitionModel(
+            n_states, n_actions, device, terminal_state=terminal_state
+        )
+        self.rewards = RewardModel(
+            n_states, n_actions, device, terminal_state=terminal_state
+        )
 
         self.n_states = n_states
         self.terminal_state = terminal_state
         self.gamma = gamma
         self.iterations = iterations
 
-    def update(self, state: int, action: int, reward: float, next_state: int, done: bool):
+    def update(
+        self, state: int, action: int, reward: float, next_state: int, done: bool
+    ):
         self.transitions.update(state, action, next_state, done)
         self.rewards.update(state, action, reward)
 
@@ -75,15 +83,27 @@ class ModelBasedAgent:
 
         return value_function
 
-    def get_graph_laplacian(self, normalized: bool = True, return_terminal_state: bool = False):
-        return self.transitions.estimate_graph_laplacian(normalized, return_terminal_state)
+    def get_graph_laplacian(
+        self, normalized: bool = True, return_terminal_state: bool = False
+    ):
+        return self.transitions.estimate_graph_laplacian(
+            normalized, return_terminal_state
+        )
 
 
 class TransitionModel:
-    def __init__(self, n_states, n_actions, device: str | None = None, terminal_state: int | None = None):
+    def __init__(
+        self,
+        n_states,
+        n_actions,
+        device: str | None = None,
+        terminal_state: int | None = None,
+    ):
         device = device or torch.device("cpu")
 
-        self.transition_counts = torch.zeros((n_states, n_actions, n_states), device=device)
+        self.transition_counts = torch.zeros(
+            (n_states, n_actions, n_states), device=device
+        )
 
         self.n_states = n_states
         self.n_actions = n_actions
@@ -92,7 +112,9 @@ class TransitionModel:
 
         # initialize all the counts to go to the terminal state
         self.transition_counts[:, :, self.terminal_state] = 1e-6
-        self.state_action_visited = torch.zeros((n_states, n_actions), device=device, dtype=torch.bool)
+        self.state_action_visited = torch.zeros(
+            (n_states, n_actions), device=device, dtype=torch.bool
+        )
 
         # set the terminal state transitions to the terminal state
         self.transition_counts[self.terminal_state, :, self.terminal_state] = 1
@@ -111,22 +133,29 @@ class TransitionModel:
         """Returns a tensor of shape (n_states, n_actions, n_states)"""
         return self.transition_counts / self.transition_counts.sum(dim=-1, keepdim=True)
 
-    def estimate_graph_laplacian(self, normalized: bool = True, return_terminal_state: bool = False):
+    def estimate_graph_laplacian(
+        self, normalized: bool = True, return_terminal_state: bool = False
+    ):
         """Estimate the graph Laplacian matrix of the transition model"""
 
         # Remove the terminal state from the transition function
         transition_function = self.get_transition_function()
         if return_terminal_state == False:
-            mask = torch.ones(self.n_states, dtype=bool, device=self.transition_counts.device)
+            mask = torch.ones(
+                self.n_states, dtype=bool, device=self.transition_counts.device
+            )
             mask[self.terminal_state] = False
             transition_function = self.get_transition_function()[mask][:, :, mask]
 
-        adjacency_matrix = torch.tensor(transition_function.sum(dim=1) > 0, dtype=torch.float32)
+        adjacency_matrix = torch.tensor(
+            transition_function.sum(dim=1) > 0, dtype=torch.float32
+        )
         degree_matrix = adjacency_matrix.sum(dim=1).diag()
 
         if normalized:
             laplacian_matrix = torch.matmul(
-                (degree_matrix**0.5), torch.matmul(adjacency_matrix, (degree_matrix**0.5))
+                (degree_matrix**0.5),
+                torch.matmul(adjacency_matrix, (degree_matrix**0.5)),
             )
         else:
             laplacian_matrix = degree_matrix - adjacency_matrix
@@ -135,7 +164,13 @@ class TransitionModel:
 
 
 class RewardModel:
-    def __init__(self, n_states, n_actions, device: str | None = None, terminal_state: int | None = None):
+    def __init__(
+        self,
+        n_states,
+        n_actions,
+        device: str | None = None,
+        terminal_state: int | None = None,
+    ):
         device = device or torch.device("cpu")
 
         self.reward_counts = torch.zeros((n_states, n_actions), device=device)

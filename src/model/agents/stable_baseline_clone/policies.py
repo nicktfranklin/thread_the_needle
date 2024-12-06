@@ -100,7 +100,11 @@ class ActorCriticVaePolicy(BasePolicy):
         )
         assert share_features_extractor, "Only shared feature extractor is supported"
 
-        if isinstance(net_arch, list) and len(net_arch) > 0 and isinstance(net_arch[0], dict):
+        if (
+            isinstance(net_arch, list)
+            and len(net_arch) > 0
+            and isinstance(net_arch[0], dict)
+        ):
             warnings.warn(
                 (
                     "As shared layers in the mlp_extractor are removed since SB3 v1.8.0, "
@@ -150,7 +154,9 @@ class ActorCriticVaePolicy(BasePolicy):
         self.dist_kwargs = dist_kwargs
 
         # Action distribution
-        self.action_dist = make_proba_distribution(action_space, use_sde=use_sde, dist_kwargs=dist_kwargs)
+        self.action_dist = make_proba_distribution(
+            action_space, use_sde=use_sde, dist_kwargs=dist_kwargs
+        )
 
         # state hashing
         self.state_indexer = TensorIndexer(device=th.device("cpu"))
@@ -236,7 +242,9 @@ class ActorCriticVaePolicy(BasePolicy):
                 BernoulliDistribution,
             ),
         ):
-            self.action_net = self.action_dist.proba_distribution_net(latent_dim=latent_dim_pi)
+            self.action_net = self.action_dist.proba_distribution_net(
+                latent_dim=latent_dim_pi
+            )
         else:
             raise NotImplementedError(f"Unsupported distribution '{self.action_dist}'.")
 
@@ -267,7 +275,9 @@ class ActorCriticVaePolicy(BasePolicy):
         # Setup optimizer with initial learning rate
         self.optimizer = self.optimizer_class(self.parameters(), lr=lr_schedule(1), **self.optimizer_kwargs)  # type: ignore[call-arg]
 
-    def forward(self, obs: th.Tensor, deterministic: bool = False) -> Tuple[th.Tensor, th.Tensor, th.Tensor]:
+    def forward(
+        self, obs: th.Tensor, deterministic: bool = False
+    ) -> Tuple[th.Tensor, th.Tensor, th.Tensor]:
         """
         Forward pass in all the networks (actor and critic)
 
@@ -280,7 +290,9 @@ class ActorCriticVaePolicy(BasePolicy):
         if self.share_features_extractor:
             latent_pi, latent_vf = self.mlp_extractor(features)
         else:
-            raise NotImplementedError("Not implemented for non-shared feature extractor")
+            raise NotImplementedError(
+                "Not implemented for non-shared feature extractor"
+            )
 
         # Evaluate the values for the given observations
         values = self.value_net(latent_vf)
@@ -306,10 +318,16 @@ class ActorCriticVaePolicy(BasePolicy):
         if self.share_features_extractor:
             return super().extract_features(
                 obs,
-                (self.features_extractor if features_extractor is None else features_extractor),
+                (
+                    self.features_extractor
+                    if features_extractor is None
+                    else features_extractor
+                ),
             )
         else:
-            raise NotImplementedError("Not implemented for non-shared feature extractor")
+            raise NotImplementedError(
+                "Not implemented for non-shared feature extractor"
+            )
 
     def _get_action_dist_from_latent(self, latent_pi: th.Tensor) -> Distribution:
         """
@@ -332,11 +350,15 @@ class ActorCriticVaePolicy(BasePolicy):
             # Here mean_actions are the logits (before rounding to get the binary actions)
             return self.action_dist.proba_distribution(action_logits=mean_actions)
         elif isinstance(self.action_dist, StateDependentNoiseDistribution):
-            return self.action_dist.proba_distribution(mean_actions, self.log_std, latent_pi)
+            return self.action_dist.proba_distribution(
+                mean_actions, self.log_std, latent_pi
+            )
         else:
             raise ValueError("Invalid action distribution")
 
-    def _predict(self, observation: PyTorchObs, deterministic: bool = False) -> th.Tensor:
+    def _predict(
+        self, observation: PyTorchObs, deterministic: bool = False
+    ) -> th.Tensor:
         """
         Get the action according to the policy for a given observation.
 
@@ -344,7 +366,9 @@ class ActorCriticVaePolicy(BasePolicy):
         :param deterministic: Whether to use stochastic or deterministic actions
         :return: Taken action according to the policy
         """
-        return self.get_distribution(observation).get_actions(deterministic=deterministic)
+        return self.get_distribution(observation).get_actions(
+            deterministic=deterministic
+        )
 
     def evaluate_actions(
         self,
@@ -362,7 +386,9 @@ class ActorCriticVaePolicy(BasePolicy):
             and entropy of the action distribution.
         """
         # Preprocess the observation
-        preprocessed_obs = preprocess_obs(obs, self.observation_space, normalize_images=self.normalize_images)
+        preprocessed_obs = preprocess_obs(
+            obs, self.observation_space, normalize_images=self.normalize_images
+        )
         if next_obs is not None:
             preprocessed_next_obs = preprocess_obs(
                 next_obs, self.observation_space, normalize_images=self.normalize_images
@@ -375,7 +401,9 @@ class ActorCriticVaePolicy(BasePolicy):
         if self.share_features_extractor:
             latent_pi, latent_vf = self.mlp_extractor(features)
         else:
-            raise NotImplementedError("Not implemented for non-shared feature extractor")
+            raise NotImplementedError(
+                "Not implemented for non-shared feature extractor"
+            )
         distribution = self._get_action_dist_from_latent(latent_pi)
         log_prob = distribution.log_prob(actions)
         values = self.value_net(latent_vf)
@@ -412,15 +440,17 @@ class ActorCriticVaePolicy(BasePolicy):
         :param obs: Observation
         :return: the hashkey of the state.
         """
-        preprocessed_obs = preprocess_obs(obs, self.observation_space, normalize_images=self.normalize_images)
+        preprocessed_obs = preprocess_obs(
+            obs, self.observation_space, normalize_images=self.normalize_images
+        )
 
         state_vectors = self.features_extractor.get_states(preprocessed_obs)
 
         indices = self.state_indexer(state_vectors.to(th.device("cpu")))
 
         return indices
-    
-    def decode_embedding(self, z:th.Tensor ) -> th.Tensor:
+
+    def decode_embedding(self, z: th.Tensor) -> th.Tensor:
         return self.features_extractor._decode(z)
 
     def reset_state_indexer(self):
@@ -448,7 +478,9 @@ class ActorCriticVaePolicy(BasePolicy):
         :param next_obs: Next observation
         :return: the off-policy values.
         """
-        preprocessed_obs = preprocess_obs(obs, self.observation_space, normalize_images=self.normalize_images)
+        preprocessed_obs = preprocess_obs(
+            obs, self.observation_space, normalize_images=self.normalize_images
+        )
         preprocessed_next_obs = preprocess_obs(
             next_obs, self.observation_space, normalize_images=self.normalize_images
         )
@@ -473,7 +505,9 @@ class ViAcPolicy(ActorCriticVaePolicy):
             and entropy of the action distribution.
         """
         # Preprocess the observation
-        preprocessed_obs = preprocess_obs(obs, self.observation_space, normalize_images=self.normalize_images)
+        preprocessed_obs = preprocess_obs(
+            obs, self.observation_space, normalize_images=self.normalize_images
+        )
         if next_obs is not None:
             preprocessed_next_obs = preprocess_obs(
                 next_obs, self.observation_space, normalize_images=self.normalize_images
@@ -486,7 +520,9 @@ class ViAcPolicy(ActorCriticVaePolicy):
         if self.share_features_extractor:
             latent_pi, latent_vf = self.mlp_extractor(features)
         else:
-            raise NotImplementedError("Not implemented for non-shared feature extractor")
+            raise NotImplementedError(
+                "Not implemented for non-shared feature extractor"
+            )
         distribution = self._get_action_dist_from_latent(latent_pi)
         log_prob = distribution.log_prob(actions)
         values = self.value_net(latent_vf)

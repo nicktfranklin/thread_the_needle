@@ -37,7 +37,9 @@ class MemoryLeakDetector:
         snapshot = tracemalloc.take_snapshot()
         self.snapshots.append(snapshot)
 
-    def compare_snapshots(self, snapshot1_idx: int = -2, snapshot2_idx: int = -1) -> List[str]:
+    def compare_snapshots(
+        self, snapshot1_idx: int = -2, snapshot2_idx: int = -1
+    ) -> List[str]:
         """Compare two snapshots and return differences."""
         if len(self.snapshots) < 2:
             return ["Not enough snapshots to compare"]
@@ -69,7 +71,9 @@ class MemoryLeakDetector:
             counts[type(obj).__name__] += 1
         return dict(counts)
 
-    def find_memory_leaks(self, func: Callable, iterations: int = 5, threshold_mb: float = 1.0) -> List[str]:
+    def find_memory_leaks(
+        self, func: Callable, iterations: int = 5, threshold_mb: float = 1.0
+    ) -> List[str]:
         """
         Run a function multiple times and check for memory leaks.
         Returns a list of warnings if memory usage consistently increases.
@@ -92,10 +96,14 @@ class MemoryLeakDetector:
             time.sleep(0.1)  # Small delay to stabilize
 
         # Check for consistent memory growth
-        if all(memory_usage[i] < memory_usage[i + 1] for i in range(len(memory_usage) - 1)):
+        if all(
+            memory_usage[i] < memory_usage[i + 1] for i in range(len(memory_usage) - 1)
+        ):
             total_increase = memory_usage[-1] - initial_memory
             if total_increase > threshold_mb:
-                warnings.append(f"Potential memory leak detected! Memory increased by {total_increase:.2f}MB")
+                warnings.append(
+                    f"Potential memory leak detected! Memory increased by {total_increase:.2f}MB"
+                )
                 warnings.extend(self.compare_snapshots())
 
         self.stop_monitoring()
@@ -115,7 +123,9 @@ def example_leak_detection():
         return data
 
     # Monitor the function
-    warnings = detector.find_memory_leaks(leaky_function, iterations=5, threshold_mb=1.0)
+    warnings = detector.find_memory_leaks(
+        leaky_function, iterations=5, threshold_mb=1.0
+    )
 
     # Print results
     if warnings:
@@ -241,7 +251,9 @@ class MemoryMonitorCallback(BaseCallback):
                 self.writer.add_scalar(f"Memory/GPU_{gpu_id}_Mean_MB", gpu_mean, epoch)
                 self.writer.add_scalar(f"Memory/GPU_{gpu_id}_Peak_MB", gpu_peak, epoch)
 
-            stats.append(f"GPU{gpu_id} Memory - Mean: {gpu_mean:.1f}MB, Peak: {gpu_peak:.1f}MB")
+            stats.append(
+                f"GPU{gpu_id} Memory - Mean: {gpu_mean:.1f}MB, Peak: {gpu_peak:.1f}MB"
+            )
 
         if self.verbose:
             print("\n".join(stats))
@@ -259,7 +271,9 @@ def example_training_loop():
     optimizer = torch.optim.Adam(model.parameters())
 
     # Initialize memory monitor
-    memory_monitor = MemoryMonitorCallback(log_dir="runs/experiment_1", log_freq=10, verbose=True)
+    memory_monitor = MemoryMonitorCallback(
+        log_dir="runs/experiment_1", log_freq=10, verbose=True
+    )
 
     num_epochs = 3
     for epoch in range(num_epochs):

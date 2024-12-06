@@ -113,7 +113,9 @@ class RolloutBuffer(BaseBuffer):
 
     def transpose_obs(self, axis_order: List[int]) -> None:
         self.obs = [np.transpose(obs, axis_order) for obs in self.obs]
-        self.next_obs = [np.transpose(next_obs, axis_order) for next_obs in self.next_obs]
+        self.next_obs = [
+            np.transpose(next_obs, axis_order) for next_obs in self.next_obs
+        ]
 
 
 class Episode:
@@ -188,7 +190,9 @@ class Episode:
 class PriorityReplayBuffer(BaseBuffer):
     ### use a min queue
 
-    def __init__(self, capacity: int | None = None, aggregation: Callable | None = None):
+    def __init__(
+        self, capacity: int | None = None, aggregation: Callable | None = None
+    ):
         self.capacity = capacity
         self.buffer_size = 0
 
@@ -294,7 +298,9 @@ class PriorityReplayBuffer(BaseBuffer):
     def transpose_obs(self, axis_order: List[int]) -> None:
         for episode in self.iterator():
             episode.obs = [np.transpose(obs, axis_order) for obs in episode.obs]
-            episode.next_obs = [np.transpose(next_obs, axis_order) for next_obs in episode.next_obs]
+            episode.next_obs = [
+                np.transpose(next_obs, axis_order) for next_obs in episode.next_obs
+            ]
 
 
 class EpisodeBuffer(PriorityReplayBuffer):

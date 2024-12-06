@@ -155,7 +155,9 @@ class CnnDecoder(nn.Module):
             ),
             nn.BatchNorm2d(channels[-1]),
             nn.GELU(),
-            nn.Conv2d(channels[-1], out_channels=output_channels, kernel_size=3, padding=1),
+            nn.Conv2d(
+                channels[-1], out_channels=output_channels, kernel_size=3, padding=1
+            ),
             nn.Sigmoid(),
         )
 
@@ -175,8 +177,12 @@ class MaskedConv2d(nn.Conv2d):
     This is useful for autoregressive models.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, mask_type="A", stride=1, padding=0):
-        super(MaskedConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding)
+    def __init__(
+        self, in_channels, out_channels, kernel_size, mask_type="A", stride=1, padding=0
+    ):
+        super(MaskedConv2d, self).__init__(
+            in_channels, out_channels, kernel_size, stride, padding
+        )
 
         assert mask_type in ["A", "B"], "mask_type must be 'A' or 'B'"
         self.mask_type = mask_type
@@ -210,11 +216,17 @@ class AutoregressiveDeconvNet(nn.Module):
         self.fc = nn.Linear(embedding_dim, hidden_channels * 8 * 8)
 
         # First layer: Reshape and apply Masked convolution (type 'A' mask ensures no dependence on current pixel)
-        self.conv1 = MaskedConv2d(hidden_channels, hidden_channels, kernel_size=5, padding=2, mask_type="A")
+        self.conv1 = MaskedConv2d(
+            hidden_channels, hidden_channels, kernel_size=5, padding=2, mask_type="A"
+        )
 
         # Hidden layers: Masked convolutions (type 'B' to allow current pixel but not future ones)
-        self.conv2 = MaskedConv2d(hidden_channels, hidden_channels, kernel_size=5, padding=2, mask_type="B")
-        self.conv3 = MaskedConv2d(hidden_channels, hidden_channels, kernel_size=5, padding=2, mask_type="B")
+        self.conv2 = MaskedConv2d(
+            hidden_channels, hidden_channels, kernel_size=5, padding=2, mask_type="B"
+        )
+        self.conv3 = MaskedConv2d(
+            hidden_channels, hidden_channels, kernel_size=5, padding=2, mask_type="B"
+        )
 
         # Upsampling layers (deconvolutions) to go from 8x8 -> 16x16 -> 32x32 -> 64x64
         self.deconv1 = nn.ConvTranspose2d(

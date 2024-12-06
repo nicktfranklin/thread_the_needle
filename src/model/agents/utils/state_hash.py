@@ -25,7 +25,9 @@ class TensorIndexer:
 
     def reset(self):
         """Reset the indexer to an empty state"""
-        self.reference_tensors = torch.empty((0, 0), dtype=torch.long, device=self.device)
+        self.reference_tensors = torch.empty(
+            (0, 0), dtype=torch.long, device=self.device
+        )
         self.n = 0
 
     @torch.no_grad()
@@ -41,7 +43,9 @@ class TensorIndexer:
             return (
                 False
                 if query_tensor.dim() == 1
-                else torch.zeros(len(query_tensor), dtype=torch.bool, device=self.device)
+                else torch.zeros(
+                    len(query_tensor), dtype=torch.bool, device=self.device
+                )
             )
 
         # Ensure query is 2D
@@ -91,7 +95,9 @@ class TensorIndexer:
         new_vectors = tensor[~exists]
         if len(new_vectors) > 0:
             unique_new = torch.unique(new_vectors, dim=0)
-            self.reference_tensors = torch.cat([self.reference_tensors, unique_new], dim=0)
+            self.reference_tensors = torch.cat(
+                [self.reference_tensors, unique_new], dim=0
+            )
 
         # Build indices for all input vectors
         indices = torch.full((len(tensor),), -1, device=self.device)

@@ -12,7 +12,13 @@ from tqdm import trange
 
 from src.utils.pytorch_utils import DEVICE, assert_correct_end_shape, check_shape_match
 
-from .constants import INPUT_SHAPE, OPTIM_KWARGS, VAE_BETA, VAE_TAU, VAE_TAU_ANNEALING_RATE
+from .constants import (
+    INPUT_SHAPE,
+    OPTIM_KWARGS,
+    VAE_BETA,
+    VAE_TAU,
+    VAE_TAU_ANNEALING_RATE,
+)
 from .gumbel_softmax import gumbel_softmax
 
 # needed to import the Encoder/Decoder from config
@@ -63,7 +69,9 @@ class StateVae(nn.Module):
 
         if tau_is_parameter:
             self.tau = torch.nn.Parameter(torch.tensor([tau]), requires_grad=True)
-            assert self.tau_annealing_rate == 1.0, "Must set tau annealing to 1 for learnable tau"
+            assert (
+                self.tau_annealing_rate == 1.0
+            ), "Must set tau annealing to 1 for learnable tau"
 
         if run_unit_test:
             unit_test_vae_reconstruction(self, input_shape)
@@ -244,7 +252,11 @@ class StateVae(nn.Module):
 
     def decode_state(self, s: Tuple[int]):
         self.eval()
-        z = F.one_hot(torch.Tensor(s).to(torch.int64).to(DEVICE), self.z_dim).view(-1).unsqueeze(0)
+        z = (
+            F.one_hot(torch.Tensor(s).to(torch.int64).to(DEVICE), self.z_dim)
+            .view(-1)
+            .unsqueeze(0)
+        )
         with torch.no_grad():
             return self.decode(z).detach().cpu().numpy()
 

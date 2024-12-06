@@ -41,7 +41,9 @@ class LstmVae(StateVae):
             tau_is_parameter,
             run_unit_test=False,
         )
-        self.lstm = nn.LSTM(hidden_size=z_dim * z_layers, input_size=z_dim * z_layers, batch_first=False)
+        self.lstm = nn.LSTM(
+            hidden_size=z_dim * z_layers, input_size=z_dim * z_layers, batch_first=False
+        )
         unit_test_vae_reconstruction(self, (1,) + input_shape)
 
     def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -68,7 +70,9 @@ class LstmVae(StateVae):
         l, b, _, _, _ = x.shape
 
         # (L, B, C, H, W) -> (L, B, Z_dim * Z_layers)
-        logits = torch.stack([self.encoder(x0).view(-1, self.z_layers * self.z_dim) for x0 in x])
+        logits = torch.stack(
+            [self.encoder(x0).view(-1, self.z_layers * self.z_dim) for x0 in x]
+        )
 
         # pass the sequence of logits through the LSTM
         # (L, B, Z_dim * Z_layers) -> (L, B, Z_dim * Z_layers)
@@ -82,7 +86,12 @@ class LstmVae(StateVae):
 
         # re parameterize the logits
         # (L, B, Z_dim * Z_layers) -> (L, B, Z_layers, Z_dim)
-        z = torch.stack([self.reparameterize(l.reshape(-1, self.z_layers, self.z_dim)) for l in logits])
+        z = torch.stack(
+            [
+                self.reparameterize(l.reshape(-1, self.z_layers, self.z_dim))
+                for l in logits
+            ]
+        )
 
         return logits, z
 

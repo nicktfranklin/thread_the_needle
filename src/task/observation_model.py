@@ -67,7 +67,9 @@ class ObservationModel:
         self.noise_log_mean = noise_log_mean
         self.noise_log_scale = noise_log_scale
         self.noise_corruption_prob = noise_corruption_prob
-        self.discrete_range = discrete_range if discrete_range is not None else tuple([0, 255])
+        self.discrete_range = (
+            discrete_range if discrete_range is not None else tuple([0, 255])
+        )
 
     def get_obs_coords(self, s: StateType) -> tuple[int, int]:
         x, y = self.states[s]
@@ -130,10 +132,12 @@ class ObservationModel:
 
     def _random_embedding_noise(self) -> np.ndarray:
         corrupted_mask = np.exp(
-            np.random.randn(self.map_height, self.map_height) * self.noise_log_scale + self.noise_log_mean
+            np.random.randn(self.map_height, self.map_height) * self.noise_log_scale
+            + self.noise_log_mean
         )
         corrupted_mask *= (
-            np.random.uniform(size=(self.map_height, self.map_height)) < self.noise_corruption_prob
+            np.random.uniform(size=(self.map_height, self.map_height))
+            < self.noise_corruption_prob
         )
         return corrupted_mask
 

@@ -17,7 +17,11 @@ from stable_baselines3.common.vec_env import VecEnv
 from torch import FloatTensor, Tensor
 from tqdm import tqdm
 
-from src.model.training.rollout_data import BaseBuffer, PriorityReplayBuffer, RolloutBuffer
+from src.model.training.rollout_data import (
+    BaseBuffer,
+    PriorityReplayBuffer,
+    RolloutBuffer,
+)
 from src.task.gridworld import ActType, ObsType
 from src.utils.sampling_functions import inverse_cmf_sampler
 
@@ -32,7 +36,11 @@ class BaseAgent(ABC):
 
     def collocate(
         self,
-        x: Union[torch.tensor, np.ndarray] | Dict[str, Union[torch.tensor, np.ndarray, Any]] | Any,
+        x: (
+            Union[torch.tensor, np.ndarray]
+            | Dict[str, Union[torch.tensor, np.ndarray, Any]]
+            | Any
+        ),
     ) -> torch.tensor:
         if isinstance(x, dict):
             return {k: self.collocate(v) for k, v in x.items()}
@@ -172,7 +180,9 @@ class BaseAgent(ABC):
             self.rollout_buffer = RolloutBuffer(capacity=capacity)
         elif buffer_class == "priority":
             buffer_kwargs = buffer_kwargs if buffer_kwargs else dict()
-            self.rollout_buffer = PriorityReplayBuffer(capacity=capacity, **buffer_kwargs)
+            self.rollout_buffer = PriorityReplayBuffer(
+                capacity=capacity, **buffer_kwargs
+            )
         else:
             raise ValueError(f"Buffer class: '{buffer_class}' not implemented!")
 
@@ -201,7 +211,9 @@ class BaseAgent(ABC):
 
         callback.on_training_end()
 
-    def get_policy_prob(self, env: VecEnv, n_states: int, map_height: int, cnn: bool = True) -> FloatTensor:
+    def get_policy_prob(
+        self, env: VecEnv, n_states: int, map_height: int, cnn: bool = True
+    ) -> FloatTensor:
         """
         Wrapper for getting the policy probability for each state in the environment.
         Requires a gridworld environment, and samples an observation from each state.
@@ -220,7 +232,10 @@ class BaseAgent(ABC):
         if cnn:
             shape = [map_height, map_height, 1]
 
-        obs = [torch.tensor(env.unwrapped.generate_observation(s)).view(*shape) for s in range(n_states)]
+        obs = [
+            torch.tensor(env.unwrapped.generate_observation(s)).view(*shape)
+            for s in range(n_states)
+        ]
         obs = torch.stack(obs)
         with torch.no_grad():
             return self.get_pmf(obs)
@@ -246,7 +261,10 @@ class BaseAgent(ABC):
         if cnn:
             shape = [map_height, map_height, 1]
 
-        obs = [torch.tensor(env.unwrapped.generate_observation(s)).view(*shape) for s in range(n_states)]
+        obs = [
+            torch.tensor(env.unwrapped.generate_observation(s)).view(*shape)
+            for s in range(n_states)
+        ]
         obs = torch.stack(obs)
         with torch.no_grad():
             return self.get_value_fn(obs)
@@ -270,10 +288,14 @@ class BaseAgent(ABC):
         self.eval()
 
         for _ in tqdm(range(n), desc="Collection rollouts"):
-            action_pmf = self.get_pmf(torch.tensor(obs, device=self.device).unsqueeze(0))
+            action_pmf = self.get_pmf(
+                torch.tensor(obs, device=self.device).unsqueeze(0)
+            )
 
             # epsilon greedy
-            action_pmf = (1 - epsilon) * action_pmf + epsilon * np.ones_like(action_pmf) / len(action_pmf)
+            action_pmf = (1 - epsilon) * action_pmf + epsilon * np.ones_like(
+                action_pmf
+            ) / len(action_pmf)
 
             # sample
             action = inverse_cmf_sampler(action_pmf)
@@ -298,7 +320,9 @@ class BaseAgent(ABC):
 
         dataset = rollout_buffer.get_dataset()
         mdp = self.estimate_world_model(rollout_buffer)
-        return mdp.get_graph_laplacian(normalized=normalized, terminal_state=terminal_state)
+        return mdp.get_graph_laplacian(
+            normalized=normalized, terminal_state=terminal_state
+        )
 
     def estimate_world_model(
         self,
@@ -342,7 +366,9 @@ class BaseAgent(ABC):
         #     "value_function": value_function,
         # }
 
-    def dehash_states(self, rollout_buffer: BaseBuffer, gamma: float = 0.99) -> np.ndarray:
+    def dehash_states(
+        self, rollout_buffer: BaseBuffer, gamma: float = 0.99
+    ) -> np.ndarray:
         """this require a defined value model or estimator"""
         raise NotImplementedError
 

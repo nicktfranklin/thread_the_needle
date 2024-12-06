@@ -19,7 +19,9 @@ class PpoDataset(torch.utils.data.Dataset):
     def collate_fn(batch):
         return {
             "observations": torch.stack([item["observations"] for item in batch]),
-            "next_observations": torch.stack([item["next_observations"] for item in batch]),
+            "next_observations": torch.stack(
+                [item["next_observations"] for item in batch]
+            ),
             "rewards_to_go": torch.cat([item["rewards_to_go"] for item in batch]),
             "advantages": torch.cat([item["advantages"] for item in batch]),
             "actions": torch.cat([item["actions"] for item in batch]),
@@ -42,7 +44,10 @@ class ViPpoRolloutSample(NamedTuple):
 
 class ViPpoDataset(torch.utils.data.Dataset):
     def __init__(
-        self, rollout_buffer: RolloutBuffer, vi_estimates: torch.Tensor, device: torch.device | None = None
+        self,
+        rollout_buffer: RolloutBuffer,
+        vi_estimates: torch.Tensor,
+        device: torch.device | None = None,
     ):
 
         self.observations = rollout_buffer.observations

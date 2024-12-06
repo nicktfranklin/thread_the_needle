@@ -28,7 +28,9 @@ class RecurrentDataset(Dataset):
 
         # add the last observation as an end-point determinsitically
         if len(ds["terminated"]) - 1 not in last_obs_in_run:
-            last_obs_in_run = np.concatenate([last_obs_in_run, [len(ds["terminated"]) - 1]])
+            last_obs_in_run = np.concatenate(
+                [last_obs_in_run, [len(ds["terminated"]) - 1]]
+            )
 
         self.n_runs = len(last_obs_in_run)
         self.run_lens = np.concatenate(
@@ -101,11 +103,15 @@ class RecurrentDataset(Dataset):
         """
 
         return {
-            "obs": pad_sequence([b["obs"] for b in batch], batch_first=False, padding_value=0),
+            "obs": pad_sequence(
+                [b["obs"] for b in batch], batch_first=False, padding_value=0
+            ),
             "action": pad_sequence(
                 [b["action"] for b in batch],
                 batch_first=False,
                 padding_value=self.action_pad_value,
             ),
-            "reward": pad_sequence([b["reward"] for b in batch], batch_first=False, padding_value=0),
+            "reward": pad_sequence(
+                [b["reward"] for b in batch], batch_first=False, padding_value=0
+            ),
         }
