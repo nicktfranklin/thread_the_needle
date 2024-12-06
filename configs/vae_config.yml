@@ -25,7 +25,7 @@ cnn_vae:
     tau: 0.05
     tau_annealing_rate: 0.85
   encoder_class: CnnEncoder
-  decoder_class: AutoregressiveDeconvNet
+  decoder_class: CnnDecoder
   encoder_kwargs:
     in_channels: 1
     channels:

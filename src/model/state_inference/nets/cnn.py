@@ -117,8 +117,8 @@ class ConvTransposeBlock(nn.Module):
 class CnnDecoder(nn.Module):
     def __init__(
         self,
-        embedding_dim: int,
-        channel_out: int,
+        embedding_dim: int = 1024,
+        output_channels: int = 1,
         channels: Optional[List[int]] = None,
         output_shape=None,  # not used
     ):
@@ -155,13 +155,13 @@ class CnnDecoder(nn.Module):
             ),
             nn.BatchNorm2d(channels[-1]),
             nn.GELU(),
-            nn.Conv2d(channels[-1], out_channels=channel_out, kernel_size=3, padding=1),
+            nn.Conv2d(channels[-1], out_channels=output_channels, kernel_size=3, padding=1),
             nn.Sigmoid(),
         )
 
     def forward(self, z):
         hidden = self.fc(z)
-        hidden = hidden.view(-1, self.first_channel_size, 2, 2)  # does not effect batching
+        hidden = hidden.view(-1, self.first_channel_size, 2, 2)
         hidden = self.deconv(hidden)
         observation = self.final_layer(hidden)
         if observation.shape[0] == 1:

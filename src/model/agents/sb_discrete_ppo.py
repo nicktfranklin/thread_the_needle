@@ -377,6 +377,9 @@ class DiscretePpo(WrappedPPO, BaseAgent):
 
     def dehash_states(self, hashed_states: int | List[int]) -> torch.LongTensor:
         return self.policy.lookup_states(hashed_states)
+    
+    def decode_embedding(self, z: FloatTensor) -> FloatTensor:
+        return self.policy.decode_embedding(z)
 
     def get_state_values(self, state_key: Dict[int, int]) -> Dict[int, float]:
 

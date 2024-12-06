@@ -136,7 +136,7 @@ class GridWorldEnv(gym.Env):
             ### assume we know the cardinality of the state space
             raise NotImplementedError
 
-    def get_optimal_policy(self, gamma=0.95) -> tuple[np.ndarray, np.ndarray]:
+    def get_optimal_policy(self, gamma=0.99) -> tuple[np.ndarray, np.ndarray]:
         """
         Returns:
             pi: np.ndarray
@@ -156,9 +156,12 @@ class GridWorldEnv(gym.Env):
             q = r + gamma * np.dot(t, v)
             v = q.max(axis=0)
 
+        # remove the terminal state
+        q = q[:, :-1].T
+
         return (
             np.array([np.isclose(q0, q0.max()) for q0 in q], dtype=float),
-            v,
+            v[:-1],
         )
 
     # Key methods from Gymnasium:

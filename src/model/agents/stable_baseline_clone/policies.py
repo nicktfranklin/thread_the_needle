@@ -419,6 +419,9 @@ class ActorCriticVaePolicy(BasePolicy):
         indices = self.state_indexer(state_vectors.to(th.device("cpu")))
 
         return indices
+    
+    def decode_embedding(self, z:th.Tensor ) -> th.Tensor:
+        return self.features_extractor._decode(z)
 
     def reset_state_indexer(self):
         self.state_indexer.reset()
