@@ -30,7 +30,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/state_inference"]
+packages = ["src"]
 
 [tool.pytest.ini_options]
 addopts = "-ra -q"
