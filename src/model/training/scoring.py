@@ -1,6 +1,6 @@
 import numpy as np
 
-from model.agents import BaseAgent
+from src.model.agents import BaseAgent
 from src.task.gridworld import GridWorldEnv
 
 

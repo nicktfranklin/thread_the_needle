@@ -9,7 +9,8 @@ from torch import FloatTensor, Tensor
 from torch.utils.data import DataLoader
 from tqdm import trange
 
-import model.state_inference.vae
+import src.model.state_inference.vae
+from src.model.agents.utils.state_hash import TensorIndexer
 from src.task.utils import ActType
 from src.utils.pytorch_utils import DEVICE, convert_8bit_to_float
 
@@ -78,19 +79,17 @@ class LookaheadViAgent(BaseVaeAgent):
 
         assert epsilon >= 0 and epsilon < 1.0
 
-        self.hash_vector = np.array(
-            [
-                self.state_inference_model.z_dim**ii
-                for ii in range(self.state_inference_model.z_layers)
-            ]
-        )
-
         self.num_timesteps = 0
         self.value_function = None
         self.n_dyna_updates = dyna_updates
 
+        self.state_indexer = TensorIndexer(device=torch.device("cpu"))
+
     def _init_state(self):
         return None
+
+    def reset_state_indexer(self):
+        self.state_indexer.reset()
 
     def _preprocess_obs(self, obs: Tensor) -> Tensor:
         # take in 8bit with shape NxHxWxC
@@ -105,7 +104,7 @@ class LookaheadViAgent(BaseVaeAgent):
         obs_ = self._preprocess_obs(obs)
         with torch.no_grad():
             z = self.state_inference_model.get_state(obs_)
-        return z.dot(self.hash_vector)
+            return self.state_indexer(z)
 
     def update_rollout_policy(
         self,
@@ -216,6 +215,7 @@ class LookaheadViAgent(BaseVaeAgent):
 
         # re-estimate the reward and transition functions
         self.model_based_agent.reset()
+        self.reset_state_indexer()
 
         dataset = buffer.get_dataset()
 
@@ -276,7 +276,9 @@ class LookaheadViAgent(BaseVaeAgent):
         vae_config: Dict[str, Any],
         env_kwargs: Dict[str, Any],
     ):
-        VaeClass = getattr(model.state_inference.vae, agent_config["vae_model_class"])
+        VaeClass = getattr(
+            src.model.state_inference.vae, agent_config["vae_model_class"]
+        )
         vae = VaeClass.make_from_configs(vae_config, env_kwargs)
         return cls(task, vae, **agent_config["state_inference_model"])
 

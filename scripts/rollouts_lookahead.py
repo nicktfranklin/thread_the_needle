@@ -5,6 +5,7 @@ import pickle
 import sys
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import numpy as np
@@ -12,29 +13,37 @@ import torch
 import yaml
 from stable_baselines3.common.monitor import Monitor
 
-from model.agents.lookahead_value_iteration import (
+from src.model.agents.lookahead_value_iteration import (
     LookaheadViAgent as ValueIterationAgent,
 )
-from model.training.callbacks import ThreadTheNeedleCallback
-from model.training.rollout_data import RolloutBuffer as Buffer
-from task.gridworld import CnnWrapper, GridWorldEnv
-from task.gridworld import ThreadTheNeedleEnv as Environment
-from utils.config_utils import parse_configs
-from utils.pytorch_utils import DEVICE
+from src.model.training.callbacks import ThreadTheNeedleCallback
+from src.model.training.rollout_data import RolloutBuffer as Buffer
+from src.task.gridworld import CnnWrapper, GridWorldEnv
+from src.task.gridworld import ThreadTheNeedleEnv as Environment
+from src.utils.config_utils import parse_configs
+from src.utils.pytorch_utils import DEVICE
 
 logging.info(f"python {sys.version}")
 logging.info(f"torch {torch.__version__}")
 logging.info(f"device = {DEVICE}")
 
 
-BASE_FILE_NAME = "thread_the_needle_cnn_vae"
+BASE_FILE_NAME = "thread_the_needle_cnn_vae_DEBUGGER"
+
+
+project_root = Path(__file__).resolve().parents[1]
+print(project_root)
+
 
 ### Configuration files
 parser = argparse.ArgumentParser()
 
-parser.add_argument("--vae_config", default="configs/vae_config.yml")
-parser.add_argument("--task_config", default="configs/env_config.yml")
-parser.add_argument("--agent_config", default="configs/agent_config.yml")
+
+parser.add_argument("--vae_config", default=f"{project_root}/configs/vae_config.yml")
+parser.add_argument("--task_config", default=f"{project_root}/configs/env_config.yml")
+parser.add_argument(
+    "--agent_config", default=f"{project_root}/configs/agent_config.yml"
+)
 parser.add_argument("--task_name", default="thread_the_needle")
 parser.add_argument("--model_name", default="cnn_vae")
 parser.add_argument("--results_dir", default=f"simulations/")
