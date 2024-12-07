@@ -584,11 +584,11 @@ class ViPPO(DiscretePpo):
                         values - rollout_data.old_values, -clip_range_vf, clip_range_vf
                     )
                 # Value loss using the TD(gae_lambda) target
-                # values_true = (
-                #     (1 - self.vi_coef) * rollout_data.returns + self.vae_coef * rollout_data.vi_estimates
-                # ).flatten()
+                values_true = (
+                    (1 - self.vi_coef) * rollout_data.returns + self.vae_coef * rollout_data.vi_estimates
+                ).flatten()
                 value_loss = F.mse_loss(
-                    rollout_data.vi_estimates.flatten(), values_pred.flatten()
+                    values_true.flatten(), values_pred.flatten()
                 )
                 value_losses.append(value_loss.item())
 
