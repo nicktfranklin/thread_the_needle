@@ -28,6 +28,8 @@ def value_iteration(
     n_states, n_actions, _ = transition_function.shape
     q_values = torch.zeros(n_states, n_actions, device=transition_function.device)
 
+    assert gamma >= 0 and gamma < 1
+
     for _ in range(max_iterations):
         old_q_values = q_values.clone()
         value_function = q_values.max(dim=1).values
@@ -147,7 +149,7 @@ class ModelBasedAgent:
             return torch.zeros(self.n_actions, device=self.device)
         return self.q_values[state]
 
-    def get_policy(self, deterministic: bool = True) -> Tensor:
+    def get_policy(self, deterministic: bool = True, temperature: int = 1) -> Tensor:
         """Get the current policy of the agent.
 
         Args:
@@ -165,7 +167,6 @@ class ModelBasedAgent:
             ]
         else:
             # Boltzmann policy
-            temperature = 1.0
             policy = torch.softmax(self.q_values / temperature, dim=1)
             return policy
 
@@ -269,7 +270,7 @@ class TransitionModel:
     def get_transition_function(self) -> Tensor:
         """Get the current transition function probabilities."""
         return self.transition_counts / (
-            self.transition_counts.sum(dim=-1, keepdim=True) + 1e-10
+            self.transition_counts.sum(dim=-1, keepdim=True) + 1e-6
         )
 
     def estimate_graph_laplacian(
@@ -291,9 +292,9 @@ class TransitionModel:
             sqrt_degree = torch.diag(
                 1.0 / torch.sqrt(torch.clamp(degree_matrix.diag(), min=1e-10))
             )
-            laplacian_matrix = torch.matmul(
-                sqrt_degree, torch.matmul(adjacency_matrix, sqrt_degree)
-            )
+            laplacian_matrix = torch.eye(
+                adjacency_matrix.shape[0], device=self.device
+            ) - torch.matmul(sqrt_degree, torch.matmul(adjacency_matrix, sqrt_degree))
         else:
             laplacian_matrix = degree_matrix - adjacency_matrix
 
