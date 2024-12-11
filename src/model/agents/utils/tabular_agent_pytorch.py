@@ -1,5 +1,6 @@
-from typing import Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
+import numpy as np
 import torch
 from torch import Tensor
 
@@ -55,7 +56,6 @@ class ModelBasedAgent:
         gamma: float = 0.95,
         device: Optional[str] = None,
         iterations: int = 500,
-        terminal_state: Optional[int] = None,
         epsilon: float = 1e-6,
     ):
         """Initialize the model-based RL agent.
@@ -72,19 +72,27 @@ class ModelBasedAgent:
         n_states = n_states + 1  # Add terminal state
         self.device = device or torch.device("cpu")
 
-        self.transitions = TransitionModel(
-            n_states, n_actions, self.device, terminal_state=terminal_state
-        )
-        self.rewards = RewardModel(
-            n_states, n_actions, self.device, terminal_state=terminal_state
-        )
+        self.transitions = TransitionModel(n_states, n_actions, self.device)
+        self.rewards = RewardModel(n_states, n_actions, self.device)
 
-        self.n_states = n_states
-        self.n_actions = n_actions
-        self.terminal_state = terminal_state
         self.gamma = gamma
         self.iterations = iterations
         self.epsilon = epsilon
+
+        self.q_values = torch.zeros((n_states, n_actions), device=self.device)
+        self.value_function = torch.zeros(n_states, device=self.device)
+
+    @property
+    def n_states(self) -> int:
+        return self.transitions.n_states
+
+    @property
+    def n_actions(self) -> int:
+        return self.transitions.n_actions
+
+    @property
+    def terminal_state(self) -> int:
+        return self.transitions.terminal_state
 
     def update(
         self, state: int, action: int, reward: float, next_state: int, done: bool
@@ -104,6 +112,18 @@ class ModelBasedAgent:
         self.transitions.update(state, action, next_state, done)
         self.rewards.update(state, action, reward)
 
+    def estimate(self) -> None:
+        """Estimate the optimal value function and policy."""
+        transition_function = self.transitions.get_transition_function()
+        reward_function = self.rewards.get_reward_function()
+        self.q_values, self.value_function = value_iteration(
+            transition_function,
+            reward_function,
+            gamma=self.gamma,
+            epsilon=self.epsilon,
+            max_iterations=self.iterations,
+        )
+
     def estimate_value_function(self, return_terminal_state: bool = False) -> Tensor:
         """Estimate the optimal value function using value iteration.
 
@@ -113,23 +133,19 @@ class ModelBasedAgent:
         Returns:
             Tensor: Optimal value function
         """
-        transition_function = self.transitions.get_transition_function()
-        reward_function = self.rewards.get_reward_function()
-
-        _, value_function = value_iteration(
-            transition_function,
-            reward_function,
-            gamma=self.gamma,
-            epsilon=self.epsilon,
-            max_iterations=self.iterations,
-        )
+        self.estimate()
 
         if not return_terminal_state:
             mask = torch.ones(self.n_states, dtype=bool, device=self.device)
             mask[self.terminal_state] = False
-            value_function = value_function[mask]
+            value_function = self.value_function[mask]
 
         return value_function
+
+    def get_q_values(self, state: int) -> Tensor:
+        if state >= self.n_states:
+            return torch.zeros(self.n_actions, device=self.device)
+        return self.q_values[state]
 
     def get_policy(self, deterministic: bool = True) -> Tensor:
         """Get the current policy of the agent.
@@ -141,23 +157,16 @@ class ModelBasedAgent:
             Tensor: Policy matrix of shape (n_states, n_actions) containing probabilities
                    or a one-hot vector for deterministic policies
         """
-        transition_function = self.transitions.get_transition_function()
-        reward_function = self.rewards.get_reward_function()
-
-        q_values, _ = value_iteration(
-            transition_function,
-            reward_function,
-            gamma=self.gamma,
-            epsilon=self.epsilon,
-            max_iterations=self.iterations,
-        )
+        self.estimate()
 
         if deterministic:
-            return torch.eye(self.n_actions, device=self.device)[q_values.argmax(dim=1)]
+            return torch.eye(self.n_actions, device=self.device)[
+                self.q_values.argmax(dim=1)
+            ]
         else:
             # Boltzmann policy
             temperature = 1.0
-            policy = torch.softmax(q_values / temperature, dim=1)
+            policy = torch.softmax(self.q_values / temperature, dim=1)
             return policy
 
     def get_graph_laplacian(
@@ -183,28 +192,40 @@ class TransitionModel:
         n_states: int,
         n_actions: int,
         device: Optional[str] = None,
-        terminal_state: Optional[int] = None,
+        default_count: float = 1e-6,
     ):
         self.device = device or torch.device("cpu")
+        self.default_count = default_count
+
         self.transition_counts = torch.zeros(
             (n_states, n_actions, n_states), device=self.device
         )
 
-        self.n_states = n_states
-        self.n_actions = n_actions
-        self.terminal_state = terminal_state if terminal_state else self.n_states - 1
+        # Initialize counts to go to terminal state, which is always the last state
+        self.transition_counts[:, :, -1] = self.default_count
+        self.transition_counts[-1, :, -1] = 1  # terminal state is self-absorbing
 
-        # Initialize counts to go to terminal state
-        self.transition_counts[:, :, self.terminal_state] = 1e-6
         self.state_action_visited = torch.zeros(
             (n_states, n_actions), device=self.device, dtype=torch.bool
         )
 
-        # Set terminal state transitions
-        self.transition_counts[self.terminal_state, :, self.terminal_state] = 1
+    @property
+    def n_actions(self) -> int:
+        return self.transition_counts.shape[1]
+
+    @property
+    def n_states(self) -> int:
+        return self.transition_counts.shape[0]
+
+    @property
+    def terminal_state(self) -> int:
+        return self.transition_counts.shape[0] - 1
 
     def update(self, state: int, action: int, next_state: int, done: bool) -> None:
         """Update the transition model with a new observation."""
+        self.check_add_new_state(state)
+        self.check_add_new_state(next_state)
+
         if not (0 <= state < self.n_states and 0 <= action < self.n_actions):
             raise ValueError(f"Invalid state {state} or action {action}")
 
@@ -215,6 +236,35 @@ class TransitionModel:
         self.transition_counts[state, action, next_state] += 1
         if done:
             self.transition_counts[state, action, self.terminal_state] += 1
+
+    def check_add_new_state(self, state: int) -> None:
+        """Add a new state to the transition model."""
+        if state < self.terminal_state:
+            return  # no need to add a new state if it is not the terminal state
+
+        n = self.n_states
+        new_transition_counts = torch.zeros(
+            (self.n_states, self.n_actions, self.n_states), device=self.device
+        )
+
+        # copy old transitions, augmenting the terminal state index by 1
+        new_transition_counts[: n - 1, :, : n - 1] = self.transition_counts[
+            : n - 1, :, : n - 1
+        ]
+        new_transition_counts[: n - 1, :, n - 1] = self.transition_counts[
+            n - 1, :, n - 1
+        ]
+        new_transition_counts[-1, :, -1] = (
+            self.default_count
+        )  # terminal state always goes to itself
+
+        # the new state is now the penultimate row/column of the transition function
+        new_transition_counts[n - 1, :, -1] = (
+            self.default_count
+        )  # assume new state always goes to terminal state
+
+        self.transition_counts = new_transition_counts
+        self.state_action_visited = self.transition_counts.sum(dim=-1) >= 1
 
     def get_transition_function(self) -> Tensor:
         """Get the current transition function probabilities."""
@@ -256,19 +306,26 @@ class RewardModel:
         n_states: int,
         n_actions: int,
         device: Optional[str] = None,
-        terminal_state: Optional[int] = None,
     ):
         self.device = device or torch.device("cpu")
         self.reward_counts = torch.zeros((n_states, n_actions), device=self.device)
         self.reward_sums = torch.zeros((n_states, n_actions), device=self.device)
 
-        self.n_states = n_states
-        self.n_actions = n_actions
-        self.terminal_state = terminal_state if terminal_state else self.n_states - 1
-
         # Set terminal state rewards to 0
-        self.reward_counts[self.terminal_state, :] = 1
-        self.reward_sums[self.terminal_state, :] = 0
+        self.reward_counts[-1, :] = 1
+        self.reward_sums[-1, :] = 0
+
+    @property
+    def n_states(self) -> int:
+        return self.reward_counts.shape[0]
+
+    @property
+    def n_actions(self) -> int:
+        return self.reward_counts.shape[1]
+
+    @property
+    def terminal_state(self) -> int:
+        return self.reward_counts.shape[0] - 1
 
     def update(self, state: int, action: int, reward: float) -> None:
         """Update the reward model with a new observation."""
@@ -283,3 +340,21 @@ class RewardModel:
         return torch.nan_to_num(
             self.reward_sums / (self.reward_counts + 1e-10), nan=0.0
         )
+
+    def check_add_new_state(self, state: int) -> None:
+        """Add a new state to the reward model."""
+        if state < self.terminal_state:
+            return
+
+        new_counts = torch.zeros((self.n_states, self.n_actions), device=self.device)
+        new_sums = torch.zeros((self.n_states, self.n_actions), device=self.device)
+
+        # copy old rewards, augmenting the terminal state index by 1
+        new_counts[: self.n_states - 1, :] = self.reward_counts[: self.n_states - 1, :]
+        new_sums[: self.n_states - 1, :] = self.reward_sums[: self.n_states - 1, :]
+
+        # there are no rewards for the terminal state, and no visitiations for the new state
+        new_counts[-1, :] = 1
+
+        self.reward_counts = new_counts
+        self.reward_sums = new_sums
