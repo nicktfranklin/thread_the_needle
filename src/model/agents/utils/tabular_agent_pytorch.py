@@ -108,8 +108,9 @@ class ModelBasedAgent:
             next_state: Next state
             done: Whether the episode terminated
         """
-        if not (0 <= state < self.n_states and 0 <= action < self.n_actions):
-            raise ValueError(f"Invalid state {state} or action {action}")
+        self.transitions.check_add_new_state(state)
+        self.transitions.check_add_new_state(next_state)
+        self.rewards.check_add_new_state(state)
 
         self.transitions.update(state, action, next_state, done)
         self.rewards.update(state, action, reward)
@@ -204,11 +205,12 @@ class TransitionModel:
 
         # Initialize counts to go to terminal state, which is always the last state
         self.transition_counts[:, :, -1] = self.default_count
-        self.transition_counts[-1, :, -1] = 1  # terminal state is self-absorbing
+        self.transition_counts[-1, :, -1] = 1.0  # Terminal state is absorbing
 
         self.state_action_visited = torch.zeros(
             (n_states, n_actions), device=self.device, dtype=torch.bool
         )
+        self.state_action_visited[-1, :] = True  # Mark terminal state as visited
 
     @property
     def n_actions(self) -> int:
@@ -224,48 +226,54 @@ class TransitionModel:
 
     def update(self, state: int, action: int, next_state: int, done: bool) -> None:
         """Update the transition model with a new observation."""
-        self.check_add_new_state(state)
-        self.check_add_new_state(next_state)
-
         if not (0 <= state < self.n_states and 0 <= action < self.n_actions):
             raise ValueError(f"Invalid state {state} or action {action}")
 
         if not self.state_action_visited[state, action]:
-            self.transition_counts[state, action, :] = 0
+            # Reset counts only for non-terminal transitions
+            self.transition_counts[state, action, :-1] = 0
+            # Maintain small probability to terminal
+            self.transition_counts[state, action, -1] = self.default_count
             self.state_action_visited[state, action] = True
 
-        self.transition_counts[state, action, next_state] += 1
+        # Update next state transition
+        if next_state != self.terminal_state:
+            self.transition_counts[state, action, next_state] += 1
+
+        # If episode is done, increment terminal state transition
         if done:
             self.transition_counts[state, action, self.terminal_state] += 1
 
     def check_add_new_state(self, state: int) -> None:
         """Add a new state to the transition model."""
         if state < self.terminal_state:
-            return  # no need to add a new state if it is not the terminal state
+            return
 
         n = self.n_states
         new_transition_counts = torch.zeros(
-            (self.n_states, self.n_actions, self.n_states), device=self.device
+            (n + 1, self.n_actions, n + 1), device=self.device
         )
 
-        # copy old transitions, augmenting the terminal state index by 1
-        new_transition_counts[: n - 1, :, : n - 1] = self.transition_counts[
-            : n - 1, :, : n - 1
-        ]
-        new_transition_counts[: n - 1, :, n - 1] = self.transition_counts[
-            n - 1, :, n - 1
-        ]
-        new_transition_counts[-1, :, -1] = (
-            self.default_count
-        )  # terminal state always goes to itself
+        # Copy existing transitions
+        new_transition_counts[:-2, :, :-2] = self.transition_counts[:-1, :, :-1]
 
-        # the new state is now the penultimate row/column of the transition function
-        new_transition_counts[n - 1, :, -1] = (
-            self.default_count
-        )  # assume new state always goes to terminal state
+        # Copy terminal transitions to new terminal state
+        new_transition_counts[:-2, :, -1] = self.transition_counts[:-1, :, -1]
+
+        # Initialize new state transitions
+        new_transition_counts[-2, :, -1] = self.default_count
+        # New terminal state is absorbing
+        new_transition_counts[-1, :, -1] = 1.0
+
+        # Update state action visited
+        new_state_action_visited = torch.zeros(
+            (n + 1, self.n_actions), device=self.device, dtype=torch.bool
+        )
+        new_state_action_visited[:-2, :] = self.state_action_visited[:-1, :]
+        new_state_action_visited[-1, :] = True  # Terminal state is always visited
 
         self.transition_counts = new_transition_counts
-        self.state_action_visited = self.transition_counts.sum(dim=-1) >= 1
+        self.state_action_visited = new_state_action_visited
 
     def get_transition_function(self) -> Tensor:
         """Get the current transition function probabilities."""
@@ -312,9 +320,9 @@ class RewardModel:
         self.reward_counts = torch.zeros((n_states, n_actions), device=self.device)
         self.reward_sums = torch.zeros((n_states, n_actions), device=self.device)
 
-        # Set terminal state rewards to 0
+        # Initialize terminal state
         self.reward_counts[-1, :] = 1
-        self.reward_sums[-1, :] = 0
+        self.reward_sums[-1, :] = 0  # Zero reward for terminal state
 
     @property
     def n_states(self) -> int:
@@ -347,15 +355,18 @@ class RewardModel:
         if state < self.terminal_state:
             return
 
-        new_counts = torch.zeros((self.n_states, self.n_actions), device=self.device)
-        new_sums = torch.zeros((self.n_states, self.n_actions), device=self.device)
+        new_counts = torch.zeros(
+            (self.n_states + 1, self.n_actions), device=self.device
+        )
+        new_sums = torch.zeros((self.n_states + 1, self.n_actions), device=self.device)
 
-        # copy old rewards, augmenting the terminal state index by 1
-        new_counts[: self.n_states - 1, :] = self.reward_counts[: self.n_states - 1, :]
-        new_sums[: self.n_states - 1, :] = self.reward_sums[: self.n_states - 1, :]
+        # Copy existing rewards except terminal state
+        new_counts[:-2, :] = self.reward_counts[:-1, :]
+        new_sums[:-2, :] = self.reward_sums[:-1, :]
 
-        # there are no rewards for the terminal state, and no visitiations for the new state
+        # Initialize new terminal state
         new_counts[-1, :] = 1
+        new_sums[-1, :] = 0  # Zero reward for terminal state
 
         self.reward_counts = new_counts
         self.reward_sums = new_sums
