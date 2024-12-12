@@ -99,6 +99,9 @@ class BaseAgent(ABC):
     ) -> None:
         pass
 
+    def update_from_batch(self, batch: BaseBuffer, progress_bar: bool = False):
+        pass
+
     def collect_rollouts(
         self,
         n_rollout_steps: int,

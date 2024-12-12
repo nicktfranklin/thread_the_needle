@@ -53,13 +53,17 @@ def value_iteration(
 class TransitionModel:
     def __init__(
         self,
-        n_states: int,
         n_actions: int,
+        n_states: int | None = None,
         device: Optional[str] = None,
         default_count: float = 1e-6,
     ):
+        assert n_actions is not None
         self.device = device or torch.device("cpu")
         self.default_count = default_count
+
+        # if n_states is None, set it to 1 for the terminal state
+        n_states = n_states if n_states is not None else 1
 
         self.transition_counts = torch.zeros(
             (n_states, n_actions, n_states), device=self.device
@@ -71,6 +75,18 @@ class TransitionModel:
 
         self.state_action_visited = torch.zeros(
             (n_states, n_actions), device=self.device, dtype=torch.bool
+        )
+        self.state_action_visited[-1, :] = True  # Mark terminal state as visited
+
+    def reset(self, n_states: int | None = None) -> None:
+        """Reset the transition model."""
+        # initialize with terminal state if no states are provided
+        n_states = n_states if n_states is not None else 1
+        self.transition_counts = torch.zeros(
+            (n_states, self.n_actions, n_states), device=self.device
+        )
+        self.state_action_visited = torch.zeros(
+            (n_states, self.n_actions), device=self.device, dtype=torch.bool
         )
         self.state_action_visited[-1, :] = True  # Mark terminal state as visited
 
@@ -174,17 +190,33 @@ class TransitionModel:
 class RewardModel:
     def __init__(
         self,
-        n_states: int,
         n_actions: int,
+        n_states: int | None = None,
         device: Optional[str] = None,
     ):
         self.device = device or torch.device("cpu")
+        assert n_actions is not None
+
+        # if n_states is None, set it to 1 for the terminal state
+        n_states = n_states if n_states is not None else 1
         self.reward_counts = torch.zeros((n_states, n_actions), device=self.device)
         self.reward_sums = torch.zeros((n_states, n_actions), device=self.device)
 
         # Initialize terminal state
         self.reward_counts[-1, :] = 1
         self.reward_sums[-1, :] = 0  # Zero reward for terminal state
+
+    def reset(self) -> None:
+        """Reset the reward model."""
+        # initialize with terminal state if no states are provided
+        n_states = n_states if n_states is not None else 1
+
+        self.reward_counts = torch.zeros((n_states, self.n_actions), device=self.device)
+        self.reward_sums = torch.zeros((n_states, self.n_actions), device=self.device)
+
+        # Initialize terminal state
+        self.reward_counts[-1, :] = 1
+        self.reward_sums[-1, :] = 0
 
     @property
     def n_states(self) -> int:
@@ -267,6 +299,14 @@ class ModelBasedAgent:
 
         self.q_values = torch.zeros((n_states, n_actions), device=self.device)
         self.value_function = torch.zeros(n_states, device=self.device)
+
+    def reset(self, n_states: int | None = None) -> None:
+        """Reset the agent's models."""
+        self.transitions.reset(n_states)
+        self.rewards.reset(n_states)
+
+        self.q_values = torch.zeros((self.n_states, self.n_actions), device=self.device)
+        self.value_function = torch.zeros(self.n_states, device=self.device)
 
     @property
     def n_states(self) -> int:

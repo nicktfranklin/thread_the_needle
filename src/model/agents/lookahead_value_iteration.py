@@ -18,7 +18,9 @@ from ..state_inference.vae import StateVae
 from ..training.data import MdpDataset, VaeDataset
 from ..training.rollout_data import BaseBuffer
 from .utils.base_agent import BaseVaeAgent
-from .utils.tabular_agents import ModelBasedAgent, ModelFreeAgent
+from .utils.tabular_agent_pytorch import DynaWithViAgent, ModelBasedAgent
+
+# from .utils.tabular_agents import ModelFreeAgent
 
 
 class LookaheadViAgent(BaseVaeAgent):
@@ -72,8 +74,14 @@ class LookaheadViAgent(BaseVaeAgent):
 
         n_actions = task.action_space.n
 
-        self.model_based_agent = ModelBasedAgent(n_actions=n_actions, gamma=gamma)
-        self.model_free_agent = ModelFreeAgent(n_actions=n_actions, learning_rate=alpha)
+        self.model_based_agent = DynaWithViAgent(
+            n_states=0,
+            n_actions=n_actions,
+            gamma=gamma,
+            learning_rate=alpha,
+            dyna_updates=dyna_updates,
+        )
+        # self.model_free_agent = ModelFreeAgent(n_actions=n_actions, learning_rate=alpha)
         self.dist = CategoricalDistribution(action_dim=n_actions)
         self.softmax_gain = softmax_gain
 
@@ -124,29 +132,29 @@ class LookaheadViAgent(BaseVaeAgent):
         s = self._get_state_hashkey(obs)[0]
         sp = self._get_state_hashkey(next_obs)[0]
 
-        # update the model
+        # # update the model
         self.model_based_agent.update(s, a, r, sp)
 
-        # update q-values
-        self.model_free_agent.update(s, a, r, sp)
+        # # update q-values
+        # self.model_free_agent.update(s, a, r, sp)
 
-        # resampling (dyna) updates
-        for _ in range(min(len(rollout_buffer), self.n_dyna_updates)):
-            # sample observations and actions with replacement
-            idx = random.randint(0, len(rollout_buffer) - 1)
+        # # resampling (dyna) updates
+        # for _ in range(min(len(rollout_buffer), self.n_dyna_updates)):
+        #     # sample observations and actions with replacement
+        #     idx = random.randint(0, len(rollout_buffer) - 1)
 
-            obs, a, _, _ = rollout_buffer.get_obs(idx)
+        #     obs, a, _, _ = rollout_buffer.get_obs(idx)
 
-            s = self._get_state_hashkey(obs)[0]
+        #     s = self._get_state_hashkey(obs)[0]
 
-            # draw r, sp from the model
-            r, sp = self.model_based_agent.sample(s, a)
+        #     # draw r, sp from the model
+        #     r, sp = self.model_based_agent.sample(s, a)
 
-            self.model_free_agent.update(s, a, r, sp)
+        #     self.model_free_agent.update(s, a, r, sp)
 
     def get_policy(self, obs: Tensor):
         s = self._get_state_hashkey(obs)
-        q = self.model_free_agent.get_q_values(s)
+        q = self.model_based_agent.get_q_values(s)
         return self.dist.proba_distribution(torch.tensor(q) * self.softmax_gain)
 
     def get_pmf(self, obs: FloatTensor) -> np.ndarray:
@@ -158,7 +166,7 @@ class LookaheadViAgent(BaseVaeAgent):
         if not deterministic and np.random.rand() < self.epsilon:
             return np.random.randint(self.env.action_space.n), None
 
-        p = self.get_policy(obs)
+        p = self.get_policy(torch.from_numpy(obs).to(DEVICE))
         return p.get_actions(deterministic=deterministic).item(), None
 
     def get_state_values(self) -> torch.Tensor:
@@ -213,10 +221,6 @@ class LookaheadViAgent(BaseVaeAgent):
     def update_from_batch(self, buffer: BaseBuffer, progress_bar: bool = False):
         self.train_vae(buffer, progress_bar=progress_bar)
 
-        # re-estimate the reward and transition functions
-        self.model_based_agent.reset()
-        self.reset_state_indexer()
-
         dataset = buffer.get_dataset()
 
         # convert ot a tensor dataset for iteration
@@ -232,21 +236,22 @@ class LookaheadViAgent(BaseVaeAgent):
             sp.append(self._get_state_hashkey(batch["next_observations"]))
             a.append(batch["actions"])
             r.append(batch["rewards"])
+
         s = np.concatenate(s)
         sp = np.concatenate(sp)
         a = np.concatenate(a)
         r = np.concatenate(r)
 
+        n_states = len(set(s.flatten().tolist() + sp.flatten().tolist()))
+
+        # re-estimate the reward and transition functions
+        self.reset_state_indexer()
+        self.model_based_agent.reset(n_states)
+
         for idx in range(len(s)):
             self.model_based_agent.update(s[idx], a[idx], r[idx], sp[idx])
-
-        # use value iteration to estimate the rewards
-        self.model_free_agent.q_values, self.value_function = (
-            self.model_based_agent.estimate_value_function(
-                gamma=self.gamma,
-                iterations=self.n_iter,
-            )
-        )
+        self.model_based_agent.estimate()
+        self.value_function = self.model_based_agent.value_function()
 
     def learn(
         self,

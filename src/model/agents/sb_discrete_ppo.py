@@ -483,7 +483,7 @@ class ViPPO(DiscretePpo):
                 bool(buffer_data.dones[ii].item()),
             )
             done = done if ii < n - 1 else True
-            mdp.update(s, a, r, sp, done)
+            mdp.update_model(s, a, r, sp, done)
 
         value_function = mdp.estimate_value_function()
 
@@ -585,11 +585,10 @@ class ViPPO(DiscretePpo):
                     )
                 # Value loss using the TD(gae_lambda) target
                 values_true = (
-                    (1 - self.vi_coef) * rollout_data.returns + self.vae_coef * rollout_data.vi_estimates
+                    (1 - self.vi_coef) * rollout_data.returns
+                    + self.vae_coef * rollout_data.vi_estimates
                 ).flatten()
-                value_loss = F.mse_loss(
-                    values_true.flatten(), values_pred.flatten()
-                )
+                value_loss = F.mse_loss(values_true.flatten(), values_pred.flatten())
                 value_losses.append(value_loss.item())
 
                 # Entropy loss favor exploration

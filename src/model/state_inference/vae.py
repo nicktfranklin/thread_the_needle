@@ -228,7 +228,7 @@ class StateVae(nn.Module):
         with torch.no_grad():
             _, z = self.encode(x.to(DEVICE))
 
-            state_vars = torch.argmax(z, dim=-1).detach().cpu().numpy()
+            state_vars = torch.argmax(z, dim=-1).detach().cpu()
         return state_vars
 
     def sample_state(self, x):
