@@ -108,9 +108,12 @@ class ModelBasedAgent:
             next_state: Next state
             done: Whether the episode terminated
         """
+
+        # expand the state space if necessary for both the state and successor state if necessary
         self.transitions.check_add_new_state(state)
         self.transitions.check_add_new_state(next_state)
         self.rewards.check_add_new_state(state)
+        self.rewards.check_add_new_state(next_state)
 
         self.transitions.update(state, action, next_state, done)
         self.rewards.update(state, action, reward)
