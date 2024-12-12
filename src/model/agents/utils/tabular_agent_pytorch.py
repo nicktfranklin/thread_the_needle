@@ -389,21 +389,74 @@ class ModelBasedAgent:
         )
 
 
-class HybridMbMfAgent(ModelBasedAgent):
+class DynaWithViAgent(ModelBasedAgent):
     def __init__(
         self,
-        n_states,
-        n_actions,
-        gamma=0.95,
-        device=None,
-        iterations=500,
-        epsilon=0.000001,
-        learning_rate=0.1,
+        n_states: int,
+        n_actions: int,
+        gamma: float = 0.95,
+        device: Optional[str] = None,
+        iterations: int = 500,
+        epsilon: float = 0.000001,
+        learning_rate: float = 0.1,
+        dyna_updates: int = 10,  # Number of Dyna planning updates per real update
     ):
         super().__init__(n_states, n_actions, gamma, device, iterations, epsilon)
         self.learning_rate = learning_rate
+        self.dyna_updates = dyna_updates
 
-    def update(self, state, action, reward, next_state, done):
+    def _td_update(
+        self, state: int, action: int, reward: float, next_state: int, done: bool
+    ) -> None:
+        """Helper method for TD update of Q-values."""
+        if done:
+            target = reward
+        else:
+            target = reward + self.gamma * torch.max(self.q_values[next_state])
+
+        td_error = target - self.q_values[state, action]
+        self.q_values[state, action] += self.learning_rate * td_error
+
+    def _dyna_planning(self) -> None:
+        """Perform Dyna planning updates using the learned model."""
+        # Get current transition and reward models
+        transition_probs = self.transitions.get_transition_function()
+        rewards = self.rewards.get_reward_function()
+
+        # Only consider states and actions that have been visited
+        valid_states = torch.where(self.transitions.state_action_visited.any(dim=1))[0]
+
+        for _ in range(self.dyna_updates):
+            # Sample a random state-action pair that we've seen before
+            state_idx = torch.randint(0, len(valid_states), (1,))
+            state = valid_states[state_idx]
+
+            # Only sample from actions we've tried in this state
+            valid_actions = torch.where(self.transitions.state_action_visited[state])[0]
+            action_idx = torch.randint(0, len(valid_actions), (1,))
+            action = valid_actions[action_idx]
+
+            # Sample next state from model
+            next_state_probs = transition_probs[state, action]
+            next_state = torch.multinomial(next_state_probs, 1).item()
+
+            # Get reward from model
+            reward = rewards[state, action].item()
+
+            # Done if we transition to terminal state
+            done = next_state == self.terminal_state
+
+            # Perform TD update using imagined experience
+            self._td_update(state, action, reward, next_state, done)
+
+    def update(
+        self, state: int, action: int, reward: float, next_state: int, done: bool
+    ) -> None:
+        # Update the model (transition and reward models)
         super().update(state, action, reward, next_state, done)
 
-        # Update model-free Q-values
+        # Real experience TD update
+        self._td_update(state, action, reward, next_state, done)
+
+        # Dyna planning updates
+        self._dyna_planning()
