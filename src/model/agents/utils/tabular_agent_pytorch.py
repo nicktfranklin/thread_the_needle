@@ -50,147 +50,6 @@ def value_iteration(
     return q_values, value_function
 
 
-class ModelBasedAgent:
-    def __init__(
-        self,
-        n_states: int,
-        n_actions: int,
-        gamma: float = 0.95,
-        device: Optional[str] = None,
-        iterations: int = 500,
-        epsilon: float = 1e-6,
-    ):
-        """Initialize the model-based RL agent.
-
-        Args:
-            n_states: Number of states in the MDP
-            n_actions: Number of actions in the MDP
-            gamma: Discount factor
-            device: Device to use for computations
-            iterations: Maximum number of iterations for value iteration
-            terminal_state: Terminal state index (if any)
-            epsilon: Convergence threshold for value iteration
-        """
-        n_states = n_states + 1  # Add terminal state
-        self.device = device or torch.device("cpu")
-
-        self.transitions = TransitionModel(n_states, n_actions, self.device)
-        self.rewards = RewardModel(n_states, n_actions, self.device)
-
-        self.gamma = gamma
-        self.iterations = iterations
-        self.epsilon = epsilon
-
-        self.q_values = torch.zeros((n_states, n_actions), device=self.device)
-        self.value_function = torch.zeros(n_states, device=self.device)
-
-    @property
-    def n_states(self) -> int:
-        return self.transitions.n_states
-
-    @property
-    def n_actions(self) -> int:
-        return self.transitions.n_actions
-
-    @property
-    def terminal_state(self) -> int:
-        return self.transitions.terminal_state
-
-    def update(
-        self, state: int, action: int, reward: float, next_state: int, done: bool
-    ) -> None:
-        """Update the agent's models with a new transition.
-
-        Args:
-            state: Current state
-            action: Action taken
-            reward: Reward received
-            next_state: Next state
-            done: Whether the episode terminated
-        """
-
-        # expand the state space if necessary for both the state and successor state if necessary
-        self.transitions.check_add_new_state(state)
-        self.transitions.check_add_new_state(next_state)
-        self.rewards.check_add_new_state(state)
-        self.rewards.check_add_new_state(next_state)
-
-        self.transitions.update(state, action, next_state, done)
-        self.rewards.update(state, action, reward)
-
-    def estimate(self) -> None:
-        """Estimate the optimal value function and policy."""
-        transition_function = self.transitions.get_transition_function()
-        reward_function = self.rewards.get_reward_function()
-        self.q_values, self.value_function = value_iteration(
-            transition_function,
-            reward_function,
-            gamma=self.gamma,
-            epsilon=self.epsilon,
-            max_iterations=self.iterations,
-        )
-
-    def estimate_value_function(self, return_terminal_state: bool = False) -> Tensor:
-        """Estimate the optimal value function using value iteration.
-
-        Args:
-            return_terminal_state: Whether to include the terminal state in the output
-
-        Returns:
-            Tensor: Optimal value function
-        """
-        self.estimate()
-
-        if not return_terminal_state:
-            mask = torch.ones(self.n_states, dtype=bool, device=self.device)
-            mask[self.terminal_state] = False
-            value_function = self.value_function[mask]
-
-        return value_function
-
-    def get_q_values(self, state: int) -> Tensor:
-        if state >= self.n_states:
-            return torch.zeros(self.n_actions, device=self.device)
-        return self.q_values[state]
-
-    def get_policy(self, deterministic: bool = True, temperature: int = 1) -> Tensor:
-        """Get the current policy of the agent.
-
-        Args:
-            deterministic: Whether to return a deterministic policy
-
-        Returns:
-            Tensor: Policy matrix of shape (n_states, n_actions) containing probabilities
-                   or a one-hot vector for deterministic policies
-        """
-        self.estimate()
-
-        if deterministic:
-            return torch.eye(self.n_actions, device=self.device)[
-                self.q_values.argmax(dim=1)
-            ]
-        else:
-            # Boltzmann policy
-            policy = torch.softmax(self.q_values / temperature, dim=1)
-            return policy
-
-    def get_graph_laplacian(
-        self, normalized: bool = True, return_terminal_state: bool = False
-    ) -> Tensor:
-        """Get the graph Laplacian of the transition model.
-
-        Args:
-            normalized: Whether to return the normalized Laplacian
-            return_terminal_state: Whether to include the terminal state
-
-        Returns:
-            Tensor: Graph Laplacian matrix
-        """
-        return self.transitions.estimate_graph_laplacian(
-            normalized, return_terminal_state
-        )
-
-
 class TransitionModel:
     def __init__(
         self,
@@ -373,3 +232,144 @@ class RewardModel:
 
         self.reward_counts = new_counts
         self.reward_sums = new_sums
+
+
+class ModelBasedAgent:
+    def __init__(
+        self,
+        n_states: int,
+        n_actions: int,
+        gamma: float = 0.95,
+        device: Optional[str] = None,
+        iterations: int = 500,
+        epsilon: float = 1e-6,
+    ):
+        """Initialize the model-based RL agent.
+
+        Args:
+            n_states: Number of states in the MDP
+            n_actions: Number of actions in the MDP
+            gamma: Discount factor
+            device: Device to use for computations
+            iterations: Maximum number of iterations for value iteration
+            terminal_state: Terminal state index (if any)
+            epsilon: Convergence threshold for value iteration
+        """
+        n_states = n_states + 1  # Add terminal state
+        self.device = device or torch.device("cpu")
+
+        self.transitions = TransitionModel(n_states, n_actions, self.device)
+        self.rewards = RewardModel(n_states, n_actions, self.device)
+
+        self.gamma = gamma
+        self.iterations = iterations
+        self.epsilon = epsilon
+
+        self.q_values = torch.zeros((n_states, n_actions), device=self.device)
+        self.value_function = torch.zeros(n_states, device=self.device)
+
+    @property
+    def n_states(self) -> int:
+        return self.transitions.n_states
+
+    @property
+    def n_actions(self) -> int:
+        return self.transitions.n_actions
+
+    @property
+    def terminal_state(self) -> int:
+        return self.transitions.terminal_state
+
+    def update(
+        self, state: int, action: int, reward: float, next_state: int, done: bool
+    ) -> None:
+        """Update the agent's models with a new transition.
+
+        Args:
+            state: Current state
+            action: Action taken
+            reward: Reward received
+            next_state: Next state
+            done: Whether the episode terminated
+        """
+
+        # expand the state space if necessary for both the state and successor state if necessary
+        self.transitions.check_add_new_state(state)
+        self.transitions.check_add_new_state(next_state)
+        self.rewards.check_add_new_state(state)
+        self.rewards.check_add_new_state(next_state)
+
+        self.transitions.update(state, action, next_state, done)
+        self.rewards.update(state, action, reward)
+
+    def estimate(self) -> None:
+        """Estimate the optimal value function and policy."""
+        transition_function = self.transitions.get_transition_function()
+        reward_function = self.rewards.get_reward_function()
+        self.q_values, self.value_function = value_iteration(
+            transition_function,
+            reward_function,
+            gamma=self.gamma,
+            epsilon=self.epsilon,
+            max_iterations=self.iterations,
+        )
+
+    def estimate_value_function(self, return_terminal_state: bool = False) -> Tensor:
+        """Estimate the optimal value function using value iteration.
+
+        Args:
+            return_terminal_state: Whether to include the terminal state in the output
+
+        Returns:
+            Tensor: Optimal value function
+        """
+        self.estimate()
+
+        if not return_terminal_state:
+            mask = torch.ones(self.n_states, dtype=bool, device=self.device)
+            mask[self.terminal_state] = False
+            value_function = self.value_function[mask]
+
+        return value_function
+
+    def get_q_values(self, state: int) -> Tensor:
+        if state >= self.n_states:
+            return torch.zeros(self.n_actions, device=self.device)
+        return self.q_values[state]
+
+    def get_policy(self, deterministic: bool = True, temperature: int = 1) -> Tensor:
+        """Get the current policy of the agent.
+
+        Args:
+            deterministic: Whether to return a deterministic policy
+
+        Returns:
+            Tensor: Policy matrix of shape (n_states, n_actions) containing probabilities
+                   or a one-hot vector for deterministic policies
+        """
+        self.estimate()
+
+        if deterministic:
+            return torch.eye(self.n_actions, device=self.device)[
+                self.q_values.argmax(dim=1)
+            ]
+        else:
+            # Boltzmann policy
+            policy = torch.softmax(self.q_values / temperature, dim=1)
+            return policy
+
+    def get_graph_laplacian(
+        self, normalized: bool = True, return_terminal_state: bool = False
+    ) -> Tensor:
+        """Get the graph Laplacian of the transition model.
+
+        Args:
+            normalized: Whether to return the normalized Laplacian
+            return_terminal_state: Whether to include the terminal state
+
+        Returns:
+            Tensor: Graph Laplacian matrix
+        """
+        return self.transitions.estimate_graph_laplacian(
+            normalized, return_terminal_state
+        )
