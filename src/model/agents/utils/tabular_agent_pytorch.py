@@ -280,6 +280,22 @@ class ModelBasedAgent:
     def terminal_state(self) -> int:
         return self.transitions.terminal_state
 
+    def check_add_new_state(self, state: int) -> None:
+        # update the value function
+        if state >= self.n_states:
+            v = torch.zeros(self.n_states + 1, device=self.device)
+            v[: self.n_states - 1] = self.value_function[: self.n_states - 1]
+
+            q = torch.zeros(self.n_states + 1, self.n_actions, device=self.device)
+            q[: self.n_states - 1] = self.q_values[: self.n_states - 1]
+
+            self.value_function = v
+            self.q_values = q
+
+        # update the transition and reward models
+        self.transitions.check_add_new_state(state)
+        self.rewards.check_add_new_state(state)
+
     def update(
         self, state: int, action: int, reward: float, next_state: int, done: bool
     ) -> None:
@@ -294,10 +310,8 @@ class ModelBasedAgent:
         """
 
         # expand the state space if necessary for both the state and successor state if necessary
-        self.transitions.check_add_new_state(state)
-        self.transitions.check_add_new_state(next_state)
-        self.rewards.check_add_new_state(state)
-        self.rewards.check_add_new_state(next_state)
+        self.check_add_new_state(state)
+        self.check_add_new_state(next_state)
 
         self.transitions.update(state, action, next_state, done)
         self.rewards.update(state, action, reward)
@@ -373,3 +387,23 @@ class ModelBasedAgent:
         return self.transitions.estimate_graph_laplacian(
             normalized, return_terminal_state
         )
+
+
+class HybridMbMfAgent(ModelBasedAgent):
+    def __init__(
+        self,
+        n_states,
+        n_actions,
+        gamma=0.95,
+        device=None,
+        iterations=500,
+        epsilon=0.000001,
+        learning_rate=0.1,
+    ):
+        super().__init__(n_states, n_actions, gamma, device, iterations, epsilon)
+        self.learning_rate = learning_rate
+
+    def update(self, state, action, reward, next_state, done):
+        super().update(state, action, reward, next_state, done)
+
+        # Update model-free Q-values

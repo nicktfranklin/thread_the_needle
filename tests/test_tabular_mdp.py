@@ -79,16 +79,16 @@ def test_state_expansion():
     agent.update(state=0, action=0, reward=1.0, next_state=agent.n_states, done=False)
 
     assert agent.n_states == initial_states + 1
-    assert (
-        agent.rewards.reward_counts.shape[0] == agent.n_states
-    ), f"Expected {agent.n_states}, got {agent.rewards.reward_counts.shape[0]}"
+    assert agent.rewards.reward_counts.shape[0] == agent.n_states
+    assert agent.value_function.shape == (agent.n_states,)
+    assert agent.q_values.shape == (agent.n_states, agent.n_actions)
 
     agent.update(state=agent.n_states, action=0, reward=1.0, next_state=0, done=False)
 
     assert agent.n_states == initial_states + 2
-    assert (
-        agent.rewards.reward_counts.shape[0] == agent.n_states
-    ), f"Expected {agent.n_states}, got {agent.rewards.reward_counts.shape[0]}"
+    assert agent.rewards.reward_counts.shape[0] == agent.n_states
+    assert agent.value_function.shape == (agent.n_states,)
+    assert agent.q_values.shape == (agent.n_states, agent.n_actions)
 
 
 def test_update_and_estimation(simple_mdp):
