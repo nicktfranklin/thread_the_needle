@@ -1,6 +1,5 @@
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Optional, Tuple
 
-import numpy as np
 import torch
 from torch import Tensor
 
@@ -290,8 +289,8 @@ class ModelBasedAgent:
         n_states = n_states + 1  # Add terminal state
         self.device = device or torch.device("cpu")
 
-        self.transitions = TransitionModel(n_states, n_actions, self.device)
-        self.rewards = RewardModel(n_states, n_actions, self.device)
+        self.transitions = TransitionModel(n_actions, n_states, self.device)
+        self.rewards = RewardModel(n_actions, n_states, self.device)
 
         self.gamma = gamma
         self.iterations = iterations
