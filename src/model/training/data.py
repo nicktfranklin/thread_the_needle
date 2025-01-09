@@ -17,6 +17,7 @@ class MdpDataset(Dataset):
             "next_observations": self.dataset["next_observations"][idx],
             "actions": self.dataset["actions"][idx],
             "rewards": self.dataset["rewards"][idx],
+            "dones": self.dataset["terminated"][idx] or self.dataset["timouts"][idx],
         }
 
 

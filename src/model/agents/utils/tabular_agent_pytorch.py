@@ -205,7 +205,7 @@ class RewardModel:
         self.reward_counts[-1, :] = 1
         self.reward_sums[-1, :] = 0  # Zero reward for terminal state
 
-    def reset(self) -> None:
+    def reset(self, n_states: int | None) -> None:
         """Reset the reward model."""
         # initialize with terminal state if no states are provided
         n_states = n_states if n_states is not None else 1
@@ -296,6 +296,7 @@ class ModelBasedAgent:
         self.iterations = iterations
         self.epsilon = epsilon
 
+        # Inlclude terminal state in Q-values and value function
         self.q_values = torch.zeros((n_states, n_actions), device=self.device)
         self.value_function = torch.zeros(n_states, device=self.device)
 
@@ -321,7 +322,8 @@ class ModelBasedAgent:
 
     def check_add_new_state(self, state: int) -> None:
         # update the value function
-        if state >= self.n_states:
+        # adjust for terminal state, which is never visited
+        if state >= (self.n_states - 1):
             v = torch.zeros(self.n_states + 1, device=self.device)
             v[: self.n_states - 1] = self.value_function[: self.n_states - 1]
 
@@ -386,7 +388,10 @@ class ModelBasedAgent:
         return value_function
 
     def get_q_values(self, state: int) -> Tensor:
-        if state >= self.n_states:
+        # Note: this is a get function, so it should not update the state-space
+        if state >= (
+            self.n_states - 1
+        ):  # adjust for terminal state, which is never visited
             return torch.zeros(self.n_actions, device=self.device)
         return self.q_values[state]
 

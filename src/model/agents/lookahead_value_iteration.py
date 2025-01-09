@@ -129,11 +129,11 @@ class LookaheadViAgent(BaseVaeAgent):
         # pass the obseration tuple through the state-inference network
         next_obs, r, _, _, done = outcome_tuple
 
-        s = self._get_state_hashkey(obs)[0]
-        sp = self._get_state_hashkey(next_obs)[0]
+        s = self._get_state_hashkey(obs)
+        sp = self._get_state_hashkey(next_obs)
 
         # # update the model
-        self.model_based_agent.update(s, a, r, sp)
+        self.model_based_agent.update(s, a, r, sp, done)
 
         # # update q-values
         # self.model_free_agent.update(s, a, r, sp)
@@ -155,7 +155,7 @@ class LookaheadViAgent(BaseVaeAgent):
     def get_policy(self, obs: Tensor):
         s = self._get_state_hashkey(obs)
         q = self.model_based_agent.get_q_values(s)
-        return self.dist.proba_distribution(torch.tensor(q) * self.softmax_gain)
+        return self.dist.proba_distribution(q * self.softmax_gain)
 
     def get_pmf(self, obs: FloatTensor) -> np.ndarray:
         return self.get_policy(obs).distribution.probs.clone().detach().numpy()
@@ -230,17 +230,13 @@ class LookaheadViAgent(BaseVaeAgent):
         dataloader = DataLoader(
             dataset, batch_size=self.batch_size, shuffle=False, drop_last=False
         )
-        s, sp, a, r = [], [], [], []
+        s, sp, a, r, d = [], [], [], [], []
         for batch in dataloader:
             s.append(self._get_state_hashkey(batch["observations"]))
             sp.append(self._get_state_hashkey(batch["next_observations"]))
             a.append(batch["actions"])
             r.append(batch["rewards"])
-
-        s = np.concatenate(s)
-        sp = np.concatenate(sp)
-        a = np.concatenate(a)
-        r = np.concatenate(r)
+            d.append(batch["dones"])
 
         n_states = len(set(s.flatten().tolist() + sp.flatten().tolist()))
 
@@ -249,7 +245,8 @@ class LookaheadViAgent(BaseVaeAgent):
         self.model_based_agent.reset(n_states)
 
         for idx in range(len(s)):
-            self.model_based_agent.update(s[idx], a[idx], r[idx], sp[idx])
+            self.model_based_agent.update(s[idx], a[idx], r[idx], sp[idx], d[idx])
+
         self.model_based_agent.estimate()
         self.value_function = self.model_based_agent.value_function()
 
