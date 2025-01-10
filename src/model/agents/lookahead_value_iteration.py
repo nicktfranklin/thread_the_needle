@@ -127,10 +127,11 @@ class LookaheadViAgent(BaseVaeAgent):
         # values and not seperately sampling rewards and sucessor states
 
         # pass the obseration tuple through the state-inference network
-        next_obs, r, _, _, done = outcome_tuple
+        next_obs, r, terimanated, truncated, _ = outcome_tuple
+        done = terimanated or truncated
 
-        s = self._get_state_hashkey(obs)
-        sp = self._get_state_hashkey(next_obs)
+        s = self._get_state_hashkey(obs).item()
+        sp = self._get_state_hashkey(next_obs).item()
 
         # # update the model
         self.model_based_agent.update(s, a, r, sp, done)
@@ -227,18 +228,16 @@ class LookaheadViAgent(BaseVaeAgent):
         dataset = MdpDataset(dataset)
 
         # _get_hashed_state takes care of preprocessing
-        dataloader = DataLoader(
-            dataset, batch_size=self.batch_size, shuffle=False, drop_last=False
-        )
+        dataloader = DataLoader(dataset, batch_size=1, shuffle=False, drop_last=False)
         s, sp, a, r, d = [], [], [], [], []
         for batch in dataloader:
-            s.append(self._get_state_hashkey(batch["observations"]))
-            sp.append(self._get_state_hashkey(batch["next_observations"]))
-            a.append(batch["actions"])
-            r.append(batch["rewards"])
-            d.append(batch["dones"])
+            s.append(self._get_state_hashkey(batch["observations"]).item())
+            sp.append(self._get_state_hashkey(batch["next_observations"]).item())
+            a.append(batch["actions"].item())
+            r.append(batch["rewards"].item())
+            d.append(batch["dones"].item())
 
-        n_states = len(set(s.flatten().tolist() + sp.flatten().tolist()))
+        n_states = len(set(s + sp))
 
         # re-estimate the reward and transition functions
         self.reset_state_indexer()

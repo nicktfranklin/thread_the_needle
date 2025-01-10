@@ -323,6 +323,7 @@ class ModelBasedAgent:
     def check_add_new_state(self, state: int) -> None:
         # update the value function
         # adjust for terminal state, which is never visited
+        assert isinstance(state, int)
         if state >= (self.n_states - 1):
             v = torch.zeros(self.n_states + 1, device=self.device)
             v[: self.n_states - 1] = self.value_function[: self.n_states - 1]
@@ -349,6 +350,15 @@ class ModelBasedAgent:
             next_state: Next state
             done: Whether the episode terminated
         """
+        assert isinstance(state, int), f"Expected state as int, was {type(state)}"
+        assert isinstance(action, int), f"Expected action as int, was {type(action)}"
+        assert isinstance(
+            reward, (float, int)
+        ), f"Expected reward as float or int, was {type(reward)}"
+        assert isinstance(
+            next_state, int
+        ), f"Expected next_state as int, was {type(next_state)}"
+        assert isinstance(done, bool), f"Expected done as bool, was {type(done)}"
 
         # expand the state space if necessary for both the state and successor state if necessary
         self.check_add_new_state(state)
