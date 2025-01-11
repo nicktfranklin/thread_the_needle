@@ -1,6 +1,8 @@
 from typing import Optional, Tuple
 
+import numpy as np
 import torch
+from numpy.typing import ArrayLike
 from torch import Tensor
 
 
@@ -397,8 +399,14 @@ class ModelBasedAgent:
 
         return value_function
 
-    def get_q_values(self, state: int) -> Tensor:
+    def get_q_values(self, state: int | ArrayLike) -> Tensor:
         # Note: this is a get function, so it should not update the state-space
+        is_array = isinstance(state, (list, tuple, np.ndarray, torch.Tensor))
+        if is_array:
+            if isinstance(state, (np.ndarray, torch.Tensor)):
+                state = state.tolist()
+            return torch.stack([self.get_q_values(s) for s in state])
+
         if state >= (
             self.n_states - 1
         ):  # adjust for terminal state, which is never visited
@@ -512,5 +520,5 @@ class DynaWithViAgent(ModelBasedAgent):
         # Real experience TD update
         self._td_update(state, action, reward, next_state, done)
 
-        # Dyna planning updates
-        self._dyna_planning()
+        # # Dyna planning updates
+        # self._dyna_planning()
