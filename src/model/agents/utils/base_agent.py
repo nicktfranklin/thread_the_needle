@@ -352,8 +352,7 @@ class BaseAgent(ABC):
             next_states,
             dataset["terminated"],
         ):
-
-            mdp.update(s.item(), a, r, sp.item(), done)
+            mdp.update(s.item(), a.item(), r.item(), sp.item(), done.item())
 
         return mdp
 

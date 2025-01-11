@@ -96,6 +96,13 @@ class LookaheadViAgent(BaseVaeAgent):
     def _init_state(self):
         return None
 
+    def eval(self):
+        self.state_inference_model.eval()
+
+    @property
+    def device(self):
+        return DEVICE
+
     def reset_state_indexer(self):
         self.state_indexer.reset()
 
@@ -247,7 +254,7 @@ class LookaheadViAgent(BaseVaeAgent):
             self.model_based_agent.update(s[idx], a[idx], r[idx], sp[idx], d[idx])
 
         self.model_based_agent.estimate()
-        self.value_function = self.model_based_agent.value_function()
+        self.value_function = self.model_based_agent.value_function
 
     def learn(
         self,
@@ -292,4 +299,4 @@ class LookaheadViAgent(BaseVaeAgent):
         raise NotImplementedError
 
     def get_states(self, obs: Tensor) -> Hashable:
-        raise NotImplementedError
+        return self._get_state_hashkey(obs)
