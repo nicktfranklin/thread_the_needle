@@ -6,6 +6,26 @@ from numpy.typing import ArrayLike
 from torch import Tensor
 
 
+def maybe_convert_to_list(x: int | ArrayLike) -> int | list[int]:
+    if isinstance(x, int):
+        return x
+    if isinstance(x, list):
+        assert all(isinstance(i, int) for i in x), "Expected list of ints"
+        return x
+    if isinstance(x, tuple):
+        assert all(isinstance(i, int) for i in x), "Expected tuple of ints"
+        return list(x)
+    if isinstance(x, np.ndarray):
+        if len(x) == 1:
+            return maybe_convert_to_list(x.item())
+        return maybe_convert_to_list(x.tolist())
+    if isinstance(x, torch.Tensor):
+        if x.numel() == 1:
+            return maybe_convert_to_list(x.item())
+        return maybe_convert_to_list(x.tolist())
+    raise ValueError(f"Expected int or list, got {type(x)}")
+
+
 def value_iteration(
     transition_function: Tensor,
     reward_function: Tensor,
@@ -401,15 +421,10 @@ class ModelBasedAgent:
 
     def get_q_values(self, state: int | ArrayLike) -> Tensor:
         # Note: this is a get function, so it should not update the state-space
-        is_array = isinstance(state, (list, tuple, np.ndarray, torch.Tensor))
-        if is_array:
-            if isinstance(state, (np.ndarray, torch.Tensor)):
-                state = state.tolist()
-            return torch.stack([self.get_q_values(s) for s in state])
+        state = maybe_convert_to_list(state)
 
-        if state >= (
-            self.n_states - 1
-        ):  # adjust for terminal state, which is never visited
+        # adjust for terminal state, which is never visited
+        if state >= (self.n_states - 1):
             return torch.zeros(self.n_actions, device=self.device)
         return self.q_values[state]
 
@@ -522,3 +537,8 @@ class DynaWithViAgent(ModelBasedAgent):
 
         # # Dyna planning updates
         # self._dyna_planning()
+
+    def log_pmf(self, state: int, temperature: float = 1.0) -> Tensor:
+        """Get the log-probabilities of each action in a state."""
+        q_values = self.get_q_values(state)
+        return torch.nn.functional.log_softmax(q_values / temperature, dim=0)

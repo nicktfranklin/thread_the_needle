@@ -12,15 +12,15 @@ import torch
 import yaml
 from stable_baselines3.common.monitor import Monitor
 
-from model.agents import MemoryProfilingViPPO as PPOClass
-from model.agents.utils.memory import MemoryMonitorCallback
-from model.training.callbacks import ThreadTheNeedleCallback
-from model.training.rollout_data import RolloutBuffer as Buffer
-from model.training.scoring import score_model
-from task.gridworld import CnnWrapper, GridWorldEnv
-from task.gridworld import ThreadTheNeedleEnv as Environment
-from utils.config_utils import parse_configs
-from utils.pytorch_utils import DEVICE
+from src.model.agents import MemoryProfilingViPPO as PPOClass
+from src.model.agents.utils.memory import MemoryMonitorCallback
+from src.model.training.callbacks import ThreadTheNeedleCallback
+from src.model.training.rollout_data import RolloutBuffer as Buffer
+from src.model.training.scoring import score_model
+from src.task.gridworld import CnnWrapper, GridWorldEnv
+from src.task.gridworld import ThreadTheNeedleEnv as Environment
+from src.utils.config_utils import parse_configs
+from src.utils.pytorch_utils import DEVICE
 
 print(f"python {sys.version}")
 print(f"torch {torch.__version__}")
@@ -110,7 +110,9 @@ def train_ppo(configs: Config):
         batch_size=64,
         n_epochs=10,
         tensorboard_log=TENSORBOARD_PATH,
-        policy_kwargs=dict(features_extractor_kwargs=dict(tau=0.05, z_dim=8, z_layers=8)),
+        policy_kwargs=dict(
+            features_extractor_kwargs=dict(tau=0.05, z_dim=8, z_layers=8)
+        ),
         device=DEVICE,
         vi_coef=configs.vi_coef,
     )
@@ -145,12 +147,18 @@ def main():
         batched_data.append(data)
 
     rollout_buffer = Buffer()
-    rollout_buffer = ppo.collect_buffer(ppo.env.envs[0], rollout_buffer, n=1000, epsilon=config.epsilon)
+    rollout_buffer = ppo.collect_buffer(
+        ppo.env.envs[0], rollout_buffer, n=1000, epsilon=config.epsilon
+    )
 
-    with open(f"{config.results_dir}{MODEL_NAME}_rollouts_{date.today()}.pkl", "wb") as f:
+    with open(
+        f"{config.results_dir}{MODEL_NAME}_rollouts_{date.today()}.pkl", "wb"
+    ) as f:
         pickle.dump(rollout_buffer, f)
 
-    with open(f"{config.results_dir}{MODEL_NAME}_batched_data_{date.today()}.pkl", "wb") as f:
+    with open(
+        f"{config.results_dir}{MODEL_NAME}_batched_data_{date.today()}.pkl", "wb"
+    ) as f:
         pickle.dump(batched_data, f)
 
 
