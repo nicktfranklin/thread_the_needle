@@ -23,12 +23,16 @@ class TensorIndexer:
         if tensors is not None:
             self.add(tensors)
 
+    @property
+    def n(self):
+        """Number of unique vectors stored in the indexer"""
+        return self.reference_tensors.shape[0]
+
     def reset(self):
         """Reset the indexer to an empty state"""
         self.reference_tensors = torch.empty(
             (0, 0), dtype=torch.long, device=self.device
         )
-        self.n = 0
 
     @torch.no_grad()
     def contains(self, query_tensor):
@@ -79,7 +83,6 @@ class TensorIndexer:
             # Find unique vectors in the input
             unique_vectors = torch.unique(tensor, dim=0)
             self.reference_tensors = unique_vectors
-            self.n = len(unique_vectors)
 
             # Map input vectors to their indices
             indices = torch.full((len(tensor),), -1, device=self.device)
