@@ -1,4 +1,5 @@
 import torch
+from torch import Tensor
 
 
 class TensorIndexer:
@@ -63,6 +64,30 @@ class TensorIndexer:
         return torch.any(matches, dim=0)
 
     @torch.no_grad()
+    def get_state_hash(self, tensor) -> Tensor:
+        """Returns the index of the tensor in the reference_tensors, -1 if not found"""
+
+        if tensor.dim() == 1:
+            tensor = tensor.unsqueeze(0)
+        tensor = tensor.to(device=self.device, dtype=torch.long)
+
+        # handle empty indexer case
+        if self.n == 0:
+            return torch.full((len(tensor),), -1, device=self.device, dtype=torch.long)
+
+        # Find which vectors already exist
+        exists = self.contains(tensor)
+
+        # Get only the new unique vectors
+        indicies = torch.full((len(tensor),), -1, device=self.device)
+        for i in range(len(tensor)):
+            matches = torch.all(self.reference_tensors == tensor[i], dim=1)
+            if torch.any(matches):
+                indicies[i] = torch.where(matches)[0][0]
+
+        return indicies[0] if len(tensor) == 1 else indicies
+
+    @torch.no_grad()
     def add(self, tensor):
         """
         Add new unique vector(s) to the indexer.
@@ -119,7 +144,7 @@ class TensorIndexer:
         Returns:
             torch.Tensor: Scalar tensor for (d) input or tensor of shape (n,) for (n,d) input
         """
-        return self.add(query_tensor)
+        return self.get_state_hash(query_tensor)
 
     def lookup(self, indices):
         """

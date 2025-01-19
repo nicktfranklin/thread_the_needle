@@ -126,7 +126,9 @@ class TransitionModel:
     def update(self, state: int, action: int, next_state: int, done: bool) -> None:
         """Update the transition model with a new observation."""
         if not (0 <= state < self.n_states and 0 <= action < self.n_actions):
-            raise ValueError(f"Invalid state {state} or action {action}")
+            raise ValueError(
+                f"Invalid state {state} of {self.n_states} states or action {action} of {self.n_actions} actions"
+            )
 
         if not self.state_action_visited[state, action]:
             # Reset counts only for non-terminal transitions
@@ -422,6 +424,8 @@ class ModelBasedAgent:
     def get_q_values(self, state: int | ArrayLike) -> Tensor:
         # Note: this is a get function, so it should not update the state-space
         state = maybe_convert_to_list(state)
+        if isinstance(state, list):
+            return torch.stack([self.get_q_values(s) for s in state])
 
         # adjust for terminal state, which is never visited
         if state >= (self.n_states - 1):

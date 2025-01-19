@@ -483,7 +483,7 @@ class ViPPO(DiscretePpo):
                 bool(buffer_data.dones[ii].item()),
             )
             done = done if ii < n - 1 else True
-            mdp.update_model(s, a, r, sp, done)
+            mdp.update(s, a, r, sp, done)
 
         value_function = mdp.estimate_value_function()
 

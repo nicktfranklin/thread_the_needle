@@ -114,11 +114,13 @@ class LookaheadViAgent(BaseVaeAgent):
             return obs.permute(2, 0, 1)
         return obs.permute(0, 3, 1, 2)
 
-    def _get_state_hashkey(self, obs: Tensor):
+    def _get_state_hashkey(self, obs: Tensor, add_to_indexer: bool = False) -> Tensor:
         obs = obs if isinstance(obs, Tensor) else torch.tensor(obs)
         obs_ = self._preprocess_obs(obs)
         with torch.no_grad():
             z = self.state_inference_model.get_state(obs_)
+            if add_to_indexer:
+                return self.state_indexer.add(z)
             return self.state_indexer(z)
 
     def update_rollout_policy(
@@ -137,8 +139,8 @@ class LookaheadViAgent(BaseVaeAgent):
         next_obs, r, terimanated, truncated, _ = outcome_tuple
         done = terimanated or truncated
 
-        s = self._get_state_hashkey(obs).item()
-        sp = self._get_state_hashkey(next_obs).item()
+        s = self._get_state_hashkey(obs, add_to_indexer=True).item()
+        sp = self._get_state_hashkey(next_obs, add_to_indexer=True).item()
 
         # # update the model
         self.model_based_agent.update(s, a, r, sp, done)
@@ -162,6 +164,10 @@ class LookaheadViAgent(BaseVaeAgent):
 
     def get_policy(self, obs: Tensor):
         s = self._get_state_hashkey(obs)
+        if s == -1:
+            return self.dist.proba_distribution(
+                torch.ones(self.env.action_space.n) / self.env.action_space.n
+            )
         q = self.model_based_agent.get_q_values(s)
         return self.dist.proba_distribution(q * self.softmax_gain)
 
@@ -236,18 +242,27 @@ class LookaheadViAgent(BaseVaeAgent):
 
         # _get_hashed_state takes care of preprocessing
         dataloader = DataLoader(dataset, batch_size=1, shuffle=False, drop_last=False)
+
+        # re-estimate the reward and transition functions
+        self.reset_state_indexer()
+
         s, sp, a, r, d = [], [], [], [], []
         for batch in dataloader:
-            s.append(self._get_state_hashkey(batch["observations"]).item())
-            sp.append(self._get_state_hashkey(batch["next_observations"]).item())
+            s.append(
+                self._get_state_hashkey(
+                    batch["observations"], add_to_indexer=True
+                ).item()
+            )
+            sp.append(
+                self._get_state_hashkey(
+                    batch["next_observations"], add_to_indexer=True
+                ).item()
+            )
             a.append(batch["actions"].item())
             r.append(batch["rewards"].item())
             d.append(batch["dones"].item())
 
         n_states = len(set(s + sp))
-
-        # re-estimate the reward and transition functions
-        self.reset_state_indexer()
         self.model_based_agent.reset(n_states)
 
         for idx in range(len(s)):
@@ -299,4 +314,4 @@ class LookaheadViAgent(BaseVaeAgent):
         raise NotImplementedError
 
     def get_states(self, obs: Tensor) -> Hashable:
-        return self._get_state_hashkey(obs)
+        return self._get_state_hashkey(obs, add_to_indexer=False)
