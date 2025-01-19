@@ -172,6 +172,11 @@ class LookaheadViAgent(BaseVaeAgent):
         return self.dist.proba_distribution(q * self.softmax_gain)
 
     def get_pmf(self, obs: FloatTensor) -> np.ndarray:
+        if obs.ndim == 3:
+            pass
+        elif obs.ndim == 4 and obs.shape[0] > 1:
+            return np.stack([self.get_pmf(o) for o in obs])
+
         return self.get_policy(obs).distribution.probs.clone().detach().numpy()
 
     def predict(
@@ -313,5 +318,5 @@ class LookaheadViAgent(BaseVaeAgent):
     def get_value_fn(self, batch: BaseBuffer):
         raise NotImplementedError
 
-    def get_states(self, obs: Tensor) -> Hashable:
-        return self._get_state_hashkey(obs, add_to_indexer=False)
+    def get_states(self, obs: Tensor, add_to_indexer=True) -> Hashable:
+        return self._get_state_hashkey(obs, add_to_indexer=add_to_indexer)
