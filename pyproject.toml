@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["task"]
+packages = ["src/thread_the_needle"]
 
 [tool.pytest.ini_options]
 addopts = "-ra -q"
