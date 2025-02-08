@@ -3,45 +3,28 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "state_inference"
+name = "thread_the_needle"
 version = "0.1.0"
-description = "State inference project"
+description = "A gridworld environment for reinforcement learning"
+authors = [
+    { name = "Nicholas Franklin", email = "nthompsonfranklin@gmail.com" }
+]
+readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.10.13"
 dependencies = [
-    "torch",
-    "torchvision",
-    "scikit-learn",
-    "tqdm",
-    "seaborn",
-    "notebook",
-    "stable-baselines3",
-    "ipywidgets",
-    "rich",
-    "tensorboard>=1.15",
-    "memory_profiler",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest",
-    "black",
-    "isort",
-    "mypy",
+    "numpy",
+    "pandas",
+    "scipy",
+    "gymnasium",
+    "pyyaml"
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
+packages = ["task"]
 
 [tool.pytest.ini_options]
 addopts = "-ra -q"
 testpaths = [
     "tests",
 ]
-
-[tool.black]
-line-length = 88
-target-version = ["py310"]
-
-[tool.isort]
-profile = "black"
-multi_line_output = 3

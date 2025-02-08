@@ -17,8 +17,7 @@ OutcomeTuple = tuple[ObsType, SupportsFloat, bool, bool, Dict[str, Any]]
 
 # load default definitions
 def prepare_defaults(config_name: str) -> dict[str, Any]:
-    script_dir = Path(__file__).parent
-    yaml_path = script_dir.parent / "configs" / "file.yaml"
+    yaml_path = Path(__file__) / "configs" / "file.yaml"
     return load_yaml(yaml_path)["config_name"]
 
 
