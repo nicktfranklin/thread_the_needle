@@ -1,4 +1,4 @@
-from gridworld import OpenEnv, ThreadTheNeedleEnv
+from .gridworld import OpenEnv, ThreadTheNeedleEnv
 
 
 def make(task_name, *args, **kwargs):
