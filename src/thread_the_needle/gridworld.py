@@ -18,7 +18,7 @@ OutcomeTuple = tuple[ObsType, SupportsFloat, bool, bool, Dict[str, Any]]
 # load default definitions
 def prepare_defaults(config_name: str) -> dict[str, Any]:
     yaml_path = Path(__file__).parent / "configs" / "env_config.yaml"
-    return load_yaml(yaml_path)["config_name"]
+    return load_yaml(yaml_path)[config_name]
 
 
 class GridWorldEnv(gym.Env):
