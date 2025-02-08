@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Any, Dict, List, Optional, SupportsFloat
 
 import gymnasium as gym
@@ -5,14 +6,20 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
-from ..value_iteration.models.value_iteration_network import ValueIterationNetwork
 from .observation_model import ObservationModel
 from .reward_model import RewardModel
 from .thread_the_needle import make_thread_the_needle_walls
 from .transition_model import TransitionModel
-from .utils import ActType, ObsType, RewType, StateType
+from .utils import ActType, ObsType, RewType, StateType, load_yaml
 
 OutcomeTuple = tuple[ObsType, SupportsFloat, bool, bool, Dict[str, Any]]
+
+
+# load default definitions
+def prepare_defaults(config_name: str) -> dict[str, Any]:
+    script_dir = Path(__file__).parent
+    yaml_path = script_dir.parent / "configs" / "file.yaml"
+    return load_yaml(yaml_path)["config_name"]
 
 
 class GridWorldEnv(gym.Env):
@@ -216,19 +223,38 @@ class GridWorldEnv(gym.Env):
 
 
 class ThreadTheNeedleEnv(GridWorldEnv):
+    default_config = "thread_the_needle"
+
     @classmethod
-    def create_env(
+    def make(
         cls,
-        height: int,
-        width: int,
-        map_height: int,
-        state_rewards: dict[StateType, RewType],
-        observation_kwargs: dict[str, Any],
-        movement_penalty: float = 0.0,
+        height: int | None = None,
+        width: int | None = None,
+        map_height: int | None = None,
+        state_rewards: dict[StateType, RewType] | None = None,
+        observation_kwargs: dict[str, Any] | None = None,
+        movement_penalty: float | None = None,
         **gridworld_env_kwargs,
     ):
+        default_config = prepare_defaults("thread_the_needle")
+
+        height = height if height else default_config["height"]
+        width = width if width else default_config["width"]
+        map_height = map_height if map_height else default_config["map_height"]
+        state_rewards = (
+            state_rewards if state_rewards else default_config["state_rewards"]
+        )
+        observation_kwargs = (
+            observation_kwargs
+            if observation_kwargs
+            else default_config["observation_kwargs"]
+        )
+        movement_penalty = (
+            movement_penalty if movement_penalty else default_config["movement_penalty"]
+        )
+
         # Define the transitions for the thread the needle task
-        walls = make_thread_the_needle_walls(20)
+        walls = make_thread_the_needle_walls(height)
         transition_model = TransitionModel(height, width, walls)
 
         observation_model = ObservationModel(

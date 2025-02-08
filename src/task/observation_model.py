@@ -3,14 +3,11 @@ from typing import List, Optional, Union
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import fftconvolve
-from torch import FloatTensor
 
 from .utils import ObsType, StateType
 
 
-def normalize(
-    x: Union[np.ndarray, FloatTensor], min_val: int = 0, max_val: int = 1
-) -> Union[np.ndarray, FloatTensor]:
+def normalize(x: np.ndarray, min_val: int = 0, max_val: int = 1) -> np.ndarray:
     return (x - x.min()) / (x.max() - x.min()) * (max_val - min_val) + min_val
 
 
