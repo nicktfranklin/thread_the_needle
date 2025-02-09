@@ -16,7 +16,7 @@ OutcomeTuple = tuple[ObsType, SupportsFloat, bool, bool, Dict[str, Any]]
 
 
 # load default definitions
-def prepare_defaults(config_name: str) -> dict[str, Any]:
+def load_config(config_name: str) -> dict[str, Any]:
     yaml_path = Path(__file__).parent / "configs" / "env_config.yaml"
     return load_yaml(yaml_path)[config_name]
 
@@ -220,13 +220,10 @@ class GridWorldEnv(gym.Env):
     def close(self):
         pass
 
-
-class ThreadTheNeedleEnv(GridWorldEnv):
-    default_config = "thread_the_needle"
-
     @classmethod
     def make(
         cls,
+        task_name: str,
         height: int | None = None,
         width: int | None = None,
         map_height: int | None = None,
@@ -235,25 +232,25 @@ class ThreadTheNeedleEnv(GridWorldEnv):
         movement_penalty: float | None = None,
         **gridworld_env_kwargs,
     ):
-        default_config = prepare_defaults("thread_the_needle")
+        default_config = load_config(task_name)
+        env_kwargs = default_config["env_kwargs"]
 
-        height = height if height else default_config["height"]
-        width = width if width else default_config["width"]
-        map_height = map_height if map_height else default_config["map_height"]
-        state_rewards = (
-            state_rewards if state_rewards else default_config["state_rewards"]
-        )
-        observation_kwargs = (
-            observation_kwargs
-            if observation_kwargs
-            else default_config["observation_kwargs"]
-        )
-        movement_penalty = (
-            movement_penalty if movement_penalty else default_config["movement_penalty"]
-        )
+        def maybe_overwrite_param(param_name):
+            value = locals().get(param_name)
+            return value if value is not None else env_kwargs.get(param_name, None)
+
+        height = maybe_overwrite_param("height")
+        width = maybe_overwrite_param("width")
+        map_height = maybe_overwrite_param("map_height")
+        state_rewards = maybe_overwrite_param("state_rewards")
+        observation_kwargs = maybe_overwrite_param("observation_kwargs")
+        movement_penalty = maybe_overwrite_param("movement_penalty")
 
         # Define the transitions for the thread the needle task
-        walls = make_thread_the_needle_walls(height)
+        if task_name == "thread_the_needle":
+            walls = make_thread_the_needle_walls(height)
+        else:
+            walls = None
         transition_model = TransitionModel(height, width, walls)
 
         observation_model = ObservationModel(
@@ -262,38 +259,16 @@ class ThreadTheNeedleEnv(GridWorldEnv):
 
         reward_model = RewardModel(state_rewards, movement_penalty)
 
-        return cls(
-            transition_model, reward_model, observation_model, **gridworld_env_kwargs
-        )
-
-
-class OpenEnv(ThreadTheNeedleEnv):
-    @classmethod
-    def create_env(
-        cls,
-        height: int,
-        width: int,
-        map_height: int,
-        state_rewards: dict[StateType, RewType],
-        observation_kwargs: dict[str, Any],
-        movement_penalty: float = 0.0,
-        **gridworld_env_kwargs,
-    ):
-        # Define the transitions for the thread the needle task
-        transition_model = TransitionModel(height, width, None)
-
-        observation_model = ObservationModel(
-            height, width, map_height, **observation_kwargs
-        )
-
-        reward_model = RewardModel(state_rewards, movement_penalty)
+        n_states = height * width
+        if "n_states" not in gridworld_env_kwargs:
+            gridworld_env_kwargs["n_states"] = n_states
 
         return cls(
             transition_model, reward_model, observation_model, **gridworld_env_kwargs
         )
 
 
-class CnnWrapper(ThreadTheNeedleEnv):
+class CnnWrapper(GridWorldEnv):
     def __init__(self, env):
         self.parent = env
         self.parent.observation_space = gym.spaces.Box(
