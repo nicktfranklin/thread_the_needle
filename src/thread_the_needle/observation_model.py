@@ -94,7 +94,7 @@ class ObservationModel:
         embedding = self.kernel(grid)
 
         # convert from float to 8bit
-        embedding = normalize(embedding)
+        embedding = np.expand_dims(normalize(embedding), axis=0)
         return (embedding * 255).astype(int)
 
     def embed_state(self, s: StateType) -> np.ndarray:
