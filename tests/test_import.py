@@ -44,3 +44,11 @@ class TestImports(unittest.TestCase):
             self.assertEqual(len(wall), len(ref_wall))
             for w, rw in zip(wall, ref_wall):
                 self.assertEqual(w, rw)
+
+    def test_check_obs_shape(self):
+        make = ttn.make
+        env = make("thread_the_needle")
+        obs = env.reset()[0]
+
+        self.assertEqual(obs.shape, (1, 64, 64))
+        self.assertEqual(env.observation_space.shape, (1, 64, 64))
