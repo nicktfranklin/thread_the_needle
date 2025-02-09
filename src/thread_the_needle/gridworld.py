@@ -59,6 +59,7 @@ class GridWorldEnv(gym.Env):
             low=0,
             high=255,
             shape=(
+                1,
                 self.observation_model.map_height,
                 self.observation_model.map_height,
             ),
