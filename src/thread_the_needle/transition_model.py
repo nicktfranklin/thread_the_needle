@@ -23,6 +23,14 @@ class TransitionModel:
         w: int,
         walls: Optional[list[tuple[int, int]]] = None,
     ) -> None:
+        """
+        Initialize the TransitionModel.
+
+        Args:
+            h (int): Height of the gridworld.
+            w (int): Width of the gridworld.
+            walls (Optional[list[tuple[int, int]]]): List of wall positions as tuples of state indices.
+        """
         self.random_transitions = self._make_random_transitions(h, w)
         self.state_action_transitions = self._make_cardinal_transition_function(
             h, w, walls
@@ -36,7 +44,16 @@ class TransitionModel:
     def get_state_action_transitions(
         self, terminal_states: List[int] | None = None
     ) -> np.ndarray:
+        """
+        Get the state-action transition probabilities.
 
+        Args:
+            terminal_states (List[int] | None): List of terminal state indices.
+
+        Returns:
+            np.ndarray: State-action transition probabilities.
+                T[a, s, sp] = P(sp | s, a)
+        """
         if terminal_states is None:
             return self.state_action_transitions
 
@@ -56,6 +73,17 @@ class TransitionModel:
         w: int,
         walls: Optional[list[tuple[int, int]]] = None,
     ) -> np.ndarray:
+        """
+        Create the cardinal transition function for the gridworld.
+
+        Args:
+            h (int): Height of the gridworld.
+            w (int): Width of the gridworld.
+            walls (Optional[list[tuple[int, int]]]): List of wall positions as tuples of state indices.
+
+        Returns:
+            np.ndarray: Cardinal transition function.
+        """
         states = np.arange(h * w).reshape(h, w)
         transitions = [
             np.vstack([states[0, :], states[:-1, :]]),
@@ -84,6 +112,17 @@ class TransitionModel:
     def _make_random_transitions(
         h: int, w: int, walls: Optional[list[tuple[StateType, StateType]]] = None
     ) -> np.ndarray:
+        """
+        Create random transitions for the gridworld.
+
+        Args:
+            h (int): Height of the gridworld.
+            w (int): Width of the gridworld.
+            walls (Optional[list[tuple[StateType, StateType]]]): List of wall positions as tuples of state indices.
+
+        Returns:
+            np.ndarray: Random transition probabilities.
+        """
         t = np.zeros((h * w, h * w))
         for s0 in range(h * w):
             # down
@@ -112,6 +151,16 @@ class TransitionModel:
         transitions: dict[StateType, StateType],
         walls: list[tuple[StateType, StateType]],
     ) -> dict[StateType, StateType]:
+        """
+        Add walls to the transition probabilities.
+
+        Args:
+            transitions (dict[StateType, StateType]): Transition probabilities.
+            walls (list[tuple[StateType, StateType]]): List of wall positions as tuples of state indices.
+
+        Returns:
+            dict[StateType, StateType]: Transition probabilities with walls.
+        """
         for s, sp in walls:
             transitions[s, sp] = 0
             transitions[sp, s] = 0
@@ -119,10 +168,28 @@ class TransitionModel:
 
     @staticmethod
     def _normalize(t: np.ndarray) -> np.ndarray:
+        """
+        Normalize the transition probabilities.
+
+        Args:
+            t (np.ndarray): Transition probabilities.
+
+        Returns:
+            np.ndarray: Normalized transition probabilities.
+        """
         return t / np.tile(t.sum(axis=1).reshape(-1, 1), t.shape[1])
 
     @staticmethod
     def _make_adjecency_list(transitions: np.ndarray) -> Dict[int, np.ndarray]:
+        """
+        Create an adjacency list from the transition probabilities.
+
+        Args:
+            transitions (np.ndarray): Transition probabilities.
+
+        Returns:
+            Dict[int, np.ndarray]: Adjacency list.
+        """
         edges = {}
         for s, t in enumerate(transitions):
             edges[s] = np.where(t > 0)[0]
@@ -131,6 +198,16 @@ class TransitionModel:
     def get_sucessor_distribution(
         self, state: StateType, action: ActType
     ) -> np.ndarray:
+        """
+        Get the successor distribution for a given state and action.
+
+        Args:
+            state (StateType): Current state.
+            action (ActType): Action to be taken.
+
+        Returns:
+            np.ndarray: Successor distribution.
+        """
         assert state in self.adjecency_list
         assert action < self.state_action_transitions.shape[0], f"action {action}"
         return self.state_action_transitions[action, state, :]
@@ -138,6 +215,16 @@ class TransitionModel:
     def display_gridworld(
         self, ax: Optional[matplotlib.axes.Axes] = None, wall_color="k"
     ) -> matplotlib.axes.Axes:
+        """
+        Display the gridworld.
+
+        Args:
+            ax (Optional[matplotlib.axes.Axes]): Matplotlib axes to plot on.
+            wall_color (str): Color of the walls.
+
+        Returns:
+            matplotlib.axes.Axes: Matplotlib axes with the gridworld plot.
+        """
         if not ax:
             _, ax = plt.subplots(figsize=(5, 5))
             ax.invert_yaxis()

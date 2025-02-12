@@ -32,6 +32,8 @@ class GridWorldEnv(gym.Env):
         end_state: Optional[list[int]] = None,
         random_initial_state: bool = True,
         max_steps: Optional[int] = None,
+        gamma: float = 0.9,  # discount factor for value iterations
+        iterations: int = 1000,  # number of iterations for value iteration
         **kwargs,
     ) -> None:
         self.transition_model = transition_model
@@ -69,6 +71,39 @@ class GridWorldEnv(gym.Env):
         self.render_mode = None
         self.reward_range = self.reward_model.get_rew_range()
         self.spec = None
+
+        # value iteration parameters
+        self.gamma = gamma
+        self.iterations = iterations
+        self.state_values = self._estimate_state_values()
+
+    def _estimate_state_values(self):
+        T = self.transition_model.get_state_action_transitions(self.end_state)
+        R = self.reward_model.construct_rew_func(T).T
+        _, n_states, _ = T.shape
+
+        # Initialize value function
+        v = np.zeros(n_states)
+
+        for _ in range(self.iterations):
+            # Compute successor values for ALL state-action pairs at once
+            successor_values = np.einsum("ijk,k->ij", T, v)  # Shape: [actions × states]
+
+            # Calculate Q-values using previous iteration's values
+            q = (
+                R + self.gamma * successor_values.T
+            )  # Transpose to match [states × actions]
+
+            # Update value function simultaneously for all states
+            new_v = np.max(q, axis=1)
+
+            # Check for convergence if needed (optional)
+            if np.allclose(v, new_v, atol=1e-6):
+                break
+
+            v = new_v  # Batch update
+
+        return v  # Or process further as needed
 
     def _check_truncate(self) -> bool:
         if self.max_steps is not None and self.step_counter >= self.max_steps:
@@ -206,7 +241,11 @@ class GridWorldEnv(gym.Env):
         reward = self.reward_model.get_reward(successor_state)
         terminated = self._check_terminate(successor_state)
         truncated = self._check_truncate()
-        info = dict(start_state=self.current_state, successor_state=successor_state)
+        info = dict(
+            start_state=self.current_state,
+            successor_state=successor_state.item(),
+            state_values=self.state_values[self.current_state].item(),
+        )
 
         self.current_state = successor_state
         self.observation = sucessor_observation
@@ -231,6 +270,8 @@ class GridWorldEnv(gym.Env):
         state_rewards: dict[StateType, RewType] | None = None,
         observation_kwargs: dict[str, Any] | None = None,
         movement_penalty: float | None = None,
+        gamma: float = 0.9,
+        iterations: int = 1000,
         **gridworld_env_kwargs,
     ):
         default_config = load_config(task_name)
@@ -265,28 +306,10 @@ class GridWorldEnv(gym.Env):
             gridworld_env_kwargs["n_states"] = n_states
 
         return cls(
-            transition_model, reward_model, observation_model, **gridworld_env_kwargs
-        )
-
-
-class CnnWrapper(GridWorldEnv):
-    def __init__(self, env):
-        self.parent = env
-        self.parent.observation_space = gym.spaces.Box(
-            low=0,
-            high=255,
-            shape=(
-                self.observation_model.map_height,
-                self.observation_model.map_height,
-                1,
-            ),
-            dtype=np.uint8,
-        )
-
-    def __getattr__(self, attr):
-        return getattr(self.parent, attr)
-
-    def generate_observation(self, state: int) -> np.ndarray:
-        return self.parent.generate_observation(state).reshape(
-            self.observation_model.map_height, self.observation_model.map_height, 1
+            transition_model,
+            reward_model,
+            observation_model,
+            gamma=gamma,
+            iterations=iterations,
+            **gridworld_env_kwargs,
         )

@@ -28,6 +28,6 @@ class RewardModel:
         """
         _, n_s, _ = transition_function.shape
         reward_function = np.zeros(n_s)
-        for s, r in self.successor_state_rew.items():
-            reward_function[s] = r
+        for sp in range(n_s):
+            reward_function[sp] = self.get_reward(sp)
         return np.matmul(transition_function, reward_function)
