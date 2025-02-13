@@ -268,8 +268,10 @@ class GridWorldEnv(gym.Env):
         width: int | None = None,
         map_height: int | None = None,
         state_rewards: dict[StateType, RewType] | None = None,
+        end_state: list[StateType] | None = None,
         observation_kwargs: dict[str, Any] | None = None,
         movement_penalty: float | None = None,
+        max_steps: int | None = None,
         gamma: float = 0.9,
         iterations: int = 1000,
         **gridworld_env_kwargs,
@@ -285,8 +287,10 @@ class GridWorldEnv(gym.Env):
         width = maybe_overwrite_param("width")
         map_height = maybe_overwrite_param("map_height")
         state_rewards = maybe_overwrite_param("state_rewards")
+        end_state = maybe_overwrite_param("end_state")
         observation_kwargs = maybe_overwrite_param("observation_kwargs")
         movement_penalty = maybe_overwrite_param("movement_penalty")
+        max_steps = maybe_overwrite_param("max_steps")
 
         # Define the transitions for the thread the needle task
         if task_name == "thread_the_needle":
@@ -310,6 +314,8 @@ class GridWorldEnv(gym.Env):
             reward_model,
             observation_model,
             gamma=gamma,
+            end_state=end_state,
             iterations=iterations,
+            max_steps=max_steps,
             **gridworld_env_kwargs,
         )
